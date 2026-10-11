@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/platform-HarmonyOS%20NEXT-0A0A0A" alt="platform" />
   <img src="https://img.shields.io/badge/target-6.0.1%20(21)-1E88E5" alt="target SDK 6.0.1(21)" />
   <img src="https://img.shields.io/badge/core-Xray%20%2B%20sing--box-6E56CF" alt="Xray and sing-box cores" />
-  <img src="https://img.shields.io/badge/version-1.3.4-E85D04" alt="version 1.3.4" />
+  <img src="https://img.shields.io/badge/version-1.3.5-E85D04" alt="version 1.3.5" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-3DA639" alt="license GPL-3.0" /></a>
 </p>
 
@@ -183,13 +183,14 @@ HAP 原生库目录：
 
 | 库 | 当前作用 | 构建状态 |
 | --- | --- | --- |
-| `libxray.so` | 主 Xray 运行时，导出启动、停止、测速和统计入口。 | `scripts/build_libxray_ohos.sh` 已脚本化。 |
+| `libxray.so` | 主 Xray 运行时（libXray `v26.7.28`），只导出单一分发入口 `CGoInvoke`（外加 `CGoFree`），用于启动、停止和测速。 | `scripts/build_libxray_ohos.sh` 已脚本化。 |
 | `libsingbox.so` | 可选 sing-box 运行时，导出启动、停止、版本和探针入口。 | `scripts/build_libsingbox_ohos.sh` 已脚本化。 |
 | `libheytun2socks.so` | 默认的 gvisor 数据面引擎，把 HarmonyOS VPN TUN fd 转发到内核本地入站。 | 已随包并使用，由 `scripts/build_tun2socks_ohos.sh` 构建。 |
 | `libhevsocks5tun.so` | 同一条转发链路的另一套 hev 数据面引擎，可在设置里切换。 | 已随包并使用，由 `scripts/build_hev_ohos.sh` 构建。 |
 
-三个 Go 库都走 OpenHarmony Go fork + `GOOS=openharmony`；`libhevsocks5tun.so` 是纯 C，
-用 DevEco 自带的 OHOS clang 交叉编译，不需要 Go 工具链。Go fork 建议放在仓库外面；
+三个 Go 库都用带 OpenHarmony 端口的 Go 工具链（go1.26.5）+ `GOOS=openharmony` 编译；
+`libhevsocks5tun.so` 是纯 C，用 DevEco 自带的 OHOS clang 交叉编译，不需要 Go 工具链。
+Go 工具链建议放在仓库外面；
 `hvigor clean` 会删除仓库内的 `build/` 目录。
 
 ## 许可协议

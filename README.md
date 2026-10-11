@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/platform-HarmonyOS%20NEXT-0A0A0A" alt="platform" />
   <img src="https://img.shields.io/badge/target-6.0.1%20(21)-1E88E5" alt="target SDK 6.0.1(21)" />
   <img src="https://img.shields.io/badge/core-Xray%20%2B%20sing--box-6E56CF" alt="Xray and sing-box cores" />
-  <img src="https://img.shields.io/badge/version-1.3.4-E85D04" alt="version 1.3.4" />
+  <img src="https://img.shields.io/badge/version-1.3.5-E85D04" alt="version 1.3.5" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-3DA639" alt="license GPL-3.0" /></a>
 </p>
 
@@ -214,14 +214,14 @@ copies the packaged Go shared libraries into the HAP native library directory:
 
 | Library | Current role | Build status |
 | --- | --- | --- |
-| `libxray.so` | Main Xray runtime; exports start/stop, ping, and stats entry points. | Scripted by `scripts/build_libxray_ohos.sh`. |
+| `libxray.so` | Main Xray runtime (libXray `v26.7.28`); exports a single `CGoInvoke` dispatch entry (plus `CGoFree`) for start/stop and ping. | Scripted by `scripts/build_libxray_ohos.sh`. |
 | `libsingbox.so` | Optional sing-box runtime; exports start/stop/version/probe entry points. | Scripted by `scripts/build_libsingbox_ohos.sh`. |
 | `libheytun2socks.so` | Default gvisor data-plane engine; relays the HarmonyOS VPN TUN fd into the core's local inbound. | Packaged and used; built by `scripts/build_tun2socks_ohos.sh`. |
 | `libhevsocks5tun.so` | Alternative hev data-plane engine for the same relay, selectable in settings. | Packaged and used; built by `scripts/build_hev_ohos.sh`. |
 
-The three Go libraries are built against the OpenHarmony Go fork with
-`GOOS=openharmony`; `libhevsocks5tun.so` is plain C and cross-compiles with the
-DevEco OHOS clang, so it needs no Go toolchain. Keep the Go fork outside the
+The three Go libraries are built with an OpenHarmony-port Go toolchain (go1.26.5)
+with `GOOS=openharmony`; `libhevsocks5tun.so` is plain C and cross-compiles with the
+DevEco OHOS clang, so it needs no Go toolchain. Keep the Go toolchain outside the
 repository; `hvigor clean` removes the repository `build/` directory.
 
 ## License
