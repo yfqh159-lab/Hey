@@ -66,6 +66,10 @@ struct ScannerPage {
       clearTimeout(this.immediateScanTimerId);
       this.immediateScanTimerId = -1;
     }
+    // 相机、相册和剪贴板原文只为本页当前确认动作保留；离开页面即丢弃，避免带
+    // UUID/密码/Token 的内容随返回栈页面实例继续驻留。手动键入区由 ArkUI 生命周期管理。
+    this.pendingSensitiveImport = '';
+    this.hasPendingSensitiveImport = false;
   }
 
   build() {
@@ -510,6 +514,9 @@ struct ScannerPage {
   }
 
   private async importResult(): Promise<void> {
+    if (this.isBusy) {
+      return;
+    }
     const value = this.importValue();
     if (value.length === 0) {
       this.lastError = this.t('error.emptyImport');

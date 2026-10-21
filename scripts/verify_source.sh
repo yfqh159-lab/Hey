@@ -227,6 +227,33 @@ if ! grep -Fq "private pendingSensitiveImport: string = '';" "${scanner_source}"
 fi
 printf 'scanner external payload privacy verification passed\n'
 
+# Import handlers also guard themselves rather than relying only on a reactively disabled
+# button. Two tap events can be delivered before the next render; without a synchronous
+# guard both handlers can pass duplicate checks and write the same node twice. Raw scan,
+# photo and clipboard content must also be released when the scanner page leaves.
+node <<'NODE'
+const fs = require('fs');
+for (const [file, marker] of [
+  ['entry/src/main/ets/pages/Scanner.ets', '  private async importResult(): Promise<void>'],
+  ['entry/src/main/ets/pages/Import.ets', '  private async importLink(): Promise<void>']
+]) {
+  const source = fs.readFileSync(file, 'utf8');
+  const at = source.indexOf(marker);
+  if (at < 0 || !source.slice(at, at + 140).includes('if (this.isBusy) {')) {
+    throw new Error(`${file} import handler can be entered twice before UI disable is rendered`);
+  }
+}
+const scanner = fs.readFileSync('entry/src/main/ets/pages/Scanner.ets', 'utf8');
+const disappearAt = scanner.indexOf('  aboutToDisappear(): void');
+const buildAt = scanner.indexOf('\n  build()', disappearAt);
+const disappear = scanner.slice(disappearAt, buildAt);
+if (!disappear.includes("this.pendingSensitiveImport = '';" ) ||
+  !disappear.includes('this.hasPendingSensitiveImport = false;')) {
+  throw new Error('scanner keeps external credentials in the page instance after leaving');
+}
+NODE
+printf 'import re-entry and scanner disposal verification passed\n'
+
 # Manual link entry is a separate daily add path from camera/photo scanning. It must
 # parse into a redacted summary on the first action and require a second action for the
 # exact unchanged input before any node-store write.

@@ -378,6 +378,9 @@ struct ImportPage {
   }
 
   private async importLink(): Promise<void> {
+    if (this.isBusy) {
+      return;
+    }
     const value = this.importBuffer.trim();
     if (value.length === 0) {
       this.lastError = this.t('error.emptyImport');
