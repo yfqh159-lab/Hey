@@ -1,6 +1,7 @@
 #include "napi/native_api.h"
 
 #include <atomic>
+#include <chrono>
 #include <thread>
 #include <cctype>
 #include <cerrno>
@@ -11,6 +12,7 @@
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <hilog/log.h>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -39,6 +41,9 @@ using CGoFreeFunc = void (*)(char*);
 
 std::atomic_bool g_xrayRunning(false);
 std::atomic_bool g_tunRunning(false);
+// gvisor 的 Stop 由 Go 实现，极端情况下可能长时间阻塞。停止期间禁止再启动另一条
+// TUN 数据面，避免旧引擎仍占用 fd/全局状态时出现两个实例重叠。
+std::atomic_bool g_tunStopPending(false);
 std::atomic<int64_t> g_uploadBytes(0);
 std::atomic<int64_t> g_downloadBytes(0);
 std::string g_lastMessage = "Native bridge ready. Waiting for Xray shared library.";
@@ -99,6 +104,8 @@ std::atomic_bool g_hevWorkerRunning(false);
 constexpr int TUN_ENGINE_NONE = 0;
 constexpr int TUN_ENGINE_GVISOR = 1;
 constexpr int TUN_ENGINE_HEV = 2;
+constexpr int TUN2SOCKS_STOP_WAIT_MS = 3000;
+constexpr int TUN2SOCKS_STOP_POLL_MS = 20;
 std::atomic<int> g_tunEngine(TUN_ENGINE_NONE);
 
 const char* BASE64_TABLE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -1199,6 +1206,9 @@ napi_value StartTun2Socks(napi_env env, napi_callback_info info)
     if (g_tunRunning.load()) {
         return CreateResult(env, true, "tun2socks already running.");
     }
+    if (g_tunStopPending.load()) {
+        return CreateResult(env, false, "Previous tun2socks stop is still pending.");
+    }
     g_uploadBytes.store(0);
     g_downloadBytes.store(0);
 
@@ -1242,6 +1252,9 @@ napi_value StartHevTun(napi_env env, napi_callback_info info)
     if (g_tunRunning.load()) {
         return CreateResult(env, true, "tun data plane already running.");
     }
+    if (g_tunStopPending.load()) {
+        return CreateResult(env, false, "Previous tun2socks stop is still pending.");
+    }
     g_uploadBytes.store(0);
     g_downloadBytes.store(0);
 
@@ -1276,6 +1289,9 @@ napi_value StopTun2Socks(napi_env env, napi_callback_info info)
 {
     (void)info;
     if (!g_tunRunning.load() && g_tunEngine.load() == TUN_ENGINE_NONE) {
+        if (g_tunStopPending.load()) {
+            return CreateResult(env, true, "tun2socks stop is already pending.");
+        }
         return CreateResult(env, true, "tun data plane already stopped.");
     }
     const int engine = g_tunEngine.exchange(TUN_ENGINE_NONE);
@@ -1291,14 +1307,32 @@ napi_value StopTun2Socks(napi_env env, napi_callback_info info)
         g_hevWorkerRunning.store(false);
         return CreateResult(env, true, "hev tun stop requested.");
     }
-    // gvisor：engine.Stop() 可能阻塞，放到分离线程避免卡住 ArkTS 调用线程。
+    // gvisor：先有限等待正常退出，确保上层随后停 Xray、销毁 VPN 时数据面已不再使用
+    // SOCKS 入站和 TUN fd。若 Go Stop 极端阻塞，3 秒后退化为后台等待，避免卡死
+    // VPN Extension；pending 标志会阻止旧 Stop 完成前重新启动第二个 TUN 实例。
     std::string message;
     if (!LoadTun2SocksCore(message)) {
         return CreateResult(env, false, message);
     }
     Tun2SocksStopFunc stop = g_stopTun2Socks;
-    std::thread([stop]() { stop(); }).detach();
-    return CreateResult(env, true, "tun2socks stop requested.");
+    auto completed = std::make_shared<std::atomic_bool>(false);
+    g_tunStopPending.store(true);
+    std::thread stopThread([stop, completed]() {
+        stop();
+        g_tunStopPending.store(false);
+        completed->store(true);
+    });
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(TUN2SOCKS_STOP_WAIT_MS);
+    while (!completed->load() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(TUN2SOCKS_STOP_POLL_MS));
+    }
+    if (completed->load()) {
+        stopThread.join();
+        return CreateResult(env, true, "tun2socks adapter stopped.");
+    }
+    stopThread.detach();
+    return CreateResult(env, true, "tun2socks stop is still pending after timeout.");
 }
 
 // ===================== sing-box second core (optional, preview) =====================
