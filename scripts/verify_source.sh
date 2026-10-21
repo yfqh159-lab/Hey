@@ -493,6 +493,16 @@ if ! grep -q 'const normalizedUrl = normalizeGeoAssetDownloadUrl(url)' "${geo_co
 fi
 printf 'HTTPS-only Geo source verification passed\n'
 
+if ! grep -Fq 'return isPlausibleGeoProtobuf(new Uint8Array(data));' "entry/src/main/ets/core/GeoAssets.ets" || \
+  ! grep -Fq 'tag.value !== 10' "entry/src/main/ets/core/GeoAssets.ets" || \
+  ! grep -Fq 'return offset === end && hasIdentifier;' "entry/src/main/ets/core/GeoAssets.ets" || \
+  ! grep -Fq 'expect(isPlausibleGeoData(randomBinary)).assertFalse();' "entry/src/test/LocalUnit.test.ets" || \
+  ! grep -Fq 'expect(isPlausibleGeoData(missingIdentifier)).assertFalse();' "entry/src/test/LocalUnit.test.ets" || \
+  ! grep -Fq 'expect(isPlausibleGeoData(truncated)).assertFalse();' "entry/src/test/LocalUnit.test.ets"; then
+  throw_error "Geo format validation no longer checks protobuf framing"
+fi
+printf 'Geo protobuf envelope verification passed\n'
+
 # These legacy resources described removed automatic-connect/fastest-node features.
 # Their return would contradict the single-node, user-controlled runtime model even if
 # no current page referenced them, so keep their identifiers out of the translation map.

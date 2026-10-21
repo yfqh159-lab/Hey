@@ -194,6 +194,11 @@ export interface GeoManifestParseResult {
   manifest: GeoReleaseManifest | null;
 }
 
+interface ProtobufVarint {
+  value: number;
+  nextOffset: number;
+}
+
 export function parseDefaultGeoRelease(content: string): GeoManifestParseResult {
   try {
     const payload = JSON.parse(content) as ReleasePayload;
@@ -273,10 +278,115 @@ export function isPlausibleGeoData(data: ArrayBuffer, declaredSize: number = 0):
     prefix += String.fromCharCode(bytes[index]);
   }
   const normalized = prefix.trim().toLowerCase();
-  return !normalized.startsWith('<!doctype') &&
-    !normalized.startsWith('<html') &&
-    !normalized.startsWith('{') &&
-    !normalized.startsWith('[');
+  if (normalized.startsWith('<!doctype') || normalized.startsWith('<html') ||
+    normalized.startsWith('{') || normalized.startsWith('[')) {
+    return false;
+  }
+  return isPlausibleGeoProtobuf(new Uint8Array(data));
+}
+
+// Xray 的 geoip.dat 与 geosite.dat 都是顶层 field 1 重复出现的 protobuf 列表，
+// 每个列表项自身也必须是边界完整的 protobuf message，并包含非空的 field 1 标识。
+// SHA-256 仍负责内容真实性；这里阻止错误页、随机二进制或截断文件在本地导入/替换时
+// 仅凭大小看起来“像”数据文件。
+function isPlausibleGeoProtobuf(bytes: Uint8Array): boolean {
+  let offset = 0;
+  let entryCount = 0;
+  while (offset < bytes.length) {
+    const tag = readProtobufVarint(bytes, offset, bytes.length);
+    if (tag === null || tag.value !== 10) {
+      return false;
+    }
+    const length = readProtobufVarint(bytes, tag.nextOffset, bytes.length);
+    if (length === null || length.value <= 0 || length.value > bytes.length - length.nextOffset) {
+      return false;
+    }
+    const entryEnd = length.nextOffset + length.value;
+    if (!isPlausibleGeoEntry(bytes, length.nextOffset, entryEnd)) {
+      return false;
+    }
+    entryCount++;
+    offset = entryEnd;
+  }
+  return entryCount > 0;
+}
+
+function isPlausibleGeoEntry(bytes: Uint8Array, start: number, end: number): boolean {
+  let offset = start;
+  let hasIdentifier = false;
+  while (offset < end) {
+    const tag = readProtobufVarint(bytes, offset, end);
+    if (tag === null || tag.value <= 0) {
+      return false;
+    }
+    const fieldNumber = Math.floor(tag.value / 8);
+    const wireType = tag.value % 8;
+    if (fieldNumber <= 0) {
+      return false;
+    }
+    offset = tag.nextOffset;
+    if (wireType === 0) {
+      const value = readProtobufVarint(bytes, offset, end);
+      if (value === null) {
+        return false;
+      }
+      offset = value.nextOffset;
+    } else if (wireType === 1) {
+      if (offset > end - 8) {
+        return false;
+      }
+      offset += 8;
+    } else if (wireType === 2) {
+      const length = readProtobufVarint(bytes, offset, end);
+      if (length === null || length.value > end - length.nextOffset) {
+        return false;
+      }
+      const valueEnd = length.nextOffset + length.value;
+      if (fieldNumber === 1) {
+        if (hasIdentifier || length.value <= 0 || length.value > 256 ||
+          !isPrintableGeoIdentifier(bytes, length.nextOffset, valueEnd)) {
+          return false;
+        }
+        hasIdentifier = true;
+      }
+      offset = valueEnd;
+    } else if (wireType === 5) {
+      if (offset > end - 4) {
+        return false;
+      }
+      offset += 4;
+    } else {
+      // Deprecated groups and unknown wire types are not emitted by the Geo schemas.
+      return false;
+    }
+  }
+  return offset === end && hasIdentifier;
+}
+
+function readProtobufVarint(bytes: Uint8Array, offset: number, end: number): ProtobufVarint | null {
+  let value = 0;
+  let multiplier = 1;
+  for (let index = 0; index < 10 && offset < end; index++, offset++) {
+    const current = bytes[offset];
+    value += (current & 0x7f) * multiplier;
+    if (!Number.isSafeInteger(value)) {
+      return null;
+    }
+    if ((current & 0x80) === 0) {
+      return { value, nextOffset: offset + 1 };
+    }
+    multiplier *= 128;
+  }
+  return null;
+}
+
+function isPrintableGeoIdentifier(bytes: Uint8Array, start: number, end: number): boolean {
+  for (let index = start; index < end; index++) {
+    if (bytes[index] < 0x21 || bytes[index] > 0x7e) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function parseHttpRedirectLocation(headerJson: string): string {

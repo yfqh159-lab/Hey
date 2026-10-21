@@ -2449,12 +2449,33 @@ export default function localUnitTest() {
       expect(parseDefaultGeoRelease(release).ok).assertFalse();
     });
 
-    it('rejects tiny, size-mismatched, and html geo downloads', 0, () => {
+    it('accepts framed Geo protobuf and rejects malformed, mismatched, or html data', 0, () => {
       const valid = new ArrayBuffer(2048);
-      new Uint8Array(valid).fill(1);
+      const validBytes = new Uint8Array(valid);
+      // Top-level repeated field 1, 2045-byte entry. The entry has printable field 1
+      // plus a length-delimited field 2 filling the remainder.
+      validBytes[0] = 0x0a;
+      validBytes[1] = 0xfd;
+      validBytes[2] = 0x0f;
+      validBytes[3] = 0x0a;
+      validBytes[4] = 0x03;
+      validBytes[5] = 0x41;
+      validBytes[6] = 0x42;
+      validBytes[7] = 0x43;
+      validBytes[8] = 0x12;
+      validBytes[9] = 0xf5;
+      validBytes[10] = 0x0f;
       expect(isPlausibleGeoData(valid, 2048)).assertTrue();
       expect(isPlausibleGeoData(valid, 4096)).assertFalse();
       expect(isPlausibleGeoData(new ArrayBuffer(8))).assertFalse();
+      const randomBinary = new ArrayBuffer(2048);
+      new Uint8Array(randomBinary).fill(1);
+      expect(isPlausibleGeoData(randomBinary)).assertFalse();
+      const missingIdentifier = valid.slice(0);
+      new Uint8Array(missingIdentifier)[3] = 0x12;
+      expect(isPlausibleGeoData(missingIdentifier)).assertFalse();
+      const truncated = valid.slice(0, valid.byteLength - 1);
+      expect(isPlausibleGeoData(truncated)).assertFalse();
       const html = new ArrayBuffer(2048);
       const htmlBytes = new Uint8Array(html);
       const prefix = '<!doctype html>';
