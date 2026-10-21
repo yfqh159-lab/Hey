@@ -84,6 +84,11 @@ struct ScannerPage {
       clearTimeout(this.immediateScanTimerId);
       this.immediateScanTimerId = -1;
     }
+    // 返回栈可能保留页面实例。自动扫码只属于本次进入；若不重置，用户下一次从首页
+    // 明确点击“扫码添加”时会被上一轮 hasAutoScanned 状态吞掉。
+    this.hasAutoScanned = false;
+    this.startScanImmediate = false;
+    this.routeStartScanImmediate = false;
     // 所有入口都可能携带 UUID、密码或订阅 Token。离开页面时统一清除隐藏原文、
     // 手动输入、脱敏预览与旧错误，不能依赖返回栈实例一定会被 ArkUI 立即销毁。
     this.clearImportValue();

@@ -633,6 +633,9 @@ const clearScannerAt = scanner.indexOf('  private clearImportValue(): void');
 const clearScannerEnd = scanner.indexOf('\n  private async loadState(', clearScannerAt);
 const clearScanner = scanner.slice(clearScannerAt, clearScannerEnd);
 if (!disappear.includes('this.clearImportValue();') ||
+  !disappear.includes('this.hasAutoScanned = false;') ||
+  !disappear.includes('this.startScanImmediate = false;') ||
+  !disappear.includes('this.routeStartScanImmediate = false;') ||
   clearScannerAt < 0 || clearScannerEnd < 0 ||
   !clearScanner.includes("this.pendingSensitiveImport = '';") ||
   !clearScanner.includes('this.hasPendingSensitiveImport = false;') ||
