@@ -178,6 +178,8 @@ export default function localUnitTest() {
       expect(keys.includes('useHevTun')).assertFalse();
       expect(keys.includes('vpnDns')).assertFalse();
       expect(keys.includes('vpnMtu')).assertFalse();
+      expect(keys.includes('netAutomationEnabled')).assertFalse();
+      expect(keys.includes('netAutomationTrusted')).assertFalse();
       expect(keys.includes('localSocksPort')).assertTrue();
       expect(keys.includes('localSocksUdp')).assertTrue();
       expect(keys.includes('proxySharing')).assertTrue();

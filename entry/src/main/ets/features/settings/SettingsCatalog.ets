@@ -93,8 +93,8 @@ export const SETTINGS_CATALOG: SettingGroup[] = [
     titleKey: 'settings.cat.netAutomation',
     color: '#0EA5E9',
     items: [
-      { key: 'netAutomationEnabled', titleKey: 'settings.netAutomation', type: 'toggle', descKey: 'settings.netAutomation.detail' },
-      { key: 'netAutomationTrusted', titleKey: 'settings.netAutomationTrusted', type: 'nav', route: AppRoute.NETWORK_SCENARIO, dependsOn: 'netAutomationEnabled', descKey: 'settings.netAutomationTrusted.detail' }
+      { key: 'netAutomationEnabled', titleKey: 'settings.netAutomation', type: 'toggle', descKey: 'settings.netAutomation.detail', vpnOnly: true },
+      { key: 'netAutomationTrusted', titleKey: 'settings.netAutomationTrusted', type: 'nav', route: AppRoute.NETWORK_SCENARIO, dependsOn: 'netAutomationEnabled', descKey: 'settings.netAutomationTrusted.detail', vpnOnly: true }
     ]
   },
   {

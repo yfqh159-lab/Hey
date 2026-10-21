@@ -140,7 +140,9 @@ export class NetworkSceneManager {
       if (SHARED_RUNTIME_CONTROLLER.isRunning() && await NetSceneStopFlag.wasStopped(context)) {
         SHARED_RUNTIME_CONTROLLER.reconcileStopped();
       }
-      const running = SHARED_RUNTIME_CONTROLLER.isRunning();
+      // 此自动化只管理系统 VPN/TUN。仅代理模式没有系统隧道，切换可信网络
+      // 不应悄悄停止用户正在使用的本地 SOCKS/HTTP 监听器。
+      const running = SHARED_RUNTIME_CONTROLLER.isVpnRunning();
       const action = decideNetAutomationAction(ctx, cfg, running);
       this.lastHandledSignature = signature;
       hilog.info(DOMAIN, TAG, 'evaluate kind=%{public}s running=%{public}s action=%{public}s',

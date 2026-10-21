@@ -277,6 +277,10 @@ export class RuntimeController {
     return this.status === ConnectionStatus.RUNNING;
   }
 
+  isVpnRunning(): boolean {
+    return this.status === ConnectionStatus.RUNNING && this.runtimeMode === APP_MODE_VPN;
+  }
+
   isBusy(): boolean {
     return this.status === ConnectionStatus.STARTING || this.status === ConnectionStatus.STOPPING;
   }
