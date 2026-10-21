@@ -715,6 +715,14 @@ struct Index {
       return;
     }
 
+    // 无论外部请求是 start / stop / toggle，只要上次数据面尚未确认释放，就只能
+    // 重试清理。必须早于目标节点选择，避免残留旧会话期间先改写当前节点。
+    if (SHARED_RUNTIME_CONTROLLER.requiresCleanup()) {
+      await this.stopConnection();
+      SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('log.deepLinkControl', 'action', 'stop'));
+      return;
+    }
+
     if (action === 'start') {
       const target = await this.selectControlTargetNode(targetNodeId);
       if (!target.ok) {
@@ -734,7 +742,7 @@ struct Index {
     }
 
     if (action === 'stop') {
-      if (!this.isRunning()) {
+      if (!this.shouldStopBeforeStart()) {
         SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('log.deepLinkControlNoop', 'action', action));
         return;
       }
@@ -744,7 +752,7 @@ struct Index {
     }
 
     if (action === 'toggle') {
-      if (this.isRunning()) {
+      if (this.shouldStopBeforeStart()) {
         await this.stopConnection();
       } else {
         const target = await this.selectControlTargetNode(targetNodeId);
