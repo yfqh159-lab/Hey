@@ -1732,6 +1732,8 @@ const health = fs.readFileSync('entry/src/main/ets/core/RuntimeHealth.ets', 'utf
 const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeController.ets', 'utf8');
 const runtimeStateStore = fs.readFileSync('entry/src/main/ets/services/VpnRuntimeStateStore.ets', 'utf8');
 const diagnosticLog = fs.readFileSync('entry/src/main/ets/services/DiagnosticLog.ets', 'utf8');
+const controlCard = fs.readFileSync('entry/src/main/ets/core/ControlCard.ets', 'utf8');
+const controlCardStore = fs.readFileSync('entry/src/main/ets/storage/ControlCardStore.ets', 'utf8');
 const controlCardManager = fs.readFileSync('entry/src/main/ets/services/ControlCardManager.ets', 'utf8');
 const subscriptionWorker = fs.readFileSync('entry/src/main/ets/work/SubscriptionUpdateWorkAbility.ets', 'utf8');
 const indexPage = fs.readFileSync('entry/src/main/ets/pages/Index.ets', 'utf8');
@@ -1870,6 +1872,9 @@ const cardReconcile = controlCardManager.slice(cardReconcileAt, cardReconcileEnd
 const cardProbeAt = cardReconcile.indexOf('await probeRuntimeTcpHealth(VPN_DATA_SOCKS_PORT)');
 const cardRereadAt = cardReconcile.indexOf('VpnRuntimeStateStore.readWithEvidence(context)', cardProbeAt);
 const cardHealthyReturnAt = cardReconcile.indexOf('return buildControlCardFormData(', cardRereadAt);
+const localCardAt = cardReconcile.indexOf('if (isControlCardLocalProxyRunning(state))');
+const localCardEnd = cardReconcile.indexOf('\n    if (!state.vpnBacked', localCardAt);
+const localCard = cardReconcile.slice(localCardAt, localCardEnd);
 if (cardReconcileAt < 0 || cardReconcileEnd < 0 || cardProbeAt < 0 ||
   cardRereadAt < cardProbeAt || cardHealthyReturnAt < cardRereadAt ||
   !cardReconcile.includes('confirmed.sessionId === expectedSessionId') ||
@@ -1879,6 +1884,20 @@ if (cardReconcileAt < 0 || cardReconcileEnd < 0 || cardProbeAt < 0 ||
   !cardReconcile.includes('APP_MODE_VPN,\n          true') ||
   cardReconcile.includes('ControlCardStore.saveState(\n          context,\n          buildControlCardFormData(\n          state.language,\n          ConnectionStatus.ERROR')) {
   throw new Error('control card can trust a stale VPN heartbeat without a session-bound data-plane probe');
+}
+if (!controlCard.includes('runtimeStartedAt: number;') ||
+  !controlCard.includes('export function sameControlCardRuntimeIdentity(') ||
+  !controlCard.includes('left.runtimeStartedAt === right.runtimeStartedAt') ||
+  !controlCardStore.includes('sameControlCardRuntimeIdentity(current, normalized)') ||
+  !controlCardManager.includes('runtimeStartedAt: number = 0') ||
+  !indexPage.includes('SHARED_RUNTIME_CONTROLLER.requiresCleanup(),\n      this.startedAt') ||
+  localCardAt < 0 || localCardEnd < localCardAt ||
+  !localCard.includes('const latestState = await ControlCardStore.loadState(context);') ||
+  !localCard.includes('!sameControlCardRuntimeIdentity(state, latestState)') ||
+  localCard.includes('return ControlCardStore.saveState(') ||
+  !localCard.includes('latestState.runtimeStartedAt') ||
+  !controlCardManager.includes('private async resolveChangedStateAfterProbe(')) {
+  throw new Error('control-card probes can overwrite or render a newer runtime session');
 }
 if (!cardReconcile.includes('const persistedRead = VpnRuntimeStateStore.readWithEvidence(context);') ||
   !cardReconcile.includes('if (authoritativeArtifactInvalid)') ||

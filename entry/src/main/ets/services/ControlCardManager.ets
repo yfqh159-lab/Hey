@@ -5,7 +5,8 @@ import {
   CONTROL_CARD_STOP_URI,
   ControlCardFormData,
   buildControlCardFormData,
-  isControlCardLocalProxyRunning
+  isControlCardLocalProxyRunning,
+  sameControlCardRuntimeIdentity
 } from '../core/ControlCard';
 import { LOCAL_HTTP_PROXY_PORT, VPN_DATA_SOCKS_PORT } from '../core/XrayConfig';
 import { ControlCardStore } from '../storage/ControlCardStore';
@@ -86,10 +87,12 @@ export class ControlCardManager {
     lastError: string,
     vpnBacked: boolean,
     runtimeMode: AppRuntimeMode,
-    cleanupRequired: boolean = false
+    cleanupRequired: boolean = false,
+    runtimeStartedAt: number = 0
   ): Promise<void> {
     return this.enqueueOperation((): Promise<void> => this.syncNow(
-      context, status, elapsedText, language, lastError, vpnBacked, runtimeMode, cleanupRequired));
+      context, status, elapsedText, language, lastError, vpnBacked, runtimeMode, cleanupRequired,
+      runtimeStartedAt));
   }
 
   private async syncNow(
@@ -100,15 +103,17 @@ export class ControlCardManager {
     lastError: string,
     vpnBacked: boolean,
     runtimeMode: AppRuntimeMode,
-    cleanupRequired: boolean
+    cleanupRequired: boolean,
+    runtimeStartedAt: number
   ): Promise<void> {
     const now = Date.now();
-    const immediateKey = `${language}|${status}|${lastError}|${vpnBacked}|${runtimeMode}|${cleanupRequired}`;
+    const immediateKey = `${language}|${status}|${lastError}|${vpnBacked}|${runtimeMode}|${cleanupRequired}|${runtimeStartedAt}`;
     if (this.shouldSkipSync(now, immediateKey)) {
       return;
     }
     const state = await this.persistRuntimeState(
-      context, status, elapsedText, language, lastError, vpnBacked, runtimeMode, cleanupRequired);
+      context, status, elapsedText, language, lastError, vpnBacked, runtimeMode, cleanupRequired,
+      runtimeStartedAt);
     const formIds = await ControlCardStore.loadFormIds(context);
     for (let index = 0; index < formIds.length; index++) {
       await this.updateOne(context, formIds[index], state);
@@ -139,12 +144,14 @@ export class ControlCardManager {
     lastError: string,
     vpnBacked: boolean,
     runtimeMode: AppRuntimeMode,
-    cleanupRequired: boolean = false
+    cleanupRequired: boolean = false,
+    runtimeStartedAt: number = 0
   ): Promise<ControlCardFormData> {
     return ControlCardStore.saveState(
       context,
       buildControlCardFormData(
-        language, status, elapsedText, lastError, vpnBacked, runtimeMode, cleanupRequired)
+        language, status, elapsedText, lastError, vpnBacked, runtimeMode, cleanupRequired,
+        runtimeStartedAt)
     );
   }
 
@@ -157,7 +164,10 @@ export class ControlCardManager {
 
   // FormExtensionAbility 可能在主界面进程已被回收后由系统单独唤起。VPN/TUN 需读取
   // 扩展进程心跳；本地代理需探测固定回环 HTTP 入口，不能原样复用过期的“运行中”。
-  private async loadReconciledState(context: common.Context): Promise<ControlCardFormData> {
+  private async loadReconciledState(
+    context: common.Context,
+    retryDepth: number = 0
+  ): Promise<ControlCardFormData> {
     const state = await ControlCardStore.loadState(context);
     const persistedRead = VpnRuntimeStateStore.readWithEvidence(context);
     let persisted = persistedRead.state;
@@ -169,6 +179,13 @@ export class ControlCardManager {
       const expectedSessionId = persisted.sessionId;
       const expectedStartedAt = persisted.startedAt;
       const probe = await probeRuntimeTcpHealth(VPN_DATA_SOCKS_PORT);
+      const latestState = await ControlCardStore.loadState(context);
+      if (!sameControlCardRuntimeIdentity(state, latestState)) {
+        return this.resolveChangedStateAfterProbe(context, latestState, retryDepth);
+      }
+      if (latestState.cleanupRequired || latestState.runtimeStatus === ConnectionStatus.STOPPING) {
+        return latestState;
+      }
       const confirmedRead = VpnRuntimeStateStore.readWithEvidence(context);
       const confirmed = confirmedRead.state;
       if (confirmed !== null && confirmed.sessionId === expectedSessionId &&
@@ -181,7 +198,9 @@ export class ControlCardManager {
             '',
             '',
             true,
-            APP_MODE_VPN
+            APP_MODE_VPN,
+            false,
+            expectedStartedAt
           );
         }
         // 单次端口抖动只影响本次卡片渲染，不持久化 cleanupRequired。下次系统刷新会
@@ -193,7 +212,8 @@ export class ControlCardManager {
           translate(state.language, 'runtime.vpnHealthLost'),
           false,
           APP_MODE_VPN,
-          true
+          true,
+          expectedStartedAt
         );
       }
       // 探针期间状态可能已经停止或换成新会话；旧探针结果不得确认新会话。
@@ -245,19 +265,24 @@ export class ControlCardManager {
     }
     if (isControlCardLocalProxyRunning(state)) {
       const probe = await probeRuntimeTcpHealth(LOCAL_HTTP_PROXY_PORT);
-      if (probe.ok) {
-        return state;
+      const latestState = await ControlCardStore.loadState(context);
+      if (!sameControlCardRuntimeIdentity(state, latestState)) {
+        return this.resolveChangedStateAfterProbe(context, latestState, retryDepth);
       }
-      return ControlCardStore.saveState(
-        context,
-        buildControlCardFormData(
-          state.language,
-          ConnectionStatus.ERROR,
-          '',
-          translate(state.language, 'runtime.proxyHealthLost'),
-          false,
-          state.runtimeMode
-        )
+      if (probe.ok) {
+        return latestState;
+      }
+      // Form 进程只渲染本次探测结论，不把派生错误重新写回共享控制状态。否则 UI
+      // 已经停止旧代理或启动新会话时，迟到探测可能覆盖更新后的权威启停意图。
+      return buildControlCardFormData(
+        latestState.language,
+        ConnectionStatus.ERROR,
+        '',
+        translate(latestState.language, 'runtime.proxyHealthLost'),
+        false,
+        latestState.runtimeMode,
+        true,
+        latestState.runtimeStartedAt
       );
     }
     if (!state.vpnBacked || state.primaryActionUri !== CONTROL_CARD_STOP_URI) {
@@ -268,6 +293,32 @@ export class ControlCardManager {
     return ControlCardStore.saveState(
       context,
       buildControlCardFormData(state.language, status, '', error, false, APP_MODE_VPN)
+    );
+  }
+
+  private async resolveChangedStateAfterProbe(
+    context: common.Context,
+    latestState: ControlCardFormData,
+    retryDepth: number
+  ): Promise<ControlCardFormData> {
+    // 停止、启动或已完成的空闲/错误状态是更晚的用户意图，直接采用。只有另一条
+    // RUNNING 会话需要重新探测；限制一次重试，持续变化时以停止动作 fail-closed。
+    if (latestState.runtimeStatus !== ConnectionStatus.RUNNING) {
+      return latestState;
+    }
+    if (retryDepth < 1) {
+      return this.loadReconciledState(context, retryDepth + 1);
+    }
+    const localProxy = isControlCardLocalProxyRunning(latestState);
+    return buildControlCardFormData(
+      latestState.language,
+      ConnectionStatus.ERROR,
+      '',
+      translate(latestState.language, localProxy ? 'runtime.proxyHealthLost' : 'runtime.vpnHealthLost'),
+      false,
+      latestState.runtimeMode,
+      true,
+      latestState.runtimeStartedAt
     );
   }
 

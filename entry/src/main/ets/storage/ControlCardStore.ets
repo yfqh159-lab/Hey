@@ -1,6 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
-import { ControlCardFormData, buildControlCardFormData, normalizeControlCardFormData } from '../core/ControlCard';
+import { ControlCardFormData, buildControlCardFormData, normalizeControlCardFormData, sameControlCardRuntimeIdentity } from '../core/ControlCard';
 
 const PREFERENCES_NAME: string = 'hey_control_card';
 const FORM_IDS_KEY: string = 'form_ids';
@@ -128,7 +128,7 @@ export class ControlCardStore {
       const nextRaw = JSON.stringify(normalized);
       const currentRaw = (await store.get(STATE_KEY, '')).toString();
       const current = ControlCardStore.parseState(currentRaw);
-      if (current !== null && !ControlCardStore.sameRuntimeRoutingState(current, normalized)) {
+      if (current !== null && !sameControlCardRuntimeIdentity(current, normalized)) {
         await store.put(STATE_BACKUP_KEY, currentRaw);
       } else if (current === null) {
         const backupRaw = (await store.get(STATE_BACKUP_KEY, '')).toString();
@@ -224,12 +224,6 @@ export class ControlCardStore {
     } catch (_error) {
       return null;
     }
-  }
-
-  private static sameRuntimeRoutingState(left: ControlCardFormData, right: ControlCardFormData): boolean {
-    return left.runtimeStatus === right.runtimeStatus && left.runtimeMode === right.runtimeMode &&
-      left.vpnBacked === right.vpnBacked && left.cleanupRequired === right.cleanupRequired &&
-      left.primaryActionUri === right.primaryActionUri;
   }
 
   private static uniqueIds(ids: Array<string>): Array<string> {

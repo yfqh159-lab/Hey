@@ -22,6 +22,8 @@ export interface ControlCardFormData {
   // 供系统单独拉起卡片或后台任务时恢复真实模式/过渡态，不在卡片上展示。
   runtimeStatus: ConnectionStatus;
   runtimeMode: AppRuntimeMode;
+  // 仅用于跨进程探测前后识别同一运行会话，不在卡片上展示。
+  runtimeStartedAt: number;
   // 停止/回滚未确认完成时只允许继续清理，不得把错误态呈现为可启动。
   cleanupRequired: boolean;
   appName: string;
@@ -47,7 +49,8 @@ export function buildControlCardFormData(
   lastError: string = '',
   vpnBacked: boolean = false,
   runtimeMode: AppRuntimeMode = APP_MODE_VPN,
-  cleanupRequired: boolean = false
+  cleanupRequired: boolean = false,
+  runtimeStartedAt: number = 0
 ): ControlCardFormData {
   const running = status === ConnectionStatus.RUNNING;
   const busy = status === ConnectionStatus.STARTING || status === ConnectionStatus.STOPPING;
@@ -58,6 +61,7 @@ export function buildControlCardFormData(
     vpnBacked: running && vpnBacked,
     runtimeStatus: status,
     runtimeMode: normalizeAppRuntimeMode(runtimeMode, APP_MODE_VPN),
+    runtimeStartedAt: normalizeRuntimeStartedAt(runtimeStartedAt),
     cleanupRequired,
     appName: 'Hey',
     subtitle: translate(language, 'control.card.subtitle'),
@@ -84,6 +88,7 @@ export function normalizeControlCardFormData(data: ControlCardFormData | null | 
   const storedPrimaryActionUri = nonEmpty(data.primaryActionUri, fallback.primaryActionUri);
   const runtimeStatus = normalizeRuntimeStatus(data.runtimeStatus, storedPrimaryActionUri);
   const cleanupRequired = typeof data.cleanupRequired === 'boolean' ? data.cleanupRequired : false;
+  const runtimeStartedAt = normalizeRuntimeStartedAt(data.runtimeStartedAt);
   const mustStop = cleanupRequired || runtimeStatus === ConnectionStatus.STARTING ||
     runtimeStatus === ConnectionStatus.RUNNING || runtimeStatus === ConnectionStatus.STOPPING;
   const primaryActionUri = mustStop ? CONTROL_CARD_STOP_URI : storedPrimaryActionUri;
@@ -99,6 +104,7 @@ export function normalizeControlCardFormData(data: ControlCardFormData | null | 
     vpnBacked,
     runtimeStatus,
     runtimeMode: normalizeAppRuntimeMode(data.runtimeMode, fallbackMode),
+    runtimeStartedAt,
     cleanupRequired,
     appName: nonEmpty(data.appName, fallback.appName),
     subtitle: nonEmpty(data.subtitle, fallback.subtitle),
@@ -123,6 +129,19 @@ export function isControlCardLocalProxyRunning(data: ControlCardFormData): boole
   return data.runtimeStatus === ConnectionStatus.RUNNING &&
     isProxyOnlyRuntimeMode(data.runtimeMode) &&
     data.primaryActionUri === CONTROL_CARD_STOP_URI;
+}
+
+export function sameControlCardRuntimeIdentity(
+  left: ControlCardFormData,
+  right: ControlCardFormData
+): boolean {
+  return left.runtimeStatus === right.runtimeStatus && left.runtimeMode === right.runtimeMode &&
+    left.runtimeStartedAt === right.runtimeStartedAt && left.vpnBacked === right.vpnBacked &&
+    left.cleanupRequired === right.cleanupRequired && left.primaryActionUri === right.primaryActionUri;
+}
+
+function normalizeRuntimeStartedAt(value: number | undefined): number {
+  return value !== undefined && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
 }
 
 function normalizeRuntimeStatus(value: ConnectionStatus | undefined, primaryActionUri: string): ConnectionStatus {

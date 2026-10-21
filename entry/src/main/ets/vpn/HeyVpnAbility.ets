@@ -851,7 +851,8 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
           cleanupComplete ? '' : 'VPN cleanup incomplete.',
           false,
           APP_MODE_VPN,
-          !cleanupComplete
+          !cleanupComplete,
+          0
         ),
         CONTROL_CARD_RESET_TIMEOUT_MS,
         'Control card cleanup update timed out.'

@@ -1,6 +1,6 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { buildPolicyGroupConfigFromNodes, buildPolicyGroupConfigFromSubscription, buildProxyChainConfigFromNodes, isAdvancedOutboundBuildableNode, normalizePolicyGroupBuilderStrategy, parseAdvancedOutboundEditState, resolveDynamicPolicyGroupConfigJson } from '../main/ets/core/AdvancedOutboundBuilder';
-import { CONTROL_CARD_FORM_NAME, CONTROL_CARD_SCAN_URI, CONTROL_CARD_START_URI, CONTROL_CARD_STOP_URI, CONTROL_CARD_TOGGLE_URI, ControlCardFormData, buildControlCardFormData, isControlCardLocalProxyRunning, normalizeControlCardFormData } from '../main/ets/core/ControlCard';
+import { CONTROL_CARD_FORM_NAME, CONTROL_CARD_SCAN_URI, CONTROL_CARD_START_URI, CONTROL_CARD_STOP_URI, CONTROL_CARD_TOGGLE_URI, ControlCardFormData, buildControlCardFormData, isControlCardLocalProxyRunning, normalizeControlCardFormData, sameControlCardRuntimeIdentity } from '../main/ets/core/ControlCard';
 import { DNS_DIRECT, DNS_PROXY, isCoreDnsAddress, isPureIpAddress, normalizeDnsServers } from '../main/ets/core/DnsAddresses';
 import { redactDiagnosticText } from '../main/ets/core/DiagnosticRedaction';
 import { AssetNameEntry, hasDuplicateAssetName, isEditableCustomAssetUrl, isSafeCustomAssetName, normalizeScannedAssetUrl } from '../main/ets/core/AssetUrls';
@@ -5169,7 +5169,8 @@ export default function localUnitTest() {
       expect(parseDeepLink(data.stopUri).action).assertEqual('stop');
       expect(parseDeepLink(data.scanUri).action).assertEqual('scan');
 
-      const running = buildControlCardFormData('en', ConnectionStatus.RUNNING, '00:03', '', true);
+      const running = buildControlCardFormData(
+        'en', ConnectionStatus.RUNNING, '00:03', '', true, APP_MODE_VPN, false, 12345);
       expect(running.statusLabel).assertEqual('Running');
       expect(running.statusDetail).assertEqual('Duration 00:03');
       expect(running.primaryActionUri).assertEqual(CONTROL_CARD_STOP_URI);
@@ -5177,6 +5178,14 @@ export default function localUnitTest() {
       expect(running.vpnBacked).assertTrue();
       expect(running.runtimeStatus).assertEqual(ConnectionStatus.RUNNING);
       expect(running.runtimeMode).assertEqual(APP_MODE_VPN);
+      expect(running.runtimeStartedAt).assertEqual(12345);
+
+      const sameRunningSession = buildControlCardFormData(
+        'en', ConnectionStatus.RUNNING, '00:10', '', true, APP_MODE_VPN, false, 12345);
+      const newerRunningSession = buildControlCardFormData(
+        'en', ConnectionStatus.RUNNING, '00:00', '', true, APP_MODE_VPN, false, 12346);
+      expect(sameControlCardRuntimeIdentity(running, sameRunningSession)).assertTrue();
+      expect(sameControlCardRuntimeIdentity(running, newerRunningSession)).assertFalse();
 
       const proxyStarting = buildControlCardFormData(
         'en', ConnectionStatus.STARTING, '', '', false, APP_MODE_PROXY_ONLY);
@@ -5201,6 +5210,7 @@ export default function localUnitTest() {
       expect(legacyRunning.vpnBacked).assertTrue();
       expect(legacyRunning.runtimeStatus).assertEqual(ConnectionStatus.RUNNING);
       expect(legacyRunning.runtimeMode).assertEqual(APP_MODE_VPN);
+      expect(legacyRunning.runtimeStartedAt).assertEqual(0);
 
       const previousProxyRunning = normalizeControlCardFormData(
         JSON.parse('{"primaryActionUri":"hey://stop","vpnBacked":false}') as ControlCardFormData
