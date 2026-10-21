@@ -19,7 +19,7 @@ import { clearVisiblePerAppPackages, exportPerAppProxyList, importPerAppProxyLis
 import { shouldShowProxySharingStartWarning } from '../main/ets/core/ProxySharingWarning';
 import { canCancelStartingConnection, shouldDeferBusyControlAction, shouldOfferConnectionStop } from '../main/ets/core/ConnectionInteraction';
 import { shouldStartScannerImmediately } from '../main/ets/core/ScannerLaunch';
-import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppSettings, ConnectionStatus, DEFAULT_DELAY_TEST_URL, DEFAULT_HEV_TUN_LOG_LEVEL, DEFAULT_HEV_TUN_RW_TIMEOUT, DEFAULT_IP_API_URL, DEFAULT_VPN_MTU, DELAY_STATUS_UDP_ONLY, OUTBOUND_DOMAIN_RESOLVE_DNS_HOSTS, OUTBOUND_DOMAIN_RESOLVE_NONE, OUTBOUND_DOMAIN_RESOLVE_REPLACE, OutboundDomainResolveMethod, normalizeAppRuntimeMode, normalizeHevTunLogLevel, normalizeHevTunRwTimeout, normalizeRealPingConcurrency, normalizeRoutingDomainStrategy, normalizeUiModeNight, ProxyNode, resolveDelayTestUrl, RoutingRule, RuntimeStats, SubscriptionGroup } from '../main/ets/core/Profile';
+import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppSettings, ConnectionStatus, DEFAULT_DELAY_TEST_URL, DEFAULT_HEV_TUN_LOG_LEVEL, DEFAULT_HEV_TUN_RW_TIMEOUT, DEFAULT_IP_API_URL, DEFAULT_VPN_MTU, DELAY_STATUS_CORE_UNAVAILABLE, DELAY_STATUS_UDP_ONLY, DELAY_STATUS_UNAVAILABLE, OUTBOUND_DOMAIN_RESOLVE_DNS_HOSTS, OUTBOUND_DOMAIN_RESOLVE_NONE, OUTBOUND_DOMAIN_RESOLVE_REPLACE, OutboundDomainResolveMethod, normalizeAppRuntimeMode, normalizeHevTunLogLevel, normalizeHevTunRwTimeout, normalizeRealPingConcurrency, normalizeRoutingDomainStrategy, normalizeUiModeNight, ProxyNode, resolveDelayTestUrl, RoutingRule, RuntimeStats, SubscriptionGroup } from '../main/ets/core/Profile';
 import { BUILTIN_GEO_DATA_FILE_NAMES, DEFAULT_GEO_RELEASE_API, DEFAULT_GEO_RELEASE_DOWNLOAD_PREFIX, GEOIP_FILE_NAME, GEOSITE_FILE_NAME, buildAssetDownloadUrl, buildGeoChecksumUrl, encodeGeoTransactionState, hasPendingGeoReplacementArtifacts, isAllowedGeoAssetRedirect, isPlausibleGeoData, isValidGeoCommitMarker, normalizeGeoAssetDownloadUrl, parseDefaultGeoRelease, parseGeoTransactionState, parseHttpRedirectLocation, parseSha256Checksum, resolveGeoRecoveryAction, resolveGeoUpdateNotice, resolveStandaloneAssetRecoveryAction } from '../main/ets/core/GeoAssets';
 import { DELAY_TEST_SOCKS_PORT, LOCAL_HTTP_PROXY_LAN_HOST, LOCAL_HTTP_PROXY_PORT, LOCAL_SOCKS_PROXY_PORT, UNIDENTIFIED_PROCESS_PACKAGE, VPN_DATA_SOCKS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT, appReservedRuntimePorts, buildDelayTestConfig, buildRuntimeXrayConfig, buildXrayConfig, buildXrayConfigWithSettings, canUseProcessRouting, collectOutboundDomainPreResolveHosts, normalizeFullConfigRoutingProcesses, normalizeOutboundInput, normalizeRoutingRuleProcesses, validateFullConfigJson, validateOutboundJson, validatePolicyGroupConfigJson, validateProxyChainConfigJson, withOutboundDomainResolvedHosts, injectXrayLogFile, isReservedAppRuntimePort } from '../main/ets/core/XrayConfig';
 import { CONTROL_SHORTCUT_ACTION_PARAM, CONTROL_SHORTCUT_GUID_PARAM, CONTROL_SHORTCUT_NODE_ID_PARAM, CONTROL_SHORTCUT_URI_PARAM, TASKER_EXTRA_BUNDLE_GUID_PARAM, TASKER_EXTRA_BUNDLE_SWITCH_PARAM, controlUriFromShortcutParameters, deepLinkUriFromWant, parseDeepLink, subscriptionNameFromDeepLink } from '../main/ets/core/DeepLink';
@@ -2786,8 +2786,9 @@ export default function localUnitTest() {
         updatedAt: 1
       })).assertTrue();
       expect(nativeDelayFailureStatus('invalid-config')).assertEqual('invalid-config');
-      expect(nativeDelayFailureStatus('native core unavailable')).assertEqual('core-unavailable');
+      expect(nativeDelayFailureStatus('native core unavailable')).assertEqual(DELAY_STATUS_CORE_UNAVAILABLE);
       expect(nativeDelayFailureStatus('request deadline exceeded')).assertEqual('timeout');
+      expect(nativeDelayFailureStatus(DELAY_STATUS_UNAVAILABLE)).assertEqual(DELAY_STATUS_UNAVAILABLE);
       expect(nativeDelayFailureStatus('dial vless://private-node.example/secret failed')).assertEqual('ping-failed');
     });
 
@@ -3691,6 +3692,20 @@ export default function localUnitTest() {
         [buildGroupFixture('sub-udp', 'UDP', [udpOnly], udpOnly.id)], [udpOnly], 101);
       expect(neutral.removedCount).assertEqual(0);
       expect(neutral.groups[0].nodes.length).assertEqual(1);
+
+      const unavailable = copyNode(nodes[0], 'node-probe-unavailable');
+      unavailable.delayStatus = DELAY_STATUS_UNAVAILABLE;
+      const unavailableNeutral = removeVisibleTestFailedNodesFromGroups(
+        [buildGroupFixture('sub-unavailable', 'Unavailable', [unavailable], unavailable.id)], [unavailable], 101);
+      expect(unavailableNeutral.removedCount).assertEqual(0);
+      expect(unavailableNeutral.groups[0].nodes.length).assertEqual(1);
+
+      const coreUnavailable = copyNode(nodes[0], 'node-core-unavailable');
+      coreUnavailable.delayStatus = DELAY_STATUS_CORE_UNAVAILABLE;
+      const coreUnavailableNeutral = removeVisibleTestFailedNodesFromGroups(
+        [buildGroupFixture('sub-core-unavailable', 'Core unavailable', [coreUnavailable], coreUnavailable.id)],
+        [coreUnavailable], 101);
+      expect(coreUnavailableNeutral.removedCount).assertEqual(0);
 
       const cleared = removeVisibleNodesFromGroups(groups, [nodes[2], failedTwo], 102);
       expect(cleared.removedCount).assertEqual(2);

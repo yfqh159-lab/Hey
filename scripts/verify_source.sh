@@ -720,8 +720,8 @@ if (selectAt < 0 || removeAt < 0 ||
 NODE
 printf 'authoritative node selection verification passed\n'
 
-# UDP/QUIC-only sing-box nodes cannot be verified by the temporary Xray probe. Keep that result
-# neutral everywhere: show the dedicated text/color and never delete the node as a failed test.
+# UDP/QUIC-only sing-box nodes and probe-infrastructure failures do not prove a node is bad.
+# Keep both neutral everywhere and never delete them as failed tests.
 node <<'NODE'
 const fs = require('fs');
 const profile = fs.readFileSync('entry/src/main/ets/core/Profile.ets', 'utf8');
@@ -730,15 +730,20 @@ const visuals = fs.readFileSync('entry/src/main/ets/features/subscriptions/Subsc
 const detail = fs.readFileSync('entry/src/main/ets/pages/SubscriptionDetail.ets', 'utf8');
 const tests = fs.readFileSync('entry/src/test/LocalUnit.test.ets', 'utf8');
 if (!profile.includes("export const DELAY_STATUS_UDP_ONLY: string = 'udp-only';") ||
-  !operations.includes("status !== DELAY_STATUS_UDP_ONLY") ||
-  !visuals.includes("node.delayStatus === DELAY_STATUS_UDP_ONLY") ||
+  !profile.includes("export const DELAY_STATUS_UNAVAILABLE: string = 'probe-unavailable';") ||
+  !profile.includes("export const DELAY_STATUS_CORE_UNAVAILABLE: string = 'core-unavailable';") ||
+  !profile.includes('export function isNeutralDelayStatus(status: string): boolean') ||
+  !operations.includes('!isNeutralDelayStatus(status)') ||
+  !visuals.includes('isNeutralDelayStatus(node.delayStatus)') ||
   !visuals.includes("return 'pending';") ||
-  !detail.includes("return this.t('node.delay.udpOnly');") ||
-  !tests.includes('expect(neutral.removedCount).assertEqual(0);')) {
-  throw new Error('UDP-only delay results are treated as failures or can be batch-deleted');
+  !detail.includes("'node.delay.udpOnly' : 'node.delay.unavailable'") ||
+  !tests.includes('expect(neutral.removedCount).assertEqual(0);') ||
+  !tests.includes('expect(unavailableNeutral.removedCount).assertEqual(0);') ||
+  !tests.includes('expect(coreUnavailableNeutral.removedCount).assertEqual(0);')) {
+  throw new Error('neutral delay results are treated as failures or can be batch-deleted');
 }
 NODE
-printf 'neutral UDP-only delay status verification passed\n'
+printf 'neutral delay status verification passed\n'
 
 # Throttled and forced traffic-total saves are fire-and-forget and may overlap. Preserve call
 # order, snapshot each sample before queueing, and let write failures reach the existing caller log.
@@ -1718,6 +1723,20 @@ if (tcpAt < 0 || nextAt < 0 ||
 }
 NODE
 printf 'bounded node-delay TCP probe verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
+const delay = fs.readFileSync('entry/src/main/ets/services/DelayTester.ets', 'utf8');
+if (!delay.includes('const nativeDelayPortsInFlight = new Set<number>();') ||
+  !delay.includes('result = await withNativeDelayDeadline(task, timeoutMs + 2000);') ||
+  !delay.includes('if (nativeDelayPortsInFlight.has(socksPort))') ||
+  !delay.includes('task.then(') ||
+  !delay.includes('releaseNativeDelayPort(socksPort)') ||
+  !delay.includes('status: DELAY_STATUS_UNAVAILABLE')) {
+  throw new Error('native delay watchdog does not quarantine an unresolved probe port');
+}
+NODE
+printf 'bounded native-delay task verification passed\n'
 
 vpn_ability_file="entry/src/main/ets/vpn/HeyVpnAbility.ets"
 if ! grep -q "const VPN_DESTROY_TIMEOUT_MS: number = 8000;" "$vpn_ability_file" || \

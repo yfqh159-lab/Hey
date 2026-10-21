@@ -130,6 +130,13 @@ export const DEFAULT_DELAY_TEST_URL: string = '';
 // sing-box 独有的 UDP/QUIC 协议无法由临时 Xray 出站验证；该状态表示“不可测”，
 // 不是节点失败，批量清理不得据此删除节点。
 export const DELAY_STATUS_UDP_ONLY: string = 'udp-only';
+export const DELAY_STATUS_CORE_UNAVAILABLE: string = 'core-unavailable';
+export const DELAY_STATUS_UNAVAILABLE: string = 'probe-unavailable';
+
+export function isNeutralDelayStatus(status: string): boolean {
+  return status === DELAY_STATUS_UDP_ONLY || status === DELAY_STATUS_CORE_UNAVAILABLE ||
+    status === DELAY_STATUS_UNAVAILABLE;
+}
 export const DEFAULT_IP_API_URL: string = 'https://api.ipify.org?format=json';
 export const VPN_BYPASS_LAN_FOLLOW_CONFIG: string = '0';
 export const VPN_BYPASS_LAN_BYPASS: string = '1';

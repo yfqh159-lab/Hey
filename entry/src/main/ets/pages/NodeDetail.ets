@@ -5,7 +5,7 @@ import { generateBarcode, scanCore } from '@kit.ScanKit';
 import { image } from '@kit.ImageKit';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
-import { AppLanguage, AppSettings, ProxyNode, SubscriptionGroup } from '../core/Profile';
+import { AppLanguage, AppSettings, isNeutralDelayStatus, ProxyNode, SubscriptionGroup } from '../core/Profile';
 import { formatOutboundJsonToShareLink } from '../core/ShareLinkParser';
 import { isManualEditProtocol, normalizeManualEditProtocol } from '../core/ManualOutboundEditState';
 import { buildNodeFullConfigModel, NodeFullConfigModel } from '../features/nodes/NodeOperations';
@@ -552,6 +552,9 @@ struct NodeDetailPage {
         return AppColor.warning;
       }
       return AppColor.danger;
+    }
+    if (isNeutralDelayStatus(node.delayStatus)) {
+      return AppColor.textSecondary;
     }
     if (node.delayStatus.length > 0) {
       return AppColor.danger;

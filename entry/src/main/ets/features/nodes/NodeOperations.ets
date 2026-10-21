@@ -1,4 +1,4 @@
-import { AppSettings, DELAY_STATUS_UDP_ONLY, ProxyNode, SubscriptionGroup } from '../../core/Profile';
+import { AppSettings, isNeutralDelayStatus, ProxyNode, SubscriptionGroup } from '../../core/Profile';
 import { redactDiagnosticText } from '../../core/DiagnosticRedaction';
 import { resolveDynamicPolicyGroupConfigJson } from '../../core/AdvancedOutboundBuilder';
 import { buildRuntimeXrayConfig, normalizeConfigInput } from '../../core/XrayConfig';
@@ -328,7 +328,7 @@ function isTestFailed(node: ProxyNode): boolean {
     return false;
   }
   const status = node.delayStatus;
-  return status.length > 0 && status !== 'ok' && status !== 'testing' && status !== DELAY_STATUS_UDP_ONLY;
+  return status.length > 0 && status !== 'ok' && status !== 'testing' && !isNeutralDelayStatus(status);
 }
 
 export function removeVisibleNodesFromGroups(

@@ -4,7 +4,7 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import { IconButton } from '../components/IconButton';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { BOTTOM_SAFE_HEIGHT_KEY, TOP_SAFE_HEIGHT_KEY } from '../core/Immersive';
-import { APP_MODE_VPN, AppLanguage, AppRuntimeMode, AppSettings, ConnectionStatus, DELAY_STATUS_UDP_ONLY, isProxyOnlyRuntimeMode, normalizeAppRuntimeMode, normalizeHomeDelayTestInterval, normalizeRealPingConcurrency, ProxyNode, ProxyProfile, resolveDelayTestUrl, RuntimeStats, SubscriptionGroup, SubscriptionProfile, XrayConfigType } from '../core/Profile';
+import { APP_MODE_VPN, AppLanguage, AppRuntimeMode, AppSettings, ConnectionStatus, DELAY_STATUS_UDP_ONLY, DELAY_STATUS_UNAVAILABLE, isNeutralDelayStatus, isProxyOnlyRuntimeMode, normalizeAppRuntimeMode, normalizeHomeDelayTestInterval, normalizeRealPingConcurrency, ProxyNode, ProxyProfile, resolveDelayTestUrl, RuntimeStats, SubscriptionGroup, SubscriptionProfile, XrayConfigType } from '../core/Profile';
 import { CoreSelectionStore, requiredCoreForProtocol, CORE_TYPE_SINGBOX } from '../core/CoreSelection';
 import { DELAY_TEST_BATCH_PORT_BASE, normalizeOutboundInput } from '../core/XrayConfig';
 import { DeepLinkControlAction, DeepLinkIntent, parseDeepLink, subscriptionNameFromDeepLink } from '../core/DeepLink';
@@ -3098,8 +3098,9 @@ struct Index {
     if (node.delayMs >= 0) {
       return this.f1('node.delay.ms', 'value', node.delayMs.toString());
     }
-    if (node.delayStatus === DELAY_STATUS_UDP_ONLY) {
-      return this.t('node.delay.udpOnly');
+    if (isNeutralDelayStatus(node.delayStatus)) {
+      return this.t(node.delayStatus === DELAY_STATUS_UDP_ONLY ?
+        'node.delay.udpOnly' : 'node.delay.unavailable');
     }
     if (node.delayStatus.length > 0) {
       return this.t('node.delay.failed');
@@ -3119,7 +3120,7 @@ struct Index {
         return AppColor.warning;
       }
     }
-    if (node.delayStatus === DELAY_STATUS_UDP_ONLY) {
+    if (isNeutralDelayStatus(node.delayStatus)) {
       return AppColor.textSecondary;
     }
     if (node.delayStatus.length > 0) {
@@ -3134,6 +3135,9 @@ struct Index {
     }
     if (result.status === DELAY_STATUS_UDP_ONLY) {
       return this.t('node.delay.udpOnly');
+    }
+    if (result.status === DELAY_STATUS_UNAVAILABLE) {
+      return this.t('node.delay.unavailable');
     }
     return `${this.t('node.delay.failed')} ${result.status}`;
   }

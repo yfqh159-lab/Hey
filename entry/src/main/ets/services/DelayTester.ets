@@ -1,6 +1,6 @@
 import { socket } from '@kit.NetworkKit';
 import { taskpool } from '@kit.ArkTS';
-import { DELAY_STATUS_UDP_ONLY, XrayConfigType } from '../core/Profile';
+import { DELAY_STATUS_CORE_UNAVAILABLE, DELAY_STATUS_UDP_ONLY, DELAY_STATUS_UNAVAILABLE, XrayConfigType } from '../core/Profile';
 import { DEFAULT_SOCKS_HOST, DELAY_TEST_SOCKS_PORT, buildDelayTestConfig } from '../core/XrayConfig';
 import { NativePingResult, nativeXrayAssetReadiness, pingNativeOutbound } from '../native/HeyNative';
 import { isSingboxOnlyProtocol } from '../core/CoreSelection';
@@ -35,6 +35,8 @@ interface DelayTcpTarget {
   port: number;
 }
 
+const nativeDelayPortsInFlight = new Set<number>();
+
 function withDelayTcpTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timerId = setTimeout(() => reject(new Error('delay TCP probe timed out')), timeoutMs);
@@ -48,17 +50,44 @@ function withDelayTcpTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise
   });
 }
 
+function withNativeDelayDeadline(
+  promise: Promise<NativePingResult>,
+  timeoutMs: number
+): Promise<NativePingResult> {
+  return new Promise<NativePingResult>((resolve, reject) => {
+    const timerId = setTimeout(() => resolve({
+      ok: false,
+      delayMs: -1,
+      message: DELAY_STATUS_UNAVAILABLE
+    }), timeoutMs);
+    promise.then((value: NativePingResult) => {
+      clearTimeout(timerId);
+      resolve(value);
+    }, (error: Object) => {
+      clearTimeout(timerId);
+      reject(error);
+    });
+  });
+}
+
+function releaseNativeDelayPort(socksPort: number): void {
+  nativeDelayPortsInFlight.delete(socksPort);
+}
+
 function isCoreUnavailable(message: string): boolean {
   const lower = message.toLowerCase();
   return lower.indexOf('unavailable') >= 0 || lower.indexOf('failed to load') >= 0 || lower.indexOf('symbol missing') >= 0;
 }
 
 export function nativeDelayFailureStatus(message: string): string {
+  if (message === DELAY_STATUS_UNAVAILABLE) {
+    return DELAY_STATUS_UNAVAILABLE;
+  }
   if (message === 'invalid-config') {
     return 'invalid-config';
   }
   if (isCoreUnavailable(message)) {
-    return 'core-unavailable';
+    return DELAY_STATUS_CORE_UNAVAILABLE;
   }
   const lower = message.toLowerCase();
   if (lower.indexOf('timeout') >= 0 || lower.indexOf('deadline exceeded') >= 0) {
@@ -187,6 +216,9 @@ export class DelayTester {
   }
 
   static async measureNodeOutbound(outboundJson: string, datDir: string, url: string, timeoutMs: number = 8000, configType?: XrayConfigType, socksPort: number = DELAY_TEST_SOCKS_PORT): Promise<DelayTestResult> {
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      return { ok: false, delayMs: -1, status: 'invalid-endpoint' };
+    }
     // 用户未填探测地址时，测到服务器的 TCP 握手时延，不向任何第三方端点发请求。
     if (url.trim().length === 0) {
       const target = DelayTester.outboundTcpTarget(outboundJson);
@@ -211,20 +243,38 @@ export class DelayTester {
     // EntryAbility 必须先完成中断 Geo 事务恢复并设置 XRAY_LOCATION_ASSET。失败时
     // 不把临时核心投递到 worker，否则可能让 Go runtime 读取半套或错误目录的数据。
     if (!nativeXrayAssetReadiness().ready) {
-      return { ok: false, delayMs: -1, status: 'core-unavailable' };
+      return { ok: false, delayMs: -1, status: DELAY_STATUS_CORE_UNAVAILABLE };
     }
     const timeoutSeconds = Math.max(1, Math.floor(timeoutMs / 1000));
+    // 超时只能结束调用方等待，无法强杀已经进入 cgo 的 TaskPool 任务。若旧任务仍占用
+    // 固定 SOCKS 端口，拒绝在同端口叠加临时 Xray；等原 Promise 真正结算后才释放。
+    if (nativeDelayPortsInFlight.has(socksPort)) {
+      return { ok: false, delayMs: -1, status: DELAY_STATUS_UNAVAILABLE };
+    }
+    nativeDelayPortsInFlight.add(socksPort);
+    let task: Promise<NativePingResult>;
+    try {
+      task = taskpool.execute(
+        runNativeDelayTest, outboundJson, datDir, url, timeoutSeconds, configType ?? '', socksPort
+      ) as Promise<NativePingResult>;
+    } catch (_error) {
+      releaseNativeDelayPort(socksPort);
+      return { ok: false, delayMs: -1, status: DELAY_STATUS_UNAVAILABLE };
+    }
+    task.then(
+      (_value: NativePingResult): void => releaseNativeDelayPort(socksPort),
+      (_error: Object): void => releaseNativeDelayPort(socksPort)
+    );
     let result: NativePingResult;
     try {
-      // native cgo（建临时 Xray + ping）放到 TaskPool worker 线程跑，避免阻塞 UI。
-      result = await taskpool.execute(
-        runNativeDelayTest, outboundJson, datDir, url, timeoutSeconds, configType ?? '', socksPort
-      ) as NativePingResult;
+      // 原生核心通常按 timeoutSeconds 返回；额外余量只防 TaskPool/cgo 永久不结算。
+      // 看门狗触发后端口继续隔离，不会与仍存活的旧临时核心重叠。
+      result = await withNativeDelayDeadline(task, timeoutMs + 2000);
     } catch (_error) {
       return {
         ok: false,
         delayMs: -1,
-        status: 'native-probe-failed'
+        status: DELAY_STATUS_UNAVAILABLE
       };
     }
 
