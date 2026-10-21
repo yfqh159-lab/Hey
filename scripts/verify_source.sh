@@ -736,14 +736,20 @@ const connectAt = indexSource.indexOf('  private ConnectTab()');
 const connectEnd = indexSource.indexOf('\n  @Builder\n  private ConnectRing()', connectAt);
 const connect = indexSource.slice(connectAt, connectEnd);
 if (firstNodes < 0 || laterConnect < 0 || firstNodes > laterConnect ||
+  !indexSource.includes('@State private initialStateReady: boolean = false;') ||
+  !nodes.includes('if (!this.initialStateReady) {') ||
+  !nodes.includes('this.InitialLoadingState()') ||
   !nodes.includes('this.NodeListConnectionBar()') ||
   !nodes.includes('this.HomeErrorBanner()') ||
   connectAt < 0 || connectEnd < 0 || !connect.includes('this.HomeErrorBanner()') ||
   !bar.includes('this.statusLabel()') ||
   !bar.includes('this.findSelectedNodeName()') ||
+  !bar.includes('.enabled(this.initialStateReady &&') ||
   !bar.includes('this.handleConnectionButton();') ||
   !ring.includes('this.handleConnectionButton();') ||
+  !ring.includes('.enabled(this.initialStateReady &&') ||
   !indexSource.includes('private handleConnectionButton(): void') ||
+  !indexSource.includes("Text(this.t('home.loading'))") ||
   !indexSource.includes('private HomeErrorBanner()')) {
   throw new Error('home must open on the node list with one shared connection action');
 }
@@ -984,6 +990,7 @@ const connectionButtonAt = index.indexOf('  private handleConnectionButton(): vo
 const connectionButtonEnd = index.indexOf('\n  private isBusy(): boolean', connectionButtonAt);
 const connectionButton = index.slice(connectionButtonAt, connectionButtonEnd);
 if (connectionButtonAt < 0 || connectionButtonEnd < 0 ||
+  !connectionButton.includes('if (!this.initialStateReady)') ||
   !connectionButton.includes('if (this.isBusy() && !canCancelStartingConnection(this.status))') ||
   !connectionButton.includes('if (canCancelStartingConnection(this.status) || this.shouldStopBeforeStart())') ||
   !connectionButton.includes('this.stopConnection();') ||

@@ -141,7 +141,9 @@ struct Index {
   @StorageLink('pendingSharedTextImport') @Watch('onPendingExternalIntentChanged') private pendingSharedTextImportSignal: string = '';
   @StorageLink('pendingAutoStartupLaunch') @Watch('onPendingExternalIntentChanged') private pendingAutoStartupSignal: boolean = false;
   private initialStateLoading: boolean = false;
-  private initialStateReady: boolean = false;
+  // 首屏和启停控件依赖此值重绘；普通字段不会触发 ArkUI 更新，冷启动时会误显示空节点
+  // 与“已断开”，并允许用户在设置、Profile 和后台 VPN 状态恢复前点击连接。
+  @State private initialStateReady: boolean = false;
 
   aboutToAppear(): void {
     if (!this.initialStateLoading && !this.initialStateReady) {
@@ -974,7 +976,7 @@ struct Index {
         .opacity(this.shouldStopBeforeStart() ? 1 : 0.6)
 
       Column() {
-        if (this.isBusy() && !canCancelStartingConnection(this.status)) {
+        if (!this.initialStateReady || (this.isBusy() && !canCancelStartingConnection(this.status))) {
           LoadingProgress()
             .width(44)
             .height(44)
@@ -993,6 +995,7 @@ struct Index {
       .alignItems(HorizontalAlign.Center)
       .backgroundColor(this.shouldStopBeforeStart() ? AppColor.brand : AppColor.surface)
       .border(this.shouldStopBeforeStart() ? { width: 0 } : { width: 1, color: AppColor.border })
+      .enabled(this.initialStateReady && (!this.isBusy() || canCancelStartingConnection(this.status)))
       .shadow(this.shouldStopBeforeStart()
         ? { radius: Elevation.glow, color: AppColor.shadowBrand, offsetX: 0, offsetY: 8 }
         : { radius: Elevation.card, color: AppColor.shadowCard, offsetX: 0, offsetY: 4 })
@@ -1237,44 +1240,65 @@ struct Index {
   @Builder
   private NodesTab() {
     Column() {
-      // 标题栏 / 搜索栏（就地切换）
-      this.NodesHeader()
-      this.HomeErrorBanner()
-
-      if (this.subscriptionGroups.length > 0) {
-        this.GroupTabs()
-      }
-
-      if (this.subscriptionGroups.length === 0) {
-        Scroll() {
-          this.EmptyStateUI()
-        }
-        .layoutWeight(1)
-        .width('100%')
-      } else if (this.visibleNodes().length === 0) {
-        Scroll() {
-          if (this.displayedNodes().length > 0) {
-            // 分组本身有节点，仅因搜索无匹配而为空
-            this.EmptySearchNodesUI()
-          } else {
-            // 分组本身没有节点，引导更新订阅
-            this.EmptyGroupNodesUI()
-          }
-        }
-        .layoutWeight(1)
-        .width('100%')
+      if (!this.initialStateReady) {
+        this.InitialLoadingState()
       } else {
-        this.NodeList()
-      }
+        // 标题栏 / 搜索栏（就地切换）
+        this.NodesHeader()
+        this.HomeErrorBanner()
 
-      // 常见单节点客户端的首页结构：节点列表与单一启停动作位于同一屏，选中节点后
-      // 无需再切换页签。完整延迟、出口 IP 与流量详情仍保留在“连接”页。
-      this.NodeListConnectionBar()
+        if (this.subscriptionGroups.length > 0) {
+          this.GroupTabs()
+        }
+
+        if (this.subscriptionGroups.length === 0) {
+          Scroll() {
+            this.EmptyStateUI()
+          }
+          .layoutWeight(1)
+          .width('100%')
+        } else if (this.visibleNodes().length === 0) {
+          Scroll() {
+            if (this.displayedNodes().length > 0) {
+              // 分组本身有节点，仅因搜索无匹配而为空
+              this.EmptySearchNodesUI()
+            } else {
+              // 分组本身没有节点，引导更新订阅
+              this.EmptyGroupNodesUI()
+            }
+          }
+          .layoutWeight(1)
+          .width('100%')
+        } else {
+          this.NodeList()
+        }
+
+        // 常见单节点客户端的首页结构：节点列表与单一启停动作位于同一屏，选中节点后
+        // 无需再切换页签。完整延迟、出口 IP 与流量详情仍保留在“连接”页。
+        this.NodeListConnectionBar()
+      }
     }
     .width('100%')
     .height('100%')
     .backgroundColor(AppColor.bg)
     .padding({ top: this.topSafe })
+  }
+
+  @Builder
+  private InitialLoadingState() {
+    Column({ space: Space.md }) {
+      LoadingProgress()
+        .width(36)
+        .height(36)
+        .color(AppColor.brand)
+      Text(this.t('home.loading'))
+        .fontSize(FontSz.callout)
+        .fontColor(AppColor.textSecondary)
+    }
+    .layoutWeight(1)
+    .width('100%')
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
   }
 
   @Builder
@@ -1297,7 +1321,7 @@ struct Index {
       .layoutWeight(1)
 
       Button() {
-        if (this.isBusy() && !canCancelStartingConnection(this.status)) {
+        if (!this.initialStateReady || (this.isBusy() && !canCancelStartingConnection(this.status))) {
           LoadingProgress()
             .width(24)
             .height(24)
@@ -1312,7 +1336,7 @@ struct Index {
       .width(52)
       .height(52)
       .borderRadius(26)
-      .enabled(!this.isBusy() || canCancelStartingConnection(this.status))
+      .enabled(this.initialStateReady && (!this.isBusy() || canCancelStartingConnection(this.status)))
       .backgroundColor(this.shouldStopBeforeStart() ? AppColor.brand : AppColor.surfaceAlt)
       .onClick(() => {
         this.handleConnectionButton();
@@ -2960,6 +2984,9 @@ struct Index {
   }
 
   private handleConnectionButton(): void {
+    if (!this.initialStateReady) {
+      return;
+    }
     if (this.isBusy() && !canCancelStartingConnection(this.status)) {
       return;
     }
