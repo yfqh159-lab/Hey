@@ -40,6 +40,7 @@ export class NetworkSceneManager {
 
   private netConnection: connection.NetConnection | undefined = undefined;
   private context: common.Context | null = null;
+  private owner: Object | null = null;
   private started: boolean = false;
   private registerRetryTimer: number = -1;
   private registerRetryCount: number = 0;
@@ -53,19 +54,18 @@ export class NetworkSceneManager {
   private lifecycleGeneration: number = 0;
 
   /** 启动网络变化监听（幂等），生命周期跟随 UIAbility，与自动断开开关无关。 */
-  ensureStarted(context: common.Context): void {
-    if (this.started && this.context === context) {
-      return;
-    }
-    // UIAbility 极短时间重叠时，新实例接管监听；旧实例随后 onDestroy 必须因 owner
-    // 不匹配而不能把新监听拆掉。
-    if (this.started && this.context !== context) {
-      const previousContext = this.context;
-      if (previousContext !== null) {
-        this.stop(previousContext);
-      } else {
-        this.stop();
+  ensureStarted(context: common.Context, owner?: Object): void {
+    // 只有 UIAbility 本身可以成为生命周期 owner。设置页传入的 HostContext 仅用于
+    // 首次/失败后的显式重试，不能因包装对象引用不同而接管所有权。
+    if (owner !== undefined && this.owner !== owner) {
+      const previousOwner = this.owner;
+      if (previousOwner !== null) {
+        this.stop(previousOwner);
       }
+      this.owner = owner;
+    }
+    if (this.started) {
+      return;
     }
     this.context = context;
     if (this.registerRetryTimer !== -1) {
@@ -122,8 +122,8 @@ export class NetworkSceneManager {
   }
 
   /** UIAbility 销毁时停止监听。 */
-  stop(owner?: common.Context): void {
-    if (owner !== undefined && this.context !== owner) {
+  stop(owner?: Object): void {
+    if (owner !== undefined && this.owner !== owner) {
       return;
     }
     this.lifecycleGeneration++;
@@ -150,6 +150,7 @@ export class NetworkSceneManager {
     this.netConnection = undefined;
     this.started = false;
     this.context = null;
+    this.owner = null;
     this.registerRetryCount = 0;
     this.evaluationPending = false;
     this.pendingForce = false;

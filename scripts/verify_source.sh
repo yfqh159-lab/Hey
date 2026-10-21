@@ -566,8 +566,10 @@ if (!networkScene.includes('const MAX_REGISTER_RETRIES: number = 3;') ||
   !networkScene.includes('private handleRegisterFailure(') ||
   !networkScene.includes('private scheduleRegisterRetry(') ||
   !networkScene.includes('this.registerRetryCount >= MAX_REGISTER_RETRIES') ||
-  !networkScene.includes('if (owner !== undefined && this.context !== owner)') ||
-  !entryAbility.includes('NETWORK_SCENE_MANAGER.stop(this.context);')) {
+  !networkScene.includes('private owner: Object | null = null;') ||
+  !networkScene.includes('if (owner !== undefined && this.owner !== owner)') ||
+  !entryAbility.includes('NETWORK_SCENE_MANAGER.ensureStarted(this.context, this);') ||
+  !entryAbility.includes('NETWORK_SCENE_MANAGER.stop(this);')) {
   throw new Error('network listener registration is not bounded-retry and UIAbility-owner safe');
 }
 NODE

@@ -93,7 +93,7 @@ export default class EntryAbility extends UIAbility {
   }
 
   onDestroy(): void {
-    NETWORK_SCENE_MANAGER.stop(this.context);
+    NETWORK_SCENE_MANAGER.stop(this);
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onDestroy');
   }
 
@@ -135,12 +135,12 @@ export default class EntryAbility extends UIAbility {
   // 网络变化观测与“可信网络自动断开”是两件事：观察器始终在 UIAbility 生命周期内运行，
   // 自动化开关只控制是否执行断开。这样关闭自动化时也能在承载变化后刷新真实出口。
   private startNetworkObserver(): void {
-    NETWORK_SCENE_MANAGER.ensureStarted(this.context);
+    NETWORK_SCENE_MANAGER.ensureStarted(this.context, this);
   }
 
   // 进入前台时强制补判一次，覆盖 UI 进程被挂起期间错过的承载变化。
   private refreshNetworkObserver(): void {
-    NETWORK_SCENE_MANAGER.ensureStarted(this.context);
+    NETWORK_SCENE_MANAGER.ensureStarted(this.context, this);
     NETWORK_SCENE_MANAGER.refreshNow(true);
   }
 
