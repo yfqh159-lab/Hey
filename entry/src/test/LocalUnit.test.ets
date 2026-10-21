@@ -2974,19 +2974,35 @@ export default function localUnitTest() {
 
     it('only applies current VPN session diagnostic errors to runtime state', 0, () => {
       expect(shouldApplyVpnDiagnosticError(
-        APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 101, 'error', 'vpn')).assertTrue();
+        APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 101, 'error', 'vpn', 'current',
+        'session=current; error=failed')).assertTrue();
       expect(shouldApplyVpnDiagnosticError(
-        APP_MODE_VPN, ConnectionStatus.STARTING, 100, 100, 'error', 'vpn')).assertFalse();
+        APP_MODE_VPN, ConnectionStatus.STARTING, 100, 100, 'error', 'vpn', 'current',
+        'session=current')).assertFalse();
       expect(shouldApplyVpnDiagnosticError(
-        APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 99, 'error', 'vpn')).assertFalse();
+        APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 99, 'error', 'vpn', 'current',
+        'session=current')).assertFalse();
       expect(shouldApplyVpnDiagnosticError(
-        APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 101, 'error', 'subscription-work')).assertFalse();
+        APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 101, 'error', 'subscription-work', 'current',
+        'session=current')).assertFalse();
       expect(shouldApplyVpnDiagnosticError(
-        APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 101, 'warn', 'vpn')).assertFalse();
+        APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 101, 'warn', 'vpn', 'current',
+        'session=current')).assertFalse();
       expect(shouldApplyVpnDiagnosticError(
-        APP_MODE_PROXY_ONLY, ConnectionStatus.RUNNING, 100, 101, 'error', 'vpn')).assertFalse();
+        APP_MODE_PROXY_ONLY, ConnectionStatus.RUNNING, 100, 101, 'error', 'vpn', 'current',
+        'session=current')).assertFalse();
       expect(shouldApplyVpnDiagnosticError(
-        APP_MODE_VPN, ConnectionStatus.IDLE, 100, 101, 'error', 'vpn')).assertFalse();
+        APP_MODE_VPN, ConnectionStatus.IDLE, 100, 101, 'error', 'vpn', 'current',
+        'session=current')).assertFalse();
+      expect(shouldApplyVpnDiagnosticError(
+        APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 101, 'error', 'vpn', 'current',
+        'session=previous; error=late')).assertFalse();
+      expect(shouldApplyVpnDiagnosticError(
+        APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 101, 'error', 'vpn', 'current',
+        'session=current-next; error=late')).assertFalse();
+      expect(shouldApplyVpnDiagnosticError(
+        APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 101, 'error', 'vpn', 'current',
+        undefined)).assertFalse();
     });
 
     it('parses current connection IP API responses', 0, () => {

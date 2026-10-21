@@ -274,6 +274,10 @@ export class RuntimeController {
   }
 
   async refresh(context: common.Context, language: AppLanguage): Promise<RuntimeViewState> {
+    // Extension 可能在两次前台刷新之间已经写入致命 error 并完成自清理。若先读取
+    // inactive 持久状态，下面会把 RUNNING 直接校正成 IDLE，随后错误因状态已改变而
+    // 无法再应用。先消费精确匹配当前会话的错误，保留“异常断开”而不是伪装成正常停止。
+    await this.applyPendingVpnDiagnosticError(context, language);
     await this.reconcilePersistedVpnState(context, language);
     this.stats = this.controller.getStats();
     if (isProxyOnlyRuntimeUnhealthy(this.runtimeMode, this.status, this.stats)) {
@@ -746,6 +750,19 @@ export class RuntimeController {
     }
   }
 
+  private async applyPendingVpnDiagnosticError(context: common.Context, language: AppLanguage): Promise<void> {
+    if (this.runtimeMode !== APP_MODE_VPN || this.status !== ConnectionStatus.RUNNING) {
+      return;
+    }
+    try {
+      const events = await DiagnosticLog.read(context, 80);
+      await this.applyDiagnosticError(context, events, language);
+    } catch (error) {
+      // 完整日志刷新稍后仍会重试；预检查失败不能阻断持久运行状态校正。
+      console.error(`VPN diagnostic precheck failed: ${redactDiagnosticText(JSON.stringify(error))}`);
+    }
+  }
+
   private applyDiagnosticStats(events: Array<DiagnosticEvent>): void {
     for (let index = 0; index < events.length; index++) {
       const event = events[index];
@@ -860,15 +877,27 @@ export class RuntimeController {
     if (events.length === 0) {
       return;
     }
-    const event = events[0];
-    if (!shouldApplyVpnDiagnosticError(
-      this.runtimeMode,
-      this.status,
-      this.startedAt,
-      event.at,
-      event.level,
-      event.source
-    )) {
+    const connection = this.controller.getSnapshot();
+    let event: DiagnosticEvent | null = null;
+    // 日志按时间倒序返回。清理过程会在致命 error 后追加多条 info，不能只检查首条；
+    // 同时必须精确匹配当前会话，避免上一会话的迟到错误拆除刚建立的新隧道。
+    for (let index = 0; index < events.length; index++) {
+      const candidate = events[index];
+      if (shouldApplyVpnDiagnosticError(
+        this.runtimeMode,
+        this.status,
+        this.startedAt,
+        candidate.at,
+        candidate.level,
+        candidate.source,
+        connection.vpnSessionId,
+        candidate.details
+      )) {
+        event = candidate;
+        break;
+      }
+    }
+    if (event === null) {
       return;
     }
     const message = event.details !== undefined && event.details.length > 0 ? `${event.message} ${event.details}` : event.message;

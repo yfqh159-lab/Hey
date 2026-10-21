@@ -302,6 +302,38 @@ printf 'runtime startup continuation isolation verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');
+const connection = fs.readFileSync('entry/src/main/ets/services/ConnectionController.ets', 'utf8');
+const health = fs.readFileSync('entry/src/main/ets/core/RuntimeHealth.ets', 'utf8');
+const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeController.ets', 'utf8');
+const vpn = fs.readFileSync('entry/src/main/ets/vpn/HeyVpnAbility.ets', 'utf8');
+if (!connection.includes('vpnSessionId: string;') ||
+  !connection.includes('vpnSessionId: this.vpnSessionId')) {
+  throw new Error('runtime snapshots no longer expose the owning VPN session for diagnostic matching');
+}
+if (!health.includes('expectedSessionId: string') || !health.includes('eventDetails: string | undefined') ||
+  !health.includes('eventDetails.startsWith(`${marker};`)')) {
+  throw new Error('VPN diagnostic errors are not matched to the exact active session');
+}
+const applyAt = runtime.indexOf('  private async applyDiagnosticError(');
+const apply = runtime.slice(applyAt);
+const refreshAt = runtime.indexOf('  async refresh(context: common.Context, language: AppLanguage)');
+const reconcileCallAt = runtime.indexOf('await this.reconcilePersistedVpnState(context, language);', refreshAt);
+const diagnosticPrecheckAt = runtime.indexOf('await this.applyPendingVpnDiagnosticError(context, language);', refreshAt);
+if (applyAt < 0 || refreshAt < 0 || diagnosticPrecheckAt < refreshAt || reconcileCallAt < diagnosticPrecheckAt ||
+  !apply.includes('for (let index = 0; index < events.length; index++)') ||
+  !apply.includes('connection.vpnSessionId') || !apply.includes('candidate.details')) {
+  throw new Error('cleanup info/state can hide a fatal current-session VPN diagnostic');
+}
+if (!vpn.includes("this.emitInfo('VPN runtime state heartbeat write failed; retrying.'") ||
+  !vpn.includes("`session=${this.sessionId}; error=${this.errorMessage(error)}`") ||
+  !vpn.includes("`session=${this.sessionId}; ${details}`")) {
+  throw new Error('recoverable heartbeat failures or fatal VPN diagnostics have incorrect severity/session identity');
+}
+NODE
+printf 'VPN diagnostic session/severity verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
 const vpn = fs.readFileSync('entry/src/main/ets/vpn/HeyVpnAbility.ets', 'utf8');
 const createAt = vpn.indexOf('const creatingConnection = vpnExtension.createVpnConnection(this.context);');
 const createAwait = vpn.indexOf('await creatingConnection.create(vpnConfig);', createAt);

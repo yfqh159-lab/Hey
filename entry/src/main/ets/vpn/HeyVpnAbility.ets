@@ -521,7 +521,8 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         `core=${this.activeCoreType}; session=${this.sessionId}`);
     } catch (error) {
       if (sessionGeneration === this.sessionGeneration && !this.stopRequested && !this.cleaningUp) {
-        this.emitError('Core reload after underlying network change failed.', this.errorMessage(error));
+        this.emitError('Core reload after underlying network change failed.',
+          `session=${this.sessionId}; error=${this.errorMessage(error)}`);
         this.requestCleanup('Network handover recovery failed; cleaning up without reconnecting.',
           `session=${this.sessionId}`);
       }
@@ -779,7 +780,9 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       } else {
         this.runtimeStateWriteFailureCount++;
         if (this.runtimeStateWriteFailureCount === 1) {
-          this.emitError('VPN runtime state heartbeat write failed; retrying.',
+          // 单次状态文件写入失败仍由 Extension 自行重试，不能让前台把可恢复抖动当作
+          // 致命 VPN error 而提前拆除健康数据面。达到阈值后才发出会话级 error。
+          this.emitInfo('VPN runtime state heartbeat write failed; retrying.',
             `session=${this.sessionId}`);
         }
         if (shouldCleanupAfterVpnRuntimeStateWriteFailures(this.runtimeStateWriteFailureCount)) {
@@ -813,7 +816,8 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     if (this.unhealthySampleCount < UNHEALTHY_SAMPLE_LIMIT || this.cleaningUp) {
       return;
     }
-    this.emitError('VPN runtime became unhealthy; cleaning up without reconnecting.', details);
+    this.emitError('VPN runtime became unhealthy; cleaning up without reconnecting.',
+      `session=${this.sessionId}; ${details}`);
     this.requestCleanup('Unhealthy VPN runtime cleanup requested.', `session=${this.sessionId}`);
   }
 

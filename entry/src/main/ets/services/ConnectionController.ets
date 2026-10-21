@@ -43,6 +43,8 @@ export interface ConnectionSnapshot {
   generatedConfig: GeneratedXrayConfig | null;
   // 本次连接实际使用的内核（可能因 anytls/tuic 被强制切到 sing-box）。
   coreType: CoreType;
+  // 只用于把 Extension 诊断事件归属到当前 TUN 会话；不向界面展示。
+  vpnSessionId: string;
 }
 
 export class ConnectionController {
@@ -74,7 +76,8 @@ export class ConnectionController {
       startedAt: this.startedAt,
       lastError: this.lastError,
       generatedConfig: this.generatedConfig,
-      coreType: this.effectiveCoreType
+      coreType: this.effectiveCoreType,
+      vpnSessionId: this.vpnSessionId
     };
   }
 
