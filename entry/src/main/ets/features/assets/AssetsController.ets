@@ -179,6 +179,15 @@ export class AssetsController {
     }));
   }
 
+  async clearGeoUpdateMetadata(context: common.Context): Promise<void> {
+    // 清理与保存必须共用同一个单任务闩锁和截止时间。ArkData
+    // Promise 超时不代表底层操作已取消；在它真正结算前拒绝再次
+    // 写入，避免迟到的清理删掉之后一次成功检查的新记录。
+    await this.runGeoMetadataStoreOperation(
+      (): Promise<void> => AssetStore.clearGeoUpdateMetadata(context)
+    );
+  }
+
   private releaseCustomAssetsLoad(promise: Promise<Array<CustomAssetUrl>>): void {
     if (this.customAssetsLoadInFlight === promise) {
       this.customAssetsLoadInFlight = null;

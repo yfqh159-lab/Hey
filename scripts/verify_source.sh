@@ -201,7 +201,7 @@ const load = page.slice(loadAt, loadEnd);
 if (loadAt < 0 || loadEnd < 0 ||
   !load.includes('await ASSETS_CONTROLLER.loadGeoUpdateMetadata(context)') ||
   !load.includes('await ASSETS_CONTROLLER.isBuiltinGeoMetadataCurrent(context, metadata)') ||
-  !load.includes('await AssetStore.clearGeoUpdateMetadata(context);') ||
+  !load.includes('await ASSETS_CONTROLLER.clearGeoUpdateMetadata(context);') ||
   !load.includes("this.geoUpdateSummary = this.t('assets.geo.defaultSource');") ||
   !load.includes('return false;') || !load.includes('return true;')) {
   throw new Error('Assets page can display stale Geo verification metadata');
@@ -347,6 +347,25 @@ if ! grep -Fq "const GEO_METADATA_STORE_DEADLINE_MS: number = 5000;" "${geo_cont
   throw_error "Geo metadata writes must be bounded and single-flight"
 fi
 printf 'bounded Geo metadata storage verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
+const controller = fs.readFileSync('entry/src/main/ets/features/assets/AssetsController.ets', 'utf8');
+const page = fs.readFileSync('entry/src/main/ets/pages/Assets.ets', 'utf8');
+const clearStart = controller.indexOf('  async clearGeoUpdateMetadata(context: common.Context): Promise<void> {');
+const clearEnd = controller.indexOf('\n  private ', clearStart);
+if (clearStart < 0 || clearEnd < 0) {
+  throw new Error('bounded Geo metadata clear method is missing');
+}
+const clearBody = controller.slice(clearStart, clearEnd);
+if (!clearBody.includes('this.runGeoMetadataStoreOperation(') ||
+  !clearBody.includes('AssetStore.clearGeoUpdateMetadata(context)') ||
+  page.includes('AssetStore.clearGeoUpdateMetadata(context)') ||
+  (page.match(/ASSETS_CONTROLLER\.clearGeoUpdateMetadata\(context\)/g) ?? []).length !== 2) {
+  throw new Error('Geo metadata cleanup bypasses the bounded single-flight storage path');
+}
+NODE
+printf 'bounded Geo metadata cleanup verification passed\n'
 
 if ! grep -Fq "private customAssetsLoadInFlight: Promise<Array<CustomAssetUrl>> | null = null;" \
   "${geo_controller}" || \

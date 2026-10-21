@@ -1334,7 +1334,7 @@ struct AssetsPage {
       // 陈旧记录不能继续宣称当前文件属于某版本或某 SHA。清理失败时本页仍先隐藏它；
       // 后续再次检查更新可重建可信记录。
       try {
-        await AssetStore.clearGeoUpdateMetadata(context);
+        await ASSETS_CONTROLLER.clearGeoUpdateMetadata(context);
       } catch (error) {
         // ignore stale-record cleanup failure
       }
@@ -1378,7 +1378,7 @@ struct AssetsPage {
   private async clearGeoMetadata(pageGeneration?: number): Promise<void> {
     const context = this.getUIContext().getHostContext() as common.Context;
     try {
-      await AssetStore.clearGeoUpdateMetadata(context);
+      await ASSETS_CONTROLLER.clearGeoUpdateMetadata(context);
     } catch (error) {
       // File operation already succeeded; stale verification metadata must not remain visible.
     }
