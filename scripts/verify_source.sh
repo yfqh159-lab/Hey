@@ -4,6 +4,39 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
+required_project_files=(
+  AppScope/app.json5
+  AppScope/resources/base/media/layered_image.json
+  entry/build-profile.json5
+  entry/hvigorfile.ts
+  entry/oh-package.json5
+  entry/src/main/module.json5
+  entry/src/main/resources/base/media/startIcon.png
+  entry/src/main/resources/base/media/ic_qr_code.svg
+  entry/src/main/resources/base/profile/main_pages.json
+  entry/src/main/resources/base/profile/form_config.json
+)
+for required_file in "${required_project_files[@]}"; do
+  if [[ ! -s "${required_file}" ]]; then
+    printf 'missing required project file: %s\n' "${required_file}" >&2
+    printf 'If this is a sparse checkout, run: git sparse-checkout add AppScope entry\n' >&2
+    exit 1
+  fi
+done
+
+# A sparse clone can look clean while build-critical tracked files are absent from disk.
+# Reject skipped AppScope/entry paths when verification runs inside a Git checkout;
+# source archives still get the explicit file checks above.
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  skipped_project_files="$(git ls-files -t AppScope entry | awk '$1 == "S" { print $2 }')"
+  if [[ -n "${skipped_project_files}" ]]; then
+    printf 'build-critical files are excluded by sparse checkout:\n%s\n' "${skipped_project_files}" >&2
+    printf 'Run: git sparse-checkout add AppScope entry\n' >&2
+    exit 1
+  fi
+fi
+printf 'project skeleton verification passed\n'
+
 git diff --check
 ./scripts/compliance_scan.sh
 ./scripts/verify_prebuilt_native.sh
