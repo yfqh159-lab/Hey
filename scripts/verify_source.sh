@@ -539,6 +539,7 @@ const fs = require('fs');
 
 const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeController.ets', 'utf8');
 const networkScene = fs.readFileSync('entry/src/main/ets/services/NetworkSceneManager.ets', 'utf8');
+const entryAbility = fs.readFileSync('entry/src/main/ets/entryability/EntryAbility.ets', 'utf8');
 if (!runtime.includes('private egressCheckGeneration: number = 0;') ||
   !runtime.includes('this.egressCheckGeneration++') ||
   !runtime.includes('isCurrentEgressCheck(')) {
@@ -551,8 +552,16 @@ if (invalidateAt < 0 || recoverAt < 0 || recheckAt < 0 ||
   !(invalidateAt < recoverAt && recoverAt < recheckAt)) {
   throw new Error('network handover must invalidate stale egress checks before recovery and recheck');
 }
+if (!networkScene.includes('const MAX_REGISTER_RETRIES: number = 3;') ||
+  !networkScene.includes('private handleRegisterFailure(') ||
+  !networkScene.includes('private scheduleRegisterRetry(') ||
+  !networkScene.includes('this.registerRetryCount >= MAX_REGISTER_RETRIES') ||
+  !networkScene.includes('if (owner !== undefined && this.context !== owner)') ||
+  !entryAbility.includes('NETWORK_SCENE_MANAGER.stop(this.context);')) {
+  throw new Error('network listener registration is not bounded-retry and UIAbility-owner safe');
+}
 NODE
-printf 'egress handover generation verification passed\n'
+printf 'egress handover and listener lifecycle verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');

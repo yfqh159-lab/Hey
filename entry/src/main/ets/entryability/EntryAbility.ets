@@ -93,7 +93,7 @@ export default class EntryAbility extends UIAbility {
   }
 
   onDestroy(): void {
-    NETWORK_SCENE_MANAGER.stop();
+    NETWORK_SCENE_MANAGER.stop(this.context);
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onDestroy');
   }
 
