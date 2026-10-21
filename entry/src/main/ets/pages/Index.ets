@@ -372,17 +372,19 @@ struct Index {
         }
         const added = await SUBSCRIPTIONS_CONTROLLER.addGroup(context, name, intent.payload, '', '', '', '', false, this.language);
         if (SubscriptionStore.findGroupByUrl(added.subscriptionGroups, intent.payload) === null) {
-          this.lastError = added.subscriptionMessage;
+          this.lastError = redactDiagnosticText(added.subscriptionMessage);
           SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
           return;
         }
         this.applySubscriptionsState(added);
         this.applyNodesState(await NODES_CONTROLLER.load(context, this.language));
-        SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('log.deepLinkSub', 'name', name));
+        SHARED_RUNTIME_CONTROLLER.appendLog(
+          this.f1('log.deepLinkSub', 'name', redactDiagnosticText(name))
+        );
       } else {
         const validation = NODES_CONTROLLER.validateConfig(intent.payload, this.language);
         if (!validation.valid) {
-          this.lastError = validation.message;
+          this.lastError = redactDiagnosticText(validation.message);
           return;
         }
         const nodeName = this.nodeNameFromOutbound(validation.normalizedJson);
@@ -392,12 +394,14 @@ struct Index {
           validation.normalizedJson,
           validation.configType
         )) {
-          this.lastError = this.f1('scanner.duplicateNode', 'name', nodeName);
+          this.lastError = this.f1('scanner.duplicateNode', 'name', redactDiagnosticText(nodeName));
           SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
           return;
         }
         this.applyNodesState(await NODES_CONTROLLER.load(context, this.language));
-        SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('log.deepLinkConfig', 'name', nodeName));
+        SHARED_RUNTIME_CONTROLLER.appendLog(
+          this.f1('log.deepLinkConfig', 'name', redactDiagnosticText(nodeName))
+        );
       }
     } catch (error) {
       this.lastError = this.f1('error.deepLinkImport', 'error', redactDiagnosticText(JSON.stringify(error)));
@@ -569,12 +573,14 @@ struct Index {
     const name = subscriptionNameFromDeepLink(url);
     const added = await SUBSCRIPTIONS_CONTROLLER.addGroup(context, name, url, '', '', '', '', false, this.language);
     if (SubscriptionStore.findGroupByUrl(added.subscriptionGroups, url) === null) {
-      this.lastError = added.subscriptionMessage;
+      this.lastError = redactDiagnosticText(added.subscriptionMessage);
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
       return false;
     }
     this.applySubscriptionsState(added);
-    SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('log.sharedSubscriptionAdded', 'name', name));
+    SHARED_RUNTIME_CONTROLLER.appendLog(
+      this.f1('log.sharedSubscriptionAdded', 'name', redactDiagnosticText(name))
+    );
     return true;
   }
 
@@ -588,11 +594,17 @@ struct Index {
         validation.normalizedJson,
         validation.configType
       )) {
-        SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('scanner.duplicateNode', 'name', nodeName));
+        SHARED_RUNTIME_CONTROLLER.appendLog(
+          this.f1('scanner.duplicateNode', 'name', redactDiagnosticText(nodeName))
+        );
         return 0;
       }
       SHARED_RUNTIME_CONTROLLER.appendLog(
-        this.f1('log.deepLinkConfig', 'name', this.nodeNameFromOutbound(validation.normalizedJson))
+        this.f1(
+          'log.deepLinkConfig',
+          'name',
+          redactDiagnosticText(this.nodeNameFromOutbound(validation.normalizedJson))
+        )
       );
       return 1;
     }
@@ -612,7 +624,7 @@ struct Index {
           parsedNode.configType
         );
         if (!imported.valid) {
-          lastValidationError = imported.message;
+          lastValidationError = redactDiagnosticText(imported.message);
           continue;
         }
         if (await this.addExternalNodeIfUnique(
@@ -639,7 +651,8 @@ struct Index {
     const nativeResult = convertNativeShareTextToOutbounds(payload);
     if (!nativeResult.ok) {
       this.lastError = nativeResult.message.length > 0 ?
-        `${validation.message}\n${nativeResult.message}` : validation.message;
+        redactDiagnosticText(`${validation.message}\n${nativeResult.message}`) :
+        redactDiagnosticText(validation.message);
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
       return 0;
     }
@@ -650,7 +663,7 @@ struct Index {
       const outbound = nativeResult.outbounds[index];
       const imported = NODES_CONTROLLER.validateConfig(outbound.outboundJson, this.language, 'outbound');
       if (!imported.valid) {
-        lastValidationError = imported.message;
+        lastValidationError = redactDiagnosticText(imported.message);
         continue;
       }
       const nodeName = resolveImportedNodeName(imported.normalizedJson, outbound.name);
@@ -660,7 +673,9 @@ struct Index {
         imported.normalizedJson,
         imported.configType
       )) {
-        SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('scanner.duplicateNode', 'name', nodeName));
+        SHARED_RUNTIME_CONTROLLER.appendLog(
+          this.f1('scanner.duplicateNode', 'name', redactDiagnosticText(nodeName))
+        );
         continue;
       }
       importedCount++;

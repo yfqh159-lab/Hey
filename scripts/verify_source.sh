@@ -84,8 +84,11 @@ printf 'manual connection policy translation verification passed\n'
 # the raw payload into a screenshot-visible message.
 if grep -Fq '${intent.payload}' entry/src/main/ets/pages/Index.ets ||
   grep -Fq '${payload}' entry/src/main/ets/pages/Index.ets ||
-  grep -qE 'message:[[:space:]]*(intent[.]payload|payload)' entry/src/main/ets/pages/Index.ets; then
-  printf 'raw external import payload was exposed in an Index dialog message\n' >&2
+  grep -qE 'message:[[:space:]]*(intent[.]payload|payload)' entry/src/main/ets/pages/Index.ets ||
+  grep -Fq 'this.lastError = validation.message;' entry/src/main/ets/pages/Index.ets ||
+  ! grep -Fq "'name', redactDiagnosticText(nodeName)" entry/src/main/ets/pages/Index.ets ||
+  ! grep -Fq 'lastValidationError = redactDiagnosticText(imported.message);' entry/src/main/ets/pages/Index.ets; then
+  printf 'external import payload or derived diagnostics were exposed by Index\n' >&2
   exit 1
 fi
 printf 'external import confirmation redaction verification passed\n'
