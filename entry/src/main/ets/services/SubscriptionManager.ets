@@ -351,6 +351,20 @@ export class SubscriptionManager {
     return isProxyOnlyRuntimeMode(mode) ? LOCAL_HTTP_PROXY_PORT : VPN_INTERNAL_HTTP_PROXY_PORT;
   }
 
+  static resolvePersistedSubscriptionProxyPort(
+    vpnMayOwnNetwork: boolean,
+    controlCardRunning: boolean,
+    controlCardVpnBacked: boolean
+  ): number {
+    if (vpnMayOwnNetwork) {
+      return VPN_INTERNAL_HTTP_PROXY_PORT;
+    }
+    if (!controlCardRunning) {
+      return 0;
+    }
+    return controlCardVpnBacked ? VPN_INTERNAL_HTTP_PROXY_PORT : LOCAL_HTTP_PROXY_PORT;
+  }
+
   static validateSubscriptionUrl(url: string, allowInsecureUrl: boolean): string {
     const trimmedUrl = url.trim();
     if (!SubscriptionManager.isHttpUrl(trimmedUrl)) {

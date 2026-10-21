@@ -6,7 +6,8 @@ import { DiagnosticLog } from '../services/DiagnosticLog';
 import { SubscriptionBackgroundScheduler } from '../services/SubscriptionBackgroundScheduler';
 import { SubscriptionManager } from '../services/SubscriptionManager';
 import { VpnRuntimeStateStore } from '../services/VpnRuntimeStateStore';
-import { APP_MODE_VPN } from '../core/Profile';
+import { CONTROL_CARD_STOP_URI } from '../core/ControlCard';
+import { ControlCardStore } from '../storage/ControlCardStore';
 
 export default class SubscriptionUpdateWorkAbility extends WorkSchedulerExtensionAbility {
   onWorkStart(work: workScheduler.WorkInfo): void {
@@ -28,12 +29,15 @@ export default class SubscriptionUpdateWorkAbility extends WorkSchedulerExtensio
     try {
       const settings = await SETTINGS_CONTROLLER.load(context);
       const groupId = this.workGroupId(work);
-      // WorkScheduler 位于独立进程，不能依赖 UI 单例。active 状态即使心跳稍旧也按
-      // “可能仍持有 VPN”处理：只尝试内部代理，失败不把私密订阅 URL 降级到直连。
+      // WorkScheduler 不能依赖 UI 单例。VPN 状态即使心跳稍旧也按“可能仍持有 VPN”
+      // 处理；控制卡片状态补足本地代理模式。崩溃留下的运行态宁可令回环请求失败，
+      // 也不把包含 Token/Basic Auth 的订阅 URL 降级到物理网络直连。
       const vpnState = VpnRuntimeStateStore.read(context);
-      const proxyPort = SubscriptionManager.resolveSubscriptionProxyPort(
-        APP_MODE_VPN,
-        vpnState !== null && vpnState.active
+      const controlCardState = await ControlCardStore.loadState(context);
+      const proxyPort = SubscriptionManager.resolvePersistedSubscriptionProxyPort(
+        vpnState !== null && vpnState.active,
+        controlCardState.primaryActionUri === CONTROL_CARD_STOP_URI,
+        controlCardState.vpnBacked
       );
       const result = groupId.length > 0
         ? await SUBSCRIPTIONS_CONTROLLER.updateDueGroup(

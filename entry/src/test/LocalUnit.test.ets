@@ -4196,6 +4196,14 @@ export default function localUnitTest() {
         .assertEqual(LOCAL_HTTP_PROXY_PORT);
       expect(SubscriptionManager.resolveSubscriptionProxyPort(APP_MODE_VPN, false)).assertEqual(0);
       expect(SubscriptionManager.resolveSubscriptionProxyPort(APP_MODE_PROXY_ONLY, false)).assertEqual(0);
+
+      expect(SubscriptionManager.resolvePersistedSubscriptionProxyPort(true, false, false))
+        .assertEqual(VPN_INTERNAL_HTTP_PROXY_PORT);
+      expect(SubscriptionManager.resolvePersistedSubscriptionProxyPort(false, true, true))
+        .assertEqual(VPN_INTERNAL_HTTP_PROXY_PORT);
+      expect(SubscriptionManager.resolvePersistedSubscriptionProxyPort(false, true, false))
+        .assertEqual(LOCAL_HTTP_PROXY_PORT);
+      expect(SubscriptionManager.resolvePersistedSubscriptionProxyPort(false, false, false)).assertEqual(0);
     });
 
     it('moves subscription groups without mutating the source list', 0, () => {
