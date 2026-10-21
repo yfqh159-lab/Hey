@@ -38,7 +38,7 @@
     },
     {
       "name": "control_card_desc",
-      "value": "Toggle the tunnel connection and open the scanner"
+      "value": "Open Hey to confirm connection controls or scan a new QR code"
     },
     {
       "name": "control_card_badge",
@@ -50,7 +50,7 @@
     },
     {
       "name": "control_card_hint",
-      "value": "Toggle the current node, start/stop directly, or scan a new QR code."
+      "value": "Open Hey to confirm switching, starting, or stopping; scanning opens directly."
     },
     {
       "name": "control_card_toggle",

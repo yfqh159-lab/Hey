@@ -38,7 +38,7 @@
     },
     {
       "name": "control_card_desc",
-      "value": "快速开关隧道连接并打开扫码"
+      "value": "打开 Hey 确认连接操作，或直接进入扫码"
     },
     {
       "name": "control_card_badge",
@@ -50,7 +50,7 @@
     },
     {
       "name": "control_card_hint",
-      "value": "切换当前节点，直接启动/停止，或扫码导入新配置。"
+      "value": "切换、启动和停止会打开 Hey 请求确认；扫码可直接进入。"
     },
     {
       "name": "control_card_toggle",

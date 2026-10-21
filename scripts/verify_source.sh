@@ -122,6 +122,49 @@ for (const [name, keys] of maps) {
   }
 }
 console.log(`translation key consistency passed: ${expected.length} keys`);
+
+function resourceStringKeys(file) {
+  const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (!Array.isArray(parsed.string)) {
+    throw new Error(`${file} does not contain a string resource array`);
+  }
+  const keys = parsed.string.map((entry) => entry.name);
+  if (new Set(keys).size !== keys.length) {
+    throw new Error(`${file} contains duplicate string resources`);
+  }
+  for (const entry of parsed.string) {
+    if (typeof entry.name !== 'string' || entry.name.length === 0 ||
+      typeof entry.value !== 'string' || entry.value.length === 0) {
+      throw new Error(`${file} contains an invalid string resource`);
+    }
+  }
+  return keys;
+}
+
+function verifyResourceCatalog(files) {
+  const baseline = resourceStringKeys(files[0]);
+  for (const file of files.slice(1)) {
+    const keys = resourceStringKeys(file);
+    const missing = baseline.filter((key) => !keys.includes(key));
+    const extra = keys.filter((key) => !baseline.includes(key));
+    if (missing.length > 0 || extra.length > 0) {
+      throw new Error(`${file} resource mismatch: missing=${missing.join(',')} extra=${extra.join(',')}`);
+    }
+  }
+  return baseline.length;
+}
+
+const moduleResourceCount = verifyResourceCatalog([
+  'entry/src/main/resources/base/element/string.json',
+  'entry/src/main/resources/en_US/element/string.json',
+  'entry/src/main/resources/zh_CN/element/string.json'
+]);
+const appResourceCount = verifyResourceCatalog([
+  'AppScope/resources/base/element/string.json',
+  'AppScope/resources/en_US/element/string.json',
+  'AppScope/resources/zh_CN/element/string.json'
+]);
+console.log(`system string resource consistency passed: module=${moduleResourceCount}, app=${appResourceCount}`);
 NODE
 
 printf 'source verification passed\n'
