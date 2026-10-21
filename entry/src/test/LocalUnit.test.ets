@@ -88,7 +88,7 @@ import { normalizeIpApiUrl, parseRemoteIpInfoContent } from '../main/ets/service
 import { canMeasureRuntimeDelayProfile, resolveRuntimeDelayTestUrls } from '../main/ets/services/RuntimeDelay';
 import { SubscriptionManager } from '../main/ets/services/SubscriptionManager';
 import { buildTextShareWant } from '../main/ets/services/SystemShare';
-import { DEFAULT_APP_SETTINGS } from '../main/ets/storage/SettingsStore';
+import { DEFAULT_APP_SETTINGS, SettingsStore } from '../main/ets/storage/SettingsStore';
 import { formatBytes, formatDuration } from '../main/ets/utils/Formatters';
 import { formatOne, localizedProfileSavedText, localizeCoreMessage, localizeDiagnosticHeartbeat } from '../main/ets/utils/LocalizationPresenter';
 import { isScanCancelled } from '../main/ets/utils/QrScan';
@@ -415,6 +415,31 @@ export default function localUnitTest() {
       expect(recovered.profile?.updatedAt ?? 0).assertEqual(101);
       expect(ProfileStore.selectStoredProfile('{}', '{broken').source).assertEqual('invalid');
       expect(ProfileStore.selectStoredProfile('', '').source).assertEqual('empty');
+    });
+
+    it('does not silently turn unreadable saved proxy mode settings into TUN defaults', 0, () => {
+      const localProxySettings: AppSettings = {
+        ...DEFAULT_APP_SETTINGS,
+        mode: APP_MODE_PROXY_ONLY,
+        localSocksPort: 19080
+      };
+      const raw = JSON.stringify(localProxySettings);
+
+      const primary = SettingsStore.selectStoredSettings(raw, '{broken');
+      expect(primary.source).assertEqual('primary');
+      expect(primary.settings?.mode ?? '').assertEqual(APP_MODE_PROXY_ONLY);
+
+      const recovered = SettingsStore.selectStoredSettings('{broken', raw);
+      expect(recovered.source).assertEqual('backup');
+      expect(recovered.settings?.localSocksPort ?? 0).assertEqual(19080);
+
+      const invalid = SettingsStore.selectStoredSettings('{}', '{also-broken');
+      expect(invalid.source).assertEqual('invalid');
+      expect(invalid.settings === null).assertTrue();
+
+      const empty = SettingsStore.selectStoredSettings('', '');
+      expect(empty.source).assertEqual('empty');
+      expect(empty.settings?.mode ?? '').assertEqual(APP_MODE_VPN);
     });
   });
 

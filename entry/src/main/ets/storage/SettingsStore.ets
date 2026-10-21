@@ -32,6 +32,7 @@ import { isReservedAppRuntimePort } from '../core/XrayConfig';
 
 const PREFERENCES_NAME: string = 'hey_vpn_settings';
 const SETTINGS_KEY: string = 'app_settings';
+const SETTINGS_BACKUP_KEY: string = 'app_settings_backup';
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   language: DEFAULT_LANGUAGE,
@@ -101,30 +102,62 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   netAutomationCellularTrusted: false
 };
 
+export interface StoredSettingsSelection {
+  settings: AppSettings | null;
+  source: string;
+}
+
 export class SettingsStore {
   static async load(context: common.Context): Promise<AppSettings> {
-    try {
-      const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-      const rawValue = await store.get(SETTINGS_KEY, '');
-      const raw = rawValue.toString();
-      if (raw.length === 0) {
-        return SettingsStore.copy(DEFAULT_APP_SETTINGS);
-      }
-      return SettingsStore.normalize(JSON.parse(raw) as AppSettings);
-    } catch (error) {
-      return SettingsStore.copy(DEFAULT_APP_SETTINGS);
+    const store = await preferences.getPreferences(context, PREFERENCES_NAME);
+    const primaryRaw = (await store.get(SETTINGS_KEY, '')).toString();
+    const backupRaw = (await store.get(SETTINGS_BACKUP_KEY, '')).toString();
+    const selection = SettingsStore.selectStoredSettings(primaryRaw, backupRaw);
+    if (selection.settings !== null && selection.source !== 'backup') {
+      return selection.settings;
     }
+    if (selection.settings !== null) {
+      try {
+        await store.put(SETTINGS_KEY, JSON.stringify(selection.settings));
+        await store.flush();
+      } catch (_error) {
+        // keep recovered in-memory value
+      }
+      return selection.settings;
+    }
+    throw new Error('Stored application settings are unreadable; defaults were not applied over existing data.');
+  }
+
+  static selectStoredSettings(primaryRaw: string, backupRaw: string): StoredSettingsSelection {
+    if (primaryRaw.length === 0 && backupRaw.length === 0) {
+      return { settings: SettingsStore.copy(DEFAULT_APP_SETTINGS), source: 'empty' };
+    }
+    const primary = SettingsStore.parseStoredSettings(primaryRaw);
+    if (primary !== null) {
+      return { settings: primary, source: 'primary' };
+    }
+    const backup = SettingsStore.parseStoredSettings(backupRaw);
+    if (backup !== null) {
+      return { settings: backup, source: 'backup' };
+    }
+    return { settings: null, source: 'invalid' };
   }
 
   static async save(context: common.Context, settings: AppSettings): Promise<AppSettings> {
     const normalized = SettingsStore.normalize(settings);
-    try {
-      const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-      await store.put(SETTINGS_KEY, JSON.stringify(normalized));
-      await store.flush();
-    } catch (error) {
-      // ignore
+    const store = await preferences.getPreferences(context, PREFERENCES_NAME);
+    const nextRaw = JSON.stringify(normalized);
+    const currentRaw = (await store.get(SETTINGS_KEY, '')).toString();
+    if (SettingsStore.parseStoredSettings(currentRaw) !== null) {
+      await store.put(SETTINGS_BACKUP_KEY, currentRaw);
+    } else {
+      const backupRaw = (await store.get(SETTINGS_BACKUP_KEY, '')).toString();
+      if (SettingsStore.parseStoredSettings(backupRaw) === null) {
+        await store.put(SETTINGS_BACKUP_KEY, nextRaw);
+      }
     }
+    await store.put(SETTINGS_KEY, nextRaw);
+    await store.flush();
     return normalized;
   }
 
@@ -132,6 +165,27 @@ export class SettingsStore {
     const settings = await SettingsStore.load(context);
     settings.language = language;
     return SettingsStore.save(context, settings);
+  }
+
+  private static parseStoredSettings(raw: string): AppSettings | null {
+    if (raw.length === 0) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(raw) as AppSettings;
+      if (parsed === null || typeof parsed !== 'object') {
+        return null;
+      }
+      const record = parsed as Record<string, Object>;
+      if (record['language'] === undefined && record['mode'] === undefined &&
+        record['speedEnabled'] === undefined && record['confirmRemove'] === undefined &&
+        record['remoteDns'] === undefined && record['vpnDns'] === undefined) {
+        return null;
+      }
+      return SettingsStore.normalize(parsed);
+    } catch (_error) {
+      return null;
+    }
   }
 
   private static normalize(raw: AppSettings): AppSettings {
