@@ -19,8 +19,15 @@ const CONTROL_CARD_REFRESH_INTERVAL_MS: number = 3000;
 export class ControlCardManager {
   private lastSyncAt: number = 0;
   private lastImmediateKey: string = '';
+  // 同一进程内首页周期同步、Form 系统刷新和 Extension 清理可能同时更新同一表单。
+  // 按调用顺序串行，避免旧“运行中”系统调用比后来的停止更新更晚完成并覆盖卡片。
+  private operationTail: Promise<void> = Promise.resolve();
 
   async registerForm(context: common.Context, formId: string): Promise<void> {
+    return this.enqueueOperation((): Promise<void> => this.registerFormNow(context, formId));
+  }
+
+  private async registerFormNow(context: common.Context, formId: string): Promise<void> {
     if (formId.length === 0) {
       return;
     }
@@ -29,6 +36,10 @@ export class ControlCardManager {
   }
 
   async unregisterForm(context: common.Context, formId: string): Promise<void> {
+    return this.enqueueOperation((): Promise<void> => this.unregisterFormNow(context, formId));
+  }
+
+  private async unregisterFormNow(context: common.Context, formId: string): Promise<void> {
     if (formId.length === 0) {
       return;
     }
@@ -36,6 +47,10 @@ export class ControlCardManager {
   }
 
   async refreshForm(context: common.Context, formId: string): Promise<void> {
+    return this.enqueueOperation((): Promise<void> => this.refreshFormNow(context, formId));
+  }
+
+  private async refreshFormNow(context: common.Context, formId: string): Promise<void> {
     if (formId.length === 0) {
       return;
     }
@@ -52,6 +67,20 @@ export class ControlCardManager {
     runtimeMode: AppRuntimeMode,
     cleanupRequired: boolean = false
   ): Promise<void> {
+    return this.enqueueOperation((): Promise<void> => this.syncNow(
+      context, status, elapsedText, language, lastError, vpnBacked, runtimeMode, cleanupRequired));
+  }
+
+  private async syncNow(
+    context: common.Context,
+    status: ConnectionStatus,
+    elapsedText: string,
+    language: AppLanguage,
+    lastError: string,
+    vpnBacked: boolean,
+    runtimeMode: AppRuntimeMode,
+    cleanupRequired: boolean
+  ): Promise<void> {
     const now = Date.now();
     const immediateKey = `${language}|${status}|${lastError}|${vpnBacked}|${runtimeMode}|${cleanupRequired}`;
     if (this.shouldSkipSync(now, immediateKey)) {
@@ -65,6 +94,18 @@ export class ControlCardManager {
     }
     this.lastSyncAt = now;
     this.lastImmediateKey = immediateKey;
+  }
+
+  private enqueueOperation(operation: () => Promise<void>): Promise<void> {
+    const task = this.operationTail.then(
+      (): Promise<void> => operation(),
+      (): Promise<void> => operation()
+    );
+    this.operationTail = task.then(
+      (): void => {},
+      (_error: Object): void => {}
+    );
+    return task;
   }
 
   // 启动数据面前先等待这一步，给 WorkScheduler 等独立进程一个持久的 fail-closed

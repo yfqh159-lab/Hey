@@ -681,6 +681,27 @@ if (loadAt < 0 || updateAt < 0 || persistedReadAt < 0 || vpnProbeAt < persistedR
 NODE
 printf 'authoritative control-card VPN reconciliation verification passed\n'
 
+node <<'NODE'
+const fs = require('fs');
+const source = fs.readFileSync('entry/src/main/ets/services/ControlCardManager.ets', 'utf8');
+for (const method of ['registerForm', 'unregisterForm', 'refreshForm', 'sync']) {
+  const methodAt = source.indexOf(`  async ${method}(`);
+  const nextPrivateAt = source.indexOf('\n  private async ', methodAt);
+  const wrapper = source.slice(methodAt, nextPrivateAt);
+  if (methodAt < 0 || nextPrivateAt < 0 || !wrapper.includes('return this.enqueueOperation(')) {
+    throw new Error(`${method} bypasses serialized control-card manager operations`);
+  }
+}
+if (!source.includes('private operationTail: Promise<void> = Promise.resolve();') ||
+  !source.includes('this.operationTail = task.then(') ||
+  !source.includes('async persistRuntimeState(') ||
+  source.slice(source.indexOf('async persistRuntimeState('), source.indexOf('  private shouldSkipSync('))
+    .includes('this.enqueueOperation(')) {
+  throw new Error('control-card manager queue is missing or startup persistence is blocked by form updates');
+}
+NODE
+printf 'control-card manager operation ordering verification passed\n'
+
 # Foreground settings changes and a WorkScheduler callback can both reconcile subscription
 # jobs. Serialize the complete stop/start/index-write operation and avoid recursive queue entry
 # when sync discovers that every group is disabled.
