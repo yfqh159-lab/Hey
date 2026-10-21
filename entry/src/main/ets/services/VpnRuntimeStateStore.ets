@@ -13,6 +13,7 @@ export interface PersistedVpnRuntimeState {
   startedAt: number;
   heartbeatAt: number;
   coreType: string;
+  profileUpdatedAt?: number;
   xrayRunning: boolean;
   tunRunning: boolean;
 }
@@ -25,6 +26,9 @@ export function parsePersistedVpnRuntimeState(content: string): PersistedVpnRunt
       typeof value.heartbeatAt !== 'number' || typeof value.coreType !== 'string' ||
       typeof value.xrayRunning !== 'boolean' || typeof value.tunRunning !== 'boolean' ||
       value.startedAt <= 0 || value.heartbeatAt < 0 ||
+      (value.profileUpdatedAt !== undefined &&
+        (typeof value.profileUpdatedAt !== 'number' || Number.isNaN(value.profileUpdatedAt) ||
+          value.profileUpdatedAt < 0 || Math.floor(value.profileUpdatedAt) !== value.profileUpdatedAt)) ||
       (value.coreType !== 'xray' && value.coreType !== 'singbox')) {
       return null;
     }
@@ -126,13 +130,19 @@ export class VpnRuntimeStateStore {
     }
   }
 
-  static stopped(sessionId: string, startedAt: number, coreType: string): PersistedVpnRuntimeState {
+  static stopped(
+    sessionId: string,
+    startedAt: number,
+    coreType: string,
+    profileUpdatedAt: number = 0
+  ): PersistedVpnRuntimeState {
     return {
       sessionId,
       active: false,
       startedAt,
       heartbeatAt: Date.now(),
       coreType: coreType === 'singbox' ? 'singbox' : 'xray',
+      profileUpdatedAt,
       xrayRunning: false,
       tunRunning: false
     };

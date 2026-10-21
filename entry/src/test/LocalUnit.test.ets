@@ -71,7 +71,7 @@ import {
   sortNodes
 } from '../main/ets/features/nodes/NodeOperations';
 import { SETTINGS_CONTROLLER } from '../main/ets/features/settings/SettingsController';
-import { settingsForRecoveredVpn } from '../main/ets/features/runtime/RuntimeController';
+import { recoveredVpnProfileMatches, settingsForRecoveredVpn } from '../main/ets/features/runtime/RuntimeController';
 import { filterSettings, SettingGroup, SettingItem, SETTINGS_CATALOG } from '../main/ets/features/settings/SettingsCatalog';
 import { APP_HTTP_USER_AGENT } from '../main/ets/core/HttpDefaults';
 import { normalizeIpApiUrl, parseRemoteIpInfoContent } from '../main/ets/services/RemoteIpInfo';
@@ -2585,6 +2585,10 @@ export default function localUnitTest() {
       const recovered = settingsForRecoveredVpn(settings);
       expect(recovered.mode).assertEqual(APP_MODE_VPN);
       expect(settings.mode).assertEqual(APP_MODE_PROXY_ONLY);
+      expect(recoveredVpnProfileMatches(undefined, 20)).assertTrue();
+      expect(recoveredVpnProfileMatches(0, 20)).assertTrue();
+      expect(recoveredVpnProfileMatches(20, 20)).assertTrue();
+      expect(recoveredVpnProfileMatches(10, 20)).assertFalse();
     });
 
     it('detects a stopped local proxy core without applying UI-process stats to VPN mode', 0, () => {
@@ -2777,6 +2781,7 @@ export default function localUnitTest() {
         startedAt: 50000,
         heartbeatAt: now - 1000,
         coreType: 'xray',
+        profileUpdatedAt: 123456,
         xrayRunning: true,
         tunRunning: true
       };
@@ -2791,6 +2796,10 @@ export default function localUnitTest() {
       expect(isPersistedVpnRuntimeHealthy(healthy, now)).assertFalse();
       healthy.heartbeatAt = now - 1000;
       expect(parsePersistedVpnRuntimeState(JSON.stringify(healthy))?.sessionId).assertEqual('session-1');
+      expect(parsePersistedVpnRuntimeState(JSON.stringify(healthy))?.profileUpdatedAt).assertEqual(123456);
+      healthy.profileUpdatedAt = -1;
+      expect(parsePersistedVpnRuntimeState(JSON.stringify(healthy))).assertEqual(null);
+      healthy.profileUpdatedAt = 123456;
       expect(parsePersistedVpnRuntimeState('{"active":true}')).assertEqual(null);
     });
 

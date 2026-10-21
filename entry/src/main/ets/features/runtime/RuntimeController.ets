@@ -50,6 +50,10 @@ export function settingsForRecoveredVpn(settings: AppSettings): AppSettings {
   return recovered;
 }
 
+export function recoveredVpnProfileMatches(persistedUpdatedAt: number | undefined, currentUpdatedAt: number): boolean {
+  return persistedUpdatedAt === undefined || persistedUpdatedAt <= 0 || persistedUpdatedAt === currentUpdatedAt;
+}
+
 export class RuntimeController {
   private controller: ConnectionController = new ConnectionController();
   private status: ConnectionStatus = ConnectionStatus.IDLE;
@@ -76,6 +80,8 @@ export class RuntimeController {
   private egressIpChecking: boolean = false;
   private lastProxyHealthProbeAt: number = 0;
   private proxyUnhealthySampleCount: number = 0;
+  private recoveredProfileUpdatedAt: number = 0;
+  private recoveredProfileMismatch: boolean = false;
 
   async start(context: common.Context, profile: ProxyProfile, settings: AppSettings, language: AppLanguage): Promise<RuntimeViewState> {
     this.runtimeMode = normalizeAppRuntimeMode(settings.mode, APP_MODE_VPN);
@@ -84,6 +90,7 @@ export class RuntimeController {
     this.resetConnectionDelay();
     this.resetEgressIp();
     this.resetProxyHealth();
+    this.resetRecoveredProfileIdentity();
     this.appendLog(this.runtimeMode === APP_MODE_PROXY_ONLY ? translate(language, 'log.startingProxy') : translate(language, 'log.startingVpn'));
     const snapshot = await this.controller.start(context, profile, settings);
     this.applySnapshot(snapshot, language);
@@ -115,6 +122,7 @@ export class RuntimeController {
       this.runtimeMode = APP_MODE_VPN;
       this.activeProfile = null;
       this.activeSettings = null;
+      this.resetRecoveredProfileIdentity();
     }
     return this.refresh(context, language);
   }
@@ -132,6 +140,7 @@ export class RuntimeController {
     this.runtimeMode = APP_MODE_VPN;
     this.activeProfile = null;
     this.activeSettings = null;
+    this.resetRecoveredProfileIdentity();
     this.resetConnectionDelay();
     this.resetEgressIp();
   }
@@ -158,6 +167,15 @@ export class RuntimeController {
     language: AppLanguage
   ): RuntimeViewState {
     if (this.status !== ConnectionStatus.RUNNING || this.activeProfile !== null) {
+      return this.snapshot();
+    }
+    if (!recoveredVpnProfileMatches(this.recoveredProfileUpdatedAt, profile.updatedAt)) {
+      if (!this.recoveredProfileMismatch) {
+        this.recoveredProfileMismatch = true;
+        this.appendLog(translate(language, 'runtime.vpnProfileMismatch'));
+      }
+      this.resetConnectionDelay();
+      this.resetEgressIp();
       return this.snapshot();
     }
     const recoveredSettings = settingsForRecoveredVpn(settings);
@@ -219,6 +237,8 @@ export class RuntimeController {
       const snapshot = this.controller.reconcileRunning(persisted.startedAt, persisted.coreType);
       this.applySnapshot(snapshot, language);
       this.runtimeMode = APP_MODE_VPN;
+      this.recoveredProfileUpdatedAt = persisted.profileUpdatedAt ?? 0;
+      this.recoveredProfileMismatch = false;
       if (healthy) {
         this.appendLog(translate(language, 'runtime.vpnSessionRecovered'));
         return;
@@ -553,6 +573,7 @@ export class RuntimeController {
     this.lastError = message;
     this.activeProfile = null;
     this.activeSettings = null;
+    this.resetRecoveredProfileIdentity();
     this.resetConnectionDelay();
     this.resetEgressIp();
     this.appendLog(message);
@@ -569,6 +590,7 @@ export class RuntimeController {
     this.lastError = message;
     this.activeProfile = null;
     this.activeSettings = null;
+    this.resetRecoveredProfileIdentity();
     this.resetConnectionDelay();
     this.resetEgressIp();
     this.appendLog(message);
@@ -602,6 +624,11 @@ export class RuntimeController {
     if (this.proxyUnhealthySampleCount >= LOCAL_PROXY_UNHEALTHY_SAMPLE_LIMIT) {
       await this.cleanupUnhealthyProxy(context, language);
     }
+  }
+
+  private resetRecoveredProfileIdentity(): void {
+    this.recoveredProfileUpdatedAt = 0;
+    this.recoveredProfileMismatch = false;
   }
 
   private resetProxyHealth(): void {

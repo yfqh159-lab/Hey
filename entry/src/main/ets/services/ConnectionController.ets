@@ -100,7 +100,7 @@ export class ConnectionController {
     const useSingbox = isSingboxCore(coreType) || forceSingbox;
     this.effectiveCoreType = useSingbox ? CORE_TYPE_SINGBOX : CORE_TYPE_XRAY;
     if (useSingbox) {
-      return this.startSingbox(context, validation.normalizedJson, validation.configType, settings);
+      return this.startSingbox(context, validation.normalizedJson, validation.configType, profile.updatedAt, settings);
     }
 
     const runtimeSettings = validation.configType === 'full' ? settings : this.resolveRuntimeSettings(settings);
@@ -130,7 +130,8 @@ export class ConnectionController {
       await this.withTimeout(vpnExtension.startVpnExtensionAbility(createVpnWant(
         this.generatedConfig.configJson,
         CORE_TYPE_XRAY,
-        this.generatedConfig.runtimeHealthPort ?? VPN_DATA_SOCKS_PORT
+        this.generatedConfig.runtimeHealthPort ?? VPN_DATA_SOCKS_PORT,
+        profile.updatedAt
       )), START_VPN_TIMEOUT_MS, '启动 VPN 超时：系统 VPN 授权服务没有响应。若 hilog 中出现 com.huawei.hmos.vpndialog bundle not exist，说明当前系统镜像缺少 VPN 授权组件，请改用真机测试。');
       hilog.info(LOG_DOMAIN, LOG_TAG, 'startVpnExtensionAbility returned.');
       const startEvent = await this.waitForDiagnosticEvent(context, requestedAt, START_VPN_READY_TIMEOUT_MS, (event: DiagnosticEvent) => {
@@ -162,6 +163,7 @@ export class ConnectionController {
     context: common.Context,
     normalizedJson: string,
     configType: string | undefined,
+    profileUpdatedAt: number,
     settings?: AppSettings
   ): Promise<ConnectionSnapshot> {
     const mode = normalizeAppRuntimeMode(settings?.mode, APP_MODE_VPN);
@@ -195,7 +197,8 @@ export class ConnectionController {
       await this.withTimeout(vpnExtension.startVpnExtensionAbility(createVpnWant(
         generated.configJson,
         CORE_TYPE_SINGBOX,
-        VPN_DATA_SOCKS_PORT
+        VPN_DATA_SOCKS_PORT,
+        profileUpdatedAt
       )), START_VPN_TIMEOUT_MS, '启动 VPN 超时：系统 VPN 授权服务没有响应。若为模拟器缺少 VPN 授权组件，请改用真机测试。');
       const startEvent = await this.waitForDiagnosticEvent(context, requestedAt, START_VPN_READY_TIMEOUT_MS, (event: DiagnosticEvent) => {
         return event.source === 'vpn' && (event.message === VPN_STARTED_MESSAGE || event.message === VPN_START_FAILED_MESSAGE);

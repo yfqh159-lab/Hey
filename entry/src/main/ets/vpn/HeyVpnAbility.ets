@@ -11,7 +11,8 @@ import {
   normalizeVpnMtu,
   VPN_COMMAND_KEY,
   VPN_COMMAND_STOP,
-  VPN_HEALTH_PORT_KEY
+  VPN_HEALTH_PORT_KEY,
+  VPN_PROFILE_UPDATED_AT_KEY
 } from './VpnConstants';
 import { SETTINGS_CONTROLLER } from '../features/settings/SettingsController';
 import {
@@ -79,6 +80,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   private sessionId: string = '';
   private startedAt: number = 0;
   private activeCoreType: string = 'xray';
+  private activeProfileUpdatedAt: number = 0;
   private activeLanguage: AppLanguage = DEFAULT_LANGUAGE;
   private lastRuntimeStateAt: number = 0;
   private cleaningUp: boolean = false;
@@ -99,10 +101,12 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     this.startedAt = Date.now();
     this.sessionId = this.startedAt.toString();
     this.activeCoreType = isSingboxCore(this.getStringParameter(want, 'coreType', 'xray')) ? 'singbox' : 'xray';
+    this.activeProfileUpdatedAt = this.getNonNegativeIntegerParameter(want, VPN_PROFILE_UPDATED_AT_KEY);
     // 新会话尚未完成核心 + TUN 启动，先覆盖上次可能残留的 active 心跳。只有完整数据面
     // 就绪后 startVpn 才会写 active=true，主进程重建时不会把“启动中”误接管为已连接。
     VpnRuntimeStateStore.write(this.context,
-      VpnRuntimeStateStore.stopped(this.sessionId, this.startedAt, this.activeCoreType));
+      VpnRuntimeStateStore.stopped(
+        this.sessionId, this.startedAt, this.activeCoreType, this.activeProfileUpdatedAt));
     this.emitInfo('VPN ability created.', `session=${this.sessionId}`);
     if (this.isStopCommand(want)) {
       this.requestCleanup('VPN stop command received on create.', 'startId=0');
@@ -230,6 +234,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         startedAt: this.startedAt,
         heartbeatAt: this.lastRuntimeStateAt,
         coreType: this.activeCoreType,
+        profileUpdatedAt: this.activeProfileUpdatedAt,
         xrayRunning: true,
         tunRunning: true
       });
@@ -329,6 +334,14 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     return value.toString();
   }
 
+  private getNonNegativeIntegerParameter(want: Want, key: string): number {
+    const parsed = Number(this.getStringParameter(want, key, '0'));
+    if (Number.isNaN(parsed) || parsed < 0) {
+      return 0;
+    }
+    return Math.floor(parsed);
+  }
+
   private isStopCommand(want: Want): boolean {
     return this.getStringParameter(want, VPN_COMMAND_KEY, '') === VPN_COMMAND_STOP;
   }
@@ -358,7 +371,11 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       do {
         this.cleanupAgainRequested = false;
         VpnRuntimeStateStore.write(this.context,
-          VpnRuntimeStateStore.stopped(this.sessionId, this.startedAt > 0 ? this.startedAt : Date.now(), this.activeCoreType));
+          VpnRuntimeStateStore.stopped(
+            this.sessionId,
+            this.startedAt > 0 ? this.startedAt : Date.now(),
+            this.activeCoreType,
+            this.activeProfileUpdatedAt));
         this.stopNetScenePoll();
         this.stopStatsTimer();
         this.emitInfo('VPN cleanup started.', `tunFd=${this.tunFd}`);
@@ -492,6 +509,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         startedAt: this.startedAt,
         heartbeatAt: now,
         coreType: this.activeCoreType,
+        profileUpdatedAt: this.activeProfileUpdatedAt,
         xrayRunning: stats.xrayRunning,
         tunRunning: stats.tunRunning
       });
