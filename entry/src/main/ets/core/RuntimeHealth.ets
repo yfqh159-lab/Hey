@@ -1,4 +1,5 @@
 import {
+  APP_MODE_VPN,
   APP_MODE_PROXY_ONLY,
   ConnectionStatus,
   RuntimeStats,
@@ -17,4 +18,18 @@ export function isProxyOnlyRuntimeUnhealthy(
 ): boolean {
   return normalizeAppRuntimeMode(mode) === APP_MODE_PROXY_ONLY &&
     status === ConnectionStatus.RUNNING && !stats.xrayRunning;
+}
+
+/**
+ * VPN 运行态连续读不到跨进程状态时才判定异常，容忍一次短暂文件替换/读取失败；
+ * 本地代理不使用该状态文件，空闲和启停中也不能据此触发清理。
+ */
+export function isMissingVpnRuntimeStateUnhealthy(
+  mode: string | undefined,
+  status: ConnectionStatus,
+  missingSamples: number,
+  sampleLimit: number = 3
+): boolean {
+  return normalizeAppRuntimeMode(mode) === APP_MODE_VPN &&
+    status === ConnectionStatus.RUNNING && sampleLimit > 0 && missingSamples >= sampleLimit;
 }

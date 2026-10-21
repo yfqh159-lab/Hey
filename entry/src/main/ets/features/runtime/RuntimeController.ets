@@ -1,7 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { DEFAULT_LANGUAGE, translate } from '../../core/I18n';
 import { shouldExposeLocalHttpProxy } from '../../core/LocalProxy';
-import { isProxyOnlyRuntimeUnhealthy } from '../../core/RuntimeHealth';
+import { isMissingVpnRuntimeStateUnhealthy, isProxyOnlyRuntimeUnhealthy } from '../../core/RuntimeHealth';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppLanguage, AppRuntimeMode, AppSettings, ConnectionStatus, normalizeAppRuntimeMode, ProxyProfile, RuntimeStats } from '../../core/Profile';
 import { LOCAL_HTTP_PROXY_PORT, VPN_INTERNAL_HTTP_PROXY_PORT } from '../../core/XrayConfig';
 import { CoreSelectionStore, isSingboxCore } from '../../core/CoreSelection';
@@ -27,6 +27,7 @@ const EMPTY_STATS: RuntimeStats = {
 };
 const LOCAL_PROXY_HEALTH_INTERVAL_MS: number = 5000;
 const LOCAL_PROXY_UNHEALTHY_SAMPLE_LIMIT: number = 2;
+const MISSING_VPN_STATE_SAMPLE_LIMIT: number = 3;
 
 export interface RuntimeViewState {
   status: ConnectionStatus;
@@ -82,6 +83,7 @@ export class RuntimeController {
   private proxyUnhealthySampleCount: number = 0;
   private recoveredProfileUpdatedAt: number = 0;
   private recoveredProfileMismatch: boolean = false;
+  private missingVpnStateSampleCount: number = 0;
 
   async start(context: common.Context, profile: ProxyProfile, settings: AppSettings, language: AppLanguage): Promise<RuntimeViewState> {
     this.runtimeMode = normalizeAppRuntimeMode(settings.mode, APP_MODE_VPN);
@@ -90,6 +92,7 @@ export class RuntimeController {
     this.resetConnectionDelay();
     this.resetEgressIp();
     this.resetProxyHealth();
+    this.missingVpnStateSampleCount = 0;
     this.resetRecoveredProfileIdentity();
     this.appendLog(this.runtimeMode === APP_MODE_PROXY_ONLY ? translate(language, 'log.startingProxy') : translate(language, 'log.startingVpn'));
     const snapshot = await this.controller.start(context, profile, settings);
@@ -110,6 +113,7 @@ export class RuntimeController {
     this.resetConnectionDelay();
     this.resetEgressIp();
     this.resetProxyHealth();
+    this.missingVpnStateSampleCount = 0;
     this.appendLog(stoppingMode === APP_MODE_PROXY_ONLY ? translate(language, 'log.stoppingProxy') : translate(language, 'log.stoppingVpn'));
     const snapshot = await this.controller.stop(context);
     this.applySnapshot(snapshot, language);
@@ -143,6 +147,7 @@ export class RuntimeController {
     this.resetRecoveredProfileIdentity();
     this.resetConnectionDelay();
     this.resetEgressIp();
+    this.missingVpnStateSampleCount = 0;
   }
 
   // 运行中按传入的新 Profile 热切换：先停后启。非运行态直接返回当前快照，调用方无需自行判断。
@@ -219,8 +224,22 @@ export class RuntimeController {
     }
     const persisted = VpnRuntimeStateStore.read(context);
     if (persisted === null) {
+      if (this.status === ConnectionStatus.RUNNING) {
+        this.missingVpnStateSampleCount++;
+        if (isMissingVpnRuntimeStateUnhealthy(
+          this.runtimeMode,
+          this.status,
+          this.missingVpnStateSampleCount,
+          MISSING_VPN_STATE_SAMPLE_LIMIT
+        )) {
+          await this.cleanupUnhealthyVpn(context, language);
+        }
+      } else {
+        this.missingVpnStateSampleCount = 0;
+      }
       return;
     }
+    this.missingVpnStateSampleCount = 0;
 
     if (!persisted.active) {
       if (this.status === ConnectionStatus.RUNNING) {
@@ -580,6 +599,7 @@ export class RuntimeController {
     this.resetRecoveredProfileIdentity();
     this.resetConnectionDelay();
     this.resetEgressIp();
+    this.missingVpnStateSampleCount = 0;
     this.appendLog(message);
   }
 

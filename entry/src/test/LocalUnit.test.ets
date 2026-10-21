@@ -32,7 +32,7 @@ import { CustomAssetUrl } from '../main/ets/storage/AssetStore';
 import { ProxyProfile, SubscriptionProfile } from '../main/ets/core/Profile';
 import { decideRuntimeSettingsRestart } from '../main/ets/core/SettingsChange';
 import { decideActiveNodeRemovalAction, decideConfigChangeAction, decideNodeSwitchAction } from '../main/ets/core/RuntimeReconnect';
-import { isProxyOnlyRuntimeUnhealthy } from '../main/ets/core/RuntimeHealth';
+import { isMissingVpnRuntimeStateUnhealthy, isProxyOnlyRuntimeUnhealthy } from '../main/ets/core/RuntimeHealth';
 import { proxyConfigDedupeKey } from '../main/ets/core/NodeDedupe';
 import { isSingboxOnlyProtocol, requiredCoreForProtocol, CORE_TYPE_SINGBOX, CORE_TYPE_XRAY } from '../main/ets/core/CoreSelection';
 import {
@@ -2671,6 +2671,16 @@ export default function localUnitTest() {
         lastMessage: 'running'
       };
       expect(isProxyOnlyRuntimeUnhealthy(APP_MODE_PROXY_ONLY, ConnectionStatus.RUNNING, runningStats)).assertFalse();
+    });
+
+    it('requires consecutive missing VPN state samples before cleanup', 0, () => {
+      expect(isMissingVpnRuntimeStateUnhealthy(APP_MODE_VPN, ConnectionStatus.RUNNING, 1)).assertFalse();
+      expect(isMissingVpnRuntimeStateUnhealthy(APP_MODE_VPN, ConnectionStatus.RUNNING, 2)).assertFalse();
+      expect(isMissingVpnRuntimeStateUnhealthy(APP_MODE_VPN, ConnectionStatus.RUNNING, 3)).assertTrue();
+      expect(isMissingVpnRuntimeStateUnhealthy(APP_MODE_PROXY_ONLY, ConnectionStatus.RUNNING, 3)).assertFalse();
+      expect(isMissingVpnRuntimeStateUnhealthy(APP_MODE_VPN, ConnectionStatus.IDLE, 3)).assertFalse();
+      expect(isMissingVpnRuntimeStateUnhealthy(APP_MODE_VPN, ConnectionStatus.RUNNING, 1, 1)).assertTrue();
+      expect(isMissingVpnRuntimeStateUnhealthy(APP_MODE_VPN, ConnectionStatus.RUNNING, 3, 0)).assertFalse();
     });
 
     it('parses current connection IP API responses', 0, () => {
