@@ -10,6 +10,8 @@ import {
   GeoRecoveryAction,
   GeoTransactionState,
   MAX_GEO_DATA_BYTES,
+  MAX_GEO_HTTP_DATA_BYTES,
+  MAX_GEO_TEXT_BYTES,
   encodeGeoTransactionState,
   isAllowedGeoAssetRedirect,
   isPlausibleGeoData,
@@ -508,6 +510,9 @@ export class AssetsController {
       const options: http.HttpRequestOptions = {
         method: http.RequestMethod.GET,
         expectDataType: http.HttpDataType.STRING,
+        // request() 会把结果整体返回；在解析前由 Network Kit 硬性限制响应体，既防止
+        // 异常元数据耗尽内存，也避免依赖实现默认值。
+        maxLimit: MAX_GEO_TEXT_BYTES,
         readTimeout: 30000,
         connectTimeout: 15000,
         usingCache: false,
@@ -537,14 +542,26 @@ export class AssetsController {
         throw new Error(`HTTP ${response.responseCode}`);
       }
       if (typeof response.result === 'string') {
+        if (response.result.length > MAX_GEO_TEXT_BYTES) {
+          throw new Error('HTTP text response is too large');
+        }
         return response.result;
       }
       if (response.result instanceof ArrayBuffer) {
+        if (response.result.byteLength > MAX_GEO_TEXT_BYTES) {
+          throw new Error('HTTP text response is too large');
+        }
         const decoder = util.TextDecoder.create('utf-8');
         return decoder.decodeToString(new Uint8Array(response.result));
       }
       const objectText = JSON.stringify(response.result);
-      return objectText === undefined ? '' : objectText;
+      if (objectText === undefined) {
+        return '';
+      }
+      if (objectText.length > MAX_GEO_TEXT_BYTES) {
+        throw new Error('HTTP text response is too large');
+      }
+      return objectText;
     } finally {
       request.destroy();
     }
@@ -564,6 +581,9 @@ export class AssetsController {
       const options: http.HttpRequestOptions = {
         method: http.RequestMethod.GET,
         expectDataType: http.HttpDataType.ARRAY_BUFFER,
+        // Geo 数据可能超过 Network Kit 的 5 MiB 默认上限。100 MiB 是该字段的官方
+        // 最大值；完成后还会再次校验实际长度、发布声明大小、格式和 SHA-256。
+        maxLimit: MAX_GEO_HTTP_DATA_BYTES,
         readTimeout: 60000,
         connectTimeout: 15000,
         usingCache: false,
@@ -594,6 +614,9 @@ export class AssetsController {
       }
       if (!(response.result instanceof ArrayBuffer)) {
         throw new Error('HTTP response did not contain binary data');
+      }
+      if (response.result.byteLength > MAX_GEO_HTTP_DATA_BYTES) {
+        throw new Error('HTTP binary response is too large');
       }
       return response.result;
     } finally {

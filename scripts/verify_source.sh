@@ -223,6 +223,17 @@ if (!assetStore.includes('private static operationTail: Promise<void> = Promise.
 NODE
 printf 'installed Geo metadata verification passed\n'
 
+geo_controller="entry/src/main/ets/features/assets/AssetsController.ets"
+if ! grep -q 'maxLimit: MAX_GEO_TEXT_BYTES' "${geo_controller}" ||
+  ! grep -q 'maxLimit: MAX_GEO_HTTP_DATA_BYTES' "${geo_controller}" ||
+  ! grep -q "response.result.byteLength > MAX_GEO_HTTP_DATA_BYTES" "${geo_controller}" ||
+  ! grep -q "response.result.byteLength > MAX_GEO_TEXT_BYTES" "${geo_controller}"; then
+  throw_error='Geo HTTP responses are not bounded before and after materialization'
+  echo "${throw_error}" >&2
+  exit 1
+fi
+printf 'bounded Geo HTTP response verification passed\n'
+
 # These legacy resources described removed automatic-connect/fastest-node features.
 # Their return would contradict the single-node, user-controlled runtime model even if
 # no current page referenced them, so keep their identifiers out of the translation map.

@@ -9,6 +9,12 @@ export const DEFAULT_GEO_RELEASE_DOWNLOAD_PREFIX: string =
 export const TRUSTED_GITHUB_ASSET_PREFIX: string = 'https://release-assets.githubusercontent.com/';
 export const MIN_GEO_DATA_BYTES: number = 1024;
 export const MAX_GEO_DATA_BYTES: number = 128 * 1024 * 1024;
+// Network Kit HttpRequestOptions.maxLimit 的官方最大值是 100 MiB。远端下载使用该
+// 边界；本地导入仍可在上面的 128 MiB 文件校验上限内工作。
+export const MAX_GEO_HTTP_DATA_BYTES: number = 100 * 1024 * 1024;
+// GitHub Release 元数据和单文件校验和都应是很小的文本。给 HTTP 层单独设置上限，
+// 避免异常端点在 JSON/校验解析前把无界响应整体装入应用内存。
+export const MAX_GEO_TEXT_BYTES: number = 2 * 1024 * 1024;
 
 export const BUILTIN_GEO_DATA_FILE_NAMES: Array<string> = [
   GEOSITE_FILE_NAME,
@@ -166,7 +172,7 @@ export function parseDefaultGeoRelease(content: string): GeoManifestParseResult 
         !isTrustedReleaseAssetUrl(checksumUrl, version, `${fileName}.sha256sum`)) {
         return failedManifest(`release contains an untrusted URL for ${fileName}`);
       }
-      if (declaredSize < MIN_GEO_DATA_BYTES || declaredSize > MAX_GEO_DATA_BYTES) {
+      if (declaredSize < MIN_GEO_DATA_BYTES || declaredSize > MAX_GEO_HTTP_DATA_BYTES) {
         return failedManifest(`release contains an invalid size for ${fileName}`);
       }
       files.push({
