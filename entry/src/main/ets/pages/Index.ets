@@ -30,6 +30,7 @@ import {
   extractNodeEndpoint,
   filterNodes,
   findSelectedNodeLocation,
+  formatEndpointDescription,
   moveNodeWithinGroup,
   removeVisibleNodesFromGroups,
   removeVisibleTestFailedNodesFromGroups,
@@ -271,8 +272,8 @@ struct Index {
       this.confirmControlDeepLink(intent.action ?? '', intent.targetNodeId ?? '');
       return;
     }
-    // 深链来自应用外部（任意网页都能唤起），落地前必须让用户看到完整地址并显式确认，
-    // 否则等于任意页面都能诱导本机添加配置、甚至发起联网请求。
+    // 深链来自应用外部（任意网页都能唤起），落地前必须展示不含凭据的来源/节点摘要
+    // 并显式确认；完整 URL 可能含订阅 Token、UUID 或密码，不能直接放进可截图弹窗。
     if (intent.kind === 'sub') {
       const validationMessage = SubscriptionManager.validateSubscriptionUrl(intent.payload, false);
       if (validationMessage.length > 0) {
@@ -287,10 +288,11 @@ struct Index {
   private confirmDeepLinkIntent(intent: DeepLinkIntent): void {
     const isSub = intent.kind === 'sub';
     const hint = isSub ? this.t('deepLink.confirm.sub') : this.t('deepLink.confirm.config');
+    const summary = isSub ? this.safeSubscriptionImportSummary(intent.payload) : this.safeConfigImportSummary(intent.payload);
     try {
       this.getUIContext().showAlertDialog({
         title: this.t('deepLink.confirm.title'),
-        message: `${hint}\n\n${intent.payload}`,
+        message: `${hint}\n\n${summary}`,
         autoCancel: false,
         alignment: DialogAlignment.Bottom,
         offset: { dx: 0, dy: -20 },
@@ -410,10 +412,11 @@ struct Index {
   }
 
   private confirmSharedTextImport(payload: string): void {
+    const summary = this.safeSharedImportSummary(payload);
     try {
       this.getUIContext().showAlertDialog({
         title: this.t('sharedText.confirm.title'),
-        message: `${this.t('sharedText.confirm.message')}\n\n${payload}`,
+        message: `${this.t('sharedText.confirm.message')}\n\n${summary}`,
         autoCancel: false,
         alignment: DialogAlignment.Bottom,
         offset: { dx: 0, dy: -20 },
@@ -438,6 +441,63 @@ struct Index {
       // 无法显示确认框时安全失败，不能静默导入外部应用提供的内容。
       SHARED_RUNTIME_CONTROLLER.appendLog(this.t('sharedText.confirm.declined'));
     }
+  }
+
+  private safeSharedImportSummary(payload: string): string {
+    const lines = this.uniqueImportLines(payload);
+    const configLines = new Array<string>();
+    let firstSubscription = '';
+    let subscriptionCount = 0;
+    for (let index = 0; index < lines.length; index++) {
+      if (this.isSubscriptionImportLine(lines[index])) {
+        subscriptionCount++;
+        if (firstSubscription.length === 0) {
+          firstSubscription = lines[index];
+        }
+      } else {
+        configLines.push(lines[index]);
+      }
+    }
+
+    const sections = new Array<string>();
+    if (subscriptionCount > 0) {
+      sections.push(this.safeSubscriptionImportSummary(firstSubscription, subscriptionCount));
+    }
+    const configPayload = configLines.length === lines.length ? payload : configLines.join('\n');
+    if (configPayload.trim().length > 0) {
+      sections.push(this.safeConfigImportSummary(configPayload));
+    }
+    return sections.length > 0 ? sections.join('\n\n') : this.t('scanner.previewInvalid');
+  }
+
+  private safeSubscriptionImportSummary(url: string, count: number = 1): string {
+    const title = count > 1 ? this.f1('scanner.previewSubscriptions', 'count', count.toString()) :
+      this.t('scanner.previewSubscription');
+    const sourceHost = redactDiagnosticText(subscriptionNameFromDeepLink(url));
+    return `${title}\n${sourceHost}\n${this.t('scanner.previewSubscriptionDetail')}`;
+  }
+
+  private safeConfigImportSummary(payload: string): string {
+    const validation = NODES_CONTROLLER.validateConfig(payload, this.language);
+    if (validation.valid) {
+      const name = redactDiagnosticText(resolveImportedNodeName(
+        validation.normalizedJson,
+        this.t('import.sharedTextNodeName')
+      ));
+      const endpoint = extractNodeEndpoint(validation.normalizedJson);
+      const endpointText = formatEndpointDescription(endpoint.address, endpoint.port);
+      let detail = this.f1('scanner.previewProtocol', 'protocol', validation.protocol.toUpperCase());
+      if (endpointText.length > 0) {
+        detail += `\n${this.f1('scanner.previewEndpoint', 'endpoint', endpointText)}`;
+      }
+      return `${this.f1('scanner.previewNode', 'name', name)}\n${detail}`;
+    }
+
+    const parsedNodes = SubscriptionManager.parseSubscriptionContent(payload, '');
+    if (parsedNodes.length > 0) {
+      return `${this.f1('scanner.previewNodes', 'count', parsedNodes.length.toString())}\n${this.t('scanner.previewNodesDetail')}`;
+    }
+    return this.t('scanner.previewInvalid');
   }
 
   private async importSharedTextPayload(payload: string): Promise<void> {

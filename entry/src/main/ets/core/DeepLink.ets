@@ -267,8 +267,29 @@ function parameterText(value: Object | undefined): string {
 }
 
 export function subscriptionNameFromDeepLink(url: string): string {
-  const stripped = url.replace('https://', '').replace('http://', '');
-  const slash = stripped.indexOf('/');
-  const host = slash >= 0 ? stripped.substring(0, slash) : stripped;
+  const trimmed = url.trim();
+  const schemeEnd = trimmed.indexOf('://');
+  const authorityStart = schemeEnd >= 0 ? schemeEnd + 3 : 0;
+  let authorityEnd = trimmed.length;
+  const separators = ['/', '?', '#'];
+  for (let index = 0; index < separators.length; index++) {
+    const separatorIndex = trimmed.indexOf(separators[index], authorityStart);
+    if (separatorIndex >= 0 && separatorIndex < authorityEnd) {
+      authorityEnd = separatorIndex;
+    }
+  }
+  let authority = trimmed.substring(authorityStart, authorityEnd);
+  const userInfoEnd = authority.lastIndexOf('@');
+  if (userInfoEnd >= 0) {
+    authority = authority.substring(userInfoEnd + 1);
+  }
+  if (authority.startsWith('[')) {
+    const bracketEnd = authority.indexOf(']');
+    const ipv6Host = bracketEnd > 0 ? authority.substring(1, bracketEnd) : '';
+    return ipv6Host.length > 0 ? ipv6Host : 'Subscription';
+  }
+  const portSeparator = authority.lastIndexOf(':');
+  const host = portSeparator > 0 && authority.indexOf(':') === portSeparator ?
+    authority.substring(0, portSeparator) : authority;
   return host.length > 0 ? host : 'Subscription';
 }

@@ -79,6 +79,17 @@ if grep -qE "log[.]netAutomation(Connect|NoNode)|subscription[.]edit[.]autoSelec
 fi
 printf 'manual connection policy translation verification passed\n'
 
+# External deep links and shared text can contain subscription tokens, UUIDs and
+# passwords. Confirmation dialogs must use a derived redacted summary, never interpolate
+# the raw payload into a screenshot-visible message.
+if grep -Fq '${intent.payload}' entry/src/main/ets/pages/Index.ets ||
+  grep -Fq '${payload}' entry/src/main/ets/pages/Index.ets ||
+  grep -qE 'message:[[:space:]]*(intent[.]payload|payload)' entry/src/main/ets/pages/Index.ets; then
+  printf 'raw external import payload was exposed in an Index dialog message\n' >&2
+  exit 1
+fi
+printf 'external import confirmation redaction verification passed\n'
+
 if ! command -v node >/dev/null 2>&1; then
   printf 'node is required for the translation-key consistency check.\n' >&2
   exit 1
