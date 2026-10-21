@@ -64,6 +64,9 @@ export class ConnectionController {
   // 启动流程跨越设置读取、域名解析、系统授权与就绪确认。用户停止必须让所有迟到
   // continuation 失效，禁止它们在 stop 之后继续创建 VPN/核心或覆盖空闲状态。
   private startGeneration: number = 0;
+  // 停止失败意味着核心、TUN 或系统 VPN 仍可能存活。此标志清零前所有启动入口必须
+  // fail-closed，只允许用户重试停止，禁止在不确定资源上叠加第二套数据面。
+  private cleanupRequired: boolean = false;
 
   getSnapshot(): ConnectionSnapshot {
     return {
@@ -73,6 +76,10 @@ export class ConnectionController {
       generatedConfig: this.generatedConfig,
       coreType: this.effectiveCoreType
     };
+  }
+
+  requiresCleanup(sessionId?: string): boolean {
+    return this.cleanupRequired && (sessionId === undefined || this.vpnSessionId === sessionId);
   }
 
   getStats(): RuntimeStats {
@@ -98,6 +105,13 @@ export class ConnectionController {
   async start(context: common.Context, profile: ProxyProfile, settings?: AppSettings): Promise<ConnectionSnapshot> {
     if (this.status === ConnectionStatus.STARTING || this.status === ConnectionStatus.RUNNING ||
       this.status === ConnectionStatus.STOPPING) {
+      return this.getSnapshot();
+    }
+    if (this.cleanupRequired) {
+      this.status = ConnectionStatus.ERROR;
+      if (this.lastError.length === 0) {
+        this.lastError = '上次连接资源尚未确认清理，请先重试断开。';
+      }
       return this.getSnapshot();
     }
 
@@ -188,6 +202,7 @@ export class ConnectionController {
         }
         this.status = ConnectionStatus.RUNNING;
         this.startedAt = Date.now();
+        this.cleanupRequired = false;
         return this.getSnapshot();
       }
       const vpnSessionId = this.createVpnSessionId(requestedAt);
@@ -222,6 +237,7 @@ export class ConnectionController {
       }
       this.status = ConnectionStatus.RUNNING;
       this.startedAt = requestedAt;
+      this.cleanupRequired = false;
     } catch (error) {
       if (!this.isCurrentStart(startGeneration)) {
         return this.getSnapshot();
@@ -233,6 +249,9 @@ export class ConnectionController {
       hilog.error(LOG_DOMAIN, LOG_TAG, 'connection start failed: %{public}s', this.lastError);
       if (vpnStartRequested) {
         await this.stopFailedVpnStart();
+        // 系统 stop 调用成功只代表请求已受理，不等于 Extension 已完成 TUN/核心清理。
+        // 由持久运行状态确认 cleanupComplete 前保持 fail-closed。
+        this.cleanupRequired = true;
       }
     }
     return this.getSnapshot();
@@ -307,6 +326,7 @@ export class ConnectionController {
       }
       this.status = ConnectionStatus.RUNNING;
       this.startedAt = requestedAt;
+      this.cleanupRequired = false;
     } catch (error) {
       if (!this.isCurrentStart(startGeneration)) {
         return this.getSnapshot();
@@ -317,6 +337,7 @@ export class ConnectionController {
       hilog.error(LOG_DOMAIN, LOG_TAG, 'sing-box start failed: %{public}s', this.lastError);
       if (vpnStartRequested) {
         await this.stopFailedVpnStart();
+        this.cleanupRequired = true;
       }
     }
     return this.getSnapshot();
@@ -354,7 +375,11 @@ export class ConnectionController {
     if (healthPort !== undefined) {
       const ready = await waitForRuntimeSocksHealth(healthPort);
       if (!ready.ok) {
-        stopNativeXray();
+        const stopResult = stopNativeXray();
+        if (!stopResult.ok) {
+          this.cleanupRequired = true;
+          throw new Error(`本地代理 SOCKS 入口未就绪且核心清理失败：${ready.status}; ${stopResult.message}`);
+        }
         throw new Error(`本地代理 SOCKS 入口未就绪：${ready.status}`);
       }
     }
@@ -519,7 +544,8 @@ export class ConnectionController {
     // 网络切换恢复任务，保证用户停止后绝不发生迟到重启。
     this.proxyReloadGeneration++;
     this.startGeneration++;
-    if (this.status === ConnectionStatus.IDLE || this.status === ConnectionStatus.STOPPING) {
+    if ((this.status === ConnectionStatus.IDLE && !this.cleanupRequired) ||
+      this.status === ConnectionStatus.STOPPING) {
       return this.getSnapshot();
     }
 
@@ -535,6 +561,7 @@ export class ConnectionController {
         this.runtimeMode = APP_MODE_VPN;
         this.vpnSessionId = '';
         this.clearProxyReloadState();
+        this.cleanupRequired = false;
         return this.getSnapshot();
       }
       hilog.info(LOG_DOMAIN, LOG_TAG, 'Calling startVpnExtensionAbility with stop command.');
@@ -557,6 +584,7 @@ export class ConnectionController {
       this.lastError = '';
       this.vpnSessionId = '';
       this.clearProxyReloadState();
+      this.cleanupRequired = false;
       hilog.info(LOG_DOMAIN, LOG_TAG, 'VPN stop command completed.');
     } catch (error) {
       if (!systemStopAttempted) {
@@ -571,6 +599,7 @@ export class ConnectionController {
       }
       const businessError = error as BusinessError;
       this.status = ConnectionStatus.ERROR;
+      this.cleanupRequired = true;
       const action = this.runtimeMode === APP_MODE_PROXY_ONLY ? '停止仅代理模式失败' : '停止 VPN 失败';
       this.lastError = redactDiagnosticText(`${action}：${businessError.message ?? JSON.stringify(error)}`);
       hilog.error(LOG_DOMAIN, LOG_TAG, 'connection stop failed: %{public}s', this.lastError);
@@ -583,14 +612,32 @@ export class ConnectionController {
   reconcileStopped(): ConnectionSnapshot {
     this.proxyReloadGeneration++;
     this.startGeneration++;
-    if (this.status === ConnectionStatus.RUNNING || this.status === ConnectionStatus.STARTING) {
+    if (this.status === ConnectionStatus.RUNNING || this.status === ConnectionStatus.STARTING ||
+      (this.status === ConnectionStatus.ERROR && this.cleanupRequired)) {
       this.status = ConnectionStatus.IDLE;
       this.startedAt = 0;
       this.lastError = '';
       this.runtimeMode = APP_MODE_VPN;
       this.vpnSessionId = '';
       this.clearProxyReloadState();
+      this.cleanupRequired = false;
     }
+    return this.getSnapshot();
+  }
+
+  // UI 进程重建后若持久状态明确记录“已尝试清理但未完成”，恢复为只允许重试停止
+  // 的错误态，并保留会话 ID 让停止命令仍能精确指向残留 Extension。
+  reconcileCleanupRequired(sessionId: string, coreType: string, message: string): ConnectionSnapshot {
+    this.proxyReloadGeneration++;
+    this.startGeneration++;
+    this.status = ConnectionStatus.ERROR;
+    this.startedAt = 0;
+    this.lastError = message;
+    this.runtimeMode = APP_MODE_VPN;
+    this.effectiveCoreType = isSingboxCore(coreType) ? CORE_TYPE_SINGBOX : CORE_TYPE_XRAY;
+    this.vpnSessionId = sessionId;
+    this.clearProxyReloadState();
+    this.cleanupRequired = true;
     return this.getSnapshot();
   }
 
@@ -604,6 +651,7 @@ export class ConnectionController {
       this.runtimeMode = APP_MODE_VPN;
       this.effectiveCoreType = isSingboxCore(coreType) ? CORE_TYPE_SINGBOX : CORE_TYPE_XRAY;
       this.vpnSessionId = sessionId;
+      this.cleanupRequired = false;
     }
     return this.getSnapshot();
   }

@@ -12,7 +12,7 @@ import { LOCAL_HTTP_PROXY_PORT, VPN_INTERNAL_HTTP_PROXY_PORT } from '../../core/
 import { CoreSelectionStore, isSingboxCore } from '../../core/CoreSelection';
 import { ConnectionController, ConnectionSnapshot } from '../../services/ConnectionController';
 import { NetSceneStopFlag } from '../../services/NetSceneStopFlag';
-import { isPersistedVpnRuntimeHealthy, VpnRuntimeStateStore } from '../../services/VpnRuntimeStateStore';
+import { isPersistedVpnCleanupIncomplete, isPersistedVpnRuntimeHealthy, isPersistedVpnRuntimeSessionStopped, VpnRuntimeStateStore } from '../../services/VpnRuntimeStateStore';
 import { DiagnosticEvent, DiagnosticLog } from '../../services/DiagnosticLog';
 import { clearCoreLog, readCoreLogEntries } from '../../services/CoreLogReader';
 import { LogEntry, normalizeLogLevel } from '../logs/LogModel';
@@ -311,6 +311,34 @@ export class RuntimeController {
 
     if (!persisted.active) {
       this.resetUnhealthyVpnStateConfirmation();
+      if (isPersistedVpnCleanupIncomplete(persisted)) {
+        if (!this.controller.requiresCleanup()) {
+          const message = translate(language, 'runtime.vpnCleanupRequired');
+          const snapshot = this.controller.reconcileCleanupRequired(
+            persisted.sessionId,
+            persisted.coreType,
+            message
+          );
+          this.applySnapshot(snapshot, language);
+          this.appendLog(message);
+        }
+        this.runtimeMode = APP_MODE_VPN;
+        this.activeProfile = null;
+        this.activeSettings = null;
+        this.resetConnectionDelay();
+        this.resetEgressIp();
+        return;
+      }
+      if (this.controller.requiresCleanup(persisted.sessionId) &&
+        isPersistedVpnRuntimeSessionStopped(persisted, persisted.sessionId)) {
+        this.applySnapshot(this.controller.reconcileStopped(), language);
+        this.runtimeMode = APP_MODE_VPN;
+        this.activeProfile = null;
+        this.activeSettings = null;
+        this.resetConnectionDelay();
+        this.resetEgressIp();
+        return;
+      }
       if (this.status === ConnectionStatus.RUNNING) {
         this.reconcileStopped();
       }
@@ -425,6 +453,10 @@ export class RuntimeController {
 
   isVpnRunning(): boolean {
     return this.status === ConnectionStatus.RUNNING && this.runtimeMode === APP_MODE_VPN;
+  }
+
+  requiresCleanup(): boolean {
+    return this.controller.requiresCleanup();
   }
 
   runtimeStartedAt(): number {

@@ -947,8 +947,8 @@ struct Index {
       Circle()
         .width(168)
         .height(168)
-        .fill(this.isRunning() ? AppColor.brandTint : AppColor.surfaceAlt)
-        .opacity(this.isRunning() ? 1 : 0.6)
+        .fill(this.shouldStopBeforeStart() ? AppColor.brandTint : AppColor.surfaceAlt)
+        .opacity(this.shouldStopBeforeStart() ? 1 : 0.6)
 
       Column() {
         if (this.isBusy()) {
@@ -957,10 +957,10 @@ struct Index {
             .height(44)
             .color(this.isRunning() ? AppColor.onBrand : AppColor.brand)
         } else {
-          Image(this.isRunning() ? $r('app.media.ic_stop') : $r('app.media.ic_play_arrow'))
+          Image(this.shouldStopBeforeStart() ? $r('app.media.ic_stop') : $r('app.media.ic_play_arrow'))
             .width(44)
             .height(44)
-            .fillColor(this.isRunning() ? AppColor.onBrand : AppColor.brand)
+            .fillColor(this.shouldStopBeforeStart() ? AppColor.onBrand : AppColor.brand)
         }
       }
       .width(120)
@@ -968,16 +968,16 @@ struct Index {
       .borderRadius(60)
       .justifyContent(FlexAlign.Center)
       .alignItems(HorizontalAlign.Center)
-      .backgroundColor(this.isRunning() ? AppColor.brand : AppColor.surface)
-      .border(this.isRunning() ? { width: 0 } : { width: 1, color: AppColor.border })
-      .shadow(this.isRunning()
+      .backgroundColor(this.shouldStopBeforeStart() ? AppColor.brand : AppColor.surface)
+      .border(this.shouldStopBeforeStart() ? { width: 0 } : { width: 1, color: AppColor.border })
+      .shadow(this.shouldStopBeforeStart()
         ? { radius: Elevation.glow, color: AppColor.shadowBrand, offsetX: 0, offsetY: 8 }
         : { radius: Elevation.card, color: AppColor.shadowCard, offsetX: 0, offsetY: 4 })
       .onClick(() => {
         if (this.isBusy()) {
           return;
         }
-        if (this.isRunning()) {
+        if (this.shouldStopBeforeStart()) {
           this.stopConnection();
         } else {
           this.confirmCoreSwitchAndConnect();
@@ -1878,6 +1878,13 @@ struct Index {
       } catch (err) {
         // ignore
       }
+      return;
+    }
+
+    // 上次停止不完整时，“启动”入口（含外部确认/控制卡片）只能重试清理，不能在
+    // 未知残留资源上叠加新核心或 VPN；清理成功后由用户再次明确点击连接。
+    if (SHARED_RUNTIME_CONTROLLER.requiresCleanup()) {
+      await this.stopConnection();
       return;
     }
 
@@ -2861,6 +2868,10 @@ struct Index {
 
   private isRunning(): boolean {
     return this.status === ConnectionStatus.RUNNING;
+  }
+
+  private shouldStopBeforeStart(): boolean {
+    return this.isRunning() || SHARED_RUNTIME_CONTROLLER.requiresCleanup();
   }
 
   private isBusy(): boolean {

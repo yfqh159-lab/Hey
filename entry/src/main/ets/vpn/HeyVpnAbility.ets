@@ -686,7 +686,8 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         this.startedAt > 0 ? this.startedAt : Date.now(),
         this.activeCoreType,
         this.activeProfileUpdatedAt,
-        cleanupComplete));
+        cleanupComplete,
+        true));
     if (!stored) {
       this.emitError('VPN stopped state write failed.', `stage=${stage}; session=${this.sessionId}`);
     }

@@ -19,6 +19,7 @@ export interface PersistedVpnRuntimeState {
   xrayRunning: boolean;
   tunRunning: boolean;
   cleanupComplete?: boolean;
+  cleanupAttempted?: boolean;
 }
 
 export function parsePersistedVpnRuntimeState(content: string): PersistedVpnRuntimeState | null {
@@ -29,7 +30,9 @@ export function parsePersistedVpnRuntimeState(content: string): PersistedVpnRunt
       typeof value.heartbeatAt !== 'number' || typeof value.coreType !== 'string' ||
       typeof value.xrayRunning !== 'boolean' || typeof value.tunRunning !== 'boolean' ||
       (value.cleanupComplete !== undefined && typeof value.cleanupComplete !== 'boolean') ||
+      (value.cleanupAttempted !== undefined && typeof value.cleanupAttempted !== 'boolean') ||
       (value.cleanupComplete === true && (value.active || value.xrayRunning || value.tunRunning)) ||
+      (value.cleanupAttempted === true && (value.active || value.xrayRunning || value.tunRunning)) ||
       value.startedAt <= 0 || value.heartbeatAt < 0 ||
       (value.profileUpdatedAt !== undefined &&
         (typeof value.profileUpdatedAt !== 'number' || Number.isNaN(value.profileUpdatedAt) ||
@@ -41,6 +44,11 @@ export function parsePersistedVpnRuntimeState(content: string): PersistedVpnRunt
   } catch (error) {
     return null;
   }
+}
+
+export function isPersistedVpnCleanupIncomplete(state: PersistedVpnRuntimeState): boolean {
+  return state.cleanupAttempted === true && state.cleanupComplete !== true &&
+    !state.active && !state.xrayRunning && !state.tunRunning;
 }
 
 export function isPersistedVpnRuntimeHealthy(
@@ -170,7 +178,8 @@ export class VpnRuntimeStateStore {
     startedAt: number,
     coreType: string,
     profileUpdatedAt: number = 0,
-    cleanupComplete: boolean = false
+    cleanupComplete: boolean = false,
+    cleanupAttempted: boolean = false
   ): PersistedVpnRuntimeState {
     return {
       sessionId,
@@ -181,7 +190,8 @@ export class VpnRuntimeStateStore {
       profileUpdatedAt,
       xrayRunning: false,
       tunRunning: false,
-      cleanupComplete
+      cleanupComplete,
+      cleanupAttempted
     };
   }
 
