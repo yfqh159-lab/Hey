@@ -102,6 +102,11 @@ if (normalizeAt < 0 || normalizeEnd < 0 ||
     'ipApiUrl: normalizeHttpsUrl(SettingsStore.stringValue(raw.ipApiUrl, base.ipApiUrl))')) {
   throw new Error('exit-IP verification accepts an unauthenticated plaintext endpoint');
 }
+if (!source.includes("request.on('headersReceive', redirectHeaderListener);") ||
+  !source.includes('areSafeRemoteIpRedirects(observedRedirects, MAX_REMOTE_IP_REDIRECTS)') ||
+  !source.includes("return failedRemoteIpInfo('unsafe-redirect');")) {
+  throw new Error('exit-IP verification trusts Network Kit automatic redirects without HTTPS validation');
+}
 NODE
 printf 'HTTPS-only proxied exit-IP verification passed\n'
 

@@ -15,6 +15,8 @@ export interface RemoteIpInfoResult {
   status: string;
 }
 
+const MAX_REMOTE_IP_REDIRECTS: number = 5;
+
 function withRequestTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timerId = setTimeout(() => reject(new Error('remote IP request timed out')), timeoutMs);
@@ -41,7 +43,17 @@ export async function fetchRemoteIpInfo(ipApiUrl: string, proxyPort: number, tim
   }
 
   const request = http.createHttp();
+  const observedRedirects = new Array<string>();
+  let lastObservedRedirect = '';
+  const redirectHeaderListener = (headers: Object): void => {
+    const redirectUrl = parseRedirectLocation(JSON.stringify(headers));
+    if (redirectUrl.length > 0 && redirectUrl !== lastObservedRedirect) {
+      observedRedirects.push(redirectUrl);
+      lastObservedRedirect = redirectUrl;
+    }
+  };
   try {
+    request.on('headersReceive', redirectHeaderListener);
     const options: http.HttpRequestOptions = {
       method: http.RequestMethod.GET,
       expectDataType: http.HttpDataType.STRING,
@@ -62,6 +74,10 @@ export async function fetchRemoteIpInfo(ipApiUrl: string, proxyPort: number, tim
     // 部分设备的 NetworkKit Promise 可能越过 connect/read timeout 仍不结算；外层
     // 截止时间保证出口检测和网络变化评估不会永久保持 in-flight。
     const response = await withRequestTimeout(request.request(target, options), timeoutMs + 1000);
+    redirectHeaderListener(response.header);
+    if (!areSafeRemoteIpRedirects(observedRedirects, MAX_REMOTE_IP_REDIRECTS)) {
+      return failedRemoteIpInfo('unsafe-redirect');
+    }
     const responseCode = Number(response.responseCode);
     if (responseCode < 200 || responseCode >= 300) {
       return failedRemoteIpInfo(`HTTP ${response.responseCode}`);
@@ -71,8 +87,25 @@ export async function fetchRemoteIpInfo(ipApiUrl: string, proxyPort: number, tim
     // 系统异常文本可能回显自定义 URL（其中可能含私密查询参数），日志只保留稳定错误码。
     return failedRemoteIpInfo('request-failed');
   } finally {
+    try {
+      request.off('headersReceive', redirectHeaderListener);
+    } catch (_error) {
+      // destroy() remains the authoritative request cleanup.
+    }
     request.destroy();
   }
+}
+
+export function areSafeRemoteIpRedirects(redirectUrls: Array<string>, maxRedirects: number): boolean {
+  if (redirectUrls.length > maxRedirects) {
+    return false;
+  }
+  for (let index = 0; index < redirectUrls.length; index++) {
+    if (normalizeHttpsUrl(redirectUrls[index]).length === 0) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function parseRemoteIpInfoContent(content: string): RemoteIpInfoResult {
@@ -247,6 +280,14 @@ export function normalizeIpApiUrl(ipApiUrl: string): string {
   // The result is used as evidence that traffic reached the expected public egress.
   // Plain HTTP can be altered in transit and must not be presented as verified state.
   return normalizeHttpsUrl(ipApiUrl);
+}
+
+function parseRedirectLocation(headerJson: string): string {
+  const match = headerJson.match(/"(?:Location|location)"\s*:\s*(?:"([^"]+)"|\[\s*"([^"]+)")/);
+  if (match === null) {
+    return '';
+  }
+  return (match[1] ?? match[2] ?? '').trim();
 }
 
 function responseBodyText(result: Object | string | ArrayBuffer): string {

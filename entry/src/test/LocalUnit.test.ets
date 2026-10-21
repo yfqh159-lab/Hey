@@ -89,7 +89,7 @@ import { SETTINGS_CONTROLLER } from '../main/ets/features/settings/SettingsContr
 import { recoveredVpnProfileMatches, settingsForRecoveredVpn } from '../main/ets/features/runtime/RuntimeController';
 import { filterSettings, SettingGroup, SettingItem, SETTINGS_CATALOG } from '../main/ets/features/settings/SettingsCatalog';
 import { APP_HTTP_USER_AGENT } from '../main/ets/core/HttpDefaults';
-import { normalizeIpApiUrl, parseRemoteIpInfoContent } from '../main/ets/services/RemoteIpInfo';
+import { areSafeRemoteIpRedirects, normalizeIpApiUrl, parseRemoteIpInfoContent } from '../main/ets/services/RemoteIpInfo';
 import { canMeasureRuntimeDelayProfile, resolveRuntimeDelayTestUrls } from '../main/ets/services/RuntimeDelay';
 import { SubscriptionManager } from '../main/ets/services/SubscriptionManager';
 import { SubscriptionBackgroundScheduler } from '../main/ets/services/SubscriptionBackgroundScheduler';
@@ -3125,6 +3125,13 @@ export default function localUnitTest() {
       expect(normalizeIpApiUrl('https://')).assertEqual('');
       expect(normalizeIpApiUrl('https://user:pass@example.com/ip')).assertEqual('');
       expect(normalizeIpApiUrl(' HTTPS://example.com/ip ')).assertEqual('HTTPS://example.com/ip');
+      expect(areSafeRemoteIpRedirects(['https://cdn.example.com/ip'], 5)).assertTrue();
+      expect(areSafeRemoteIpRedirects(['HTTPS://cdn.example.com/ip'], 5)).assertTrue();
+      expect(areSafeRemoteIpRedirects(['http://cdn.example.com/ip'], 5)).assertFalse();
+      expect(areSafeRemoteIpRedirects([
+        'https://1.example/ip',
+        'https://2.example/ip'
+      ], 1)).assertFalse();
 
       const controller = new SettingsController();
       const settingsDraft = controller.toDraft(buildSettingsFixture());
