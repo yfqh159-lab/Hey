@@ -8,7 +8,7 @@ import { selectRuntimeLocalSocksPort, shouldUseDynamicLocalSocksPort, withRuntim
 import { appReservedRuntimePorts, buildRuntimeXrayConfig, injectXrayLogFile, normalizeConfigInput, VPN_DATA_SOCKS_PORT, XRAY_CORE_LOG_FILE } from '../core/XrayConfig';
 import { normalizeCoreLogLevel } from '../core/ProtocolOptions';
 import { CORE_TYPE_SINGBOX, CORE_TYPE_XRAY, CoreSelectionStore, CoreType, isSingboxCore, isSingboxOnlyProtocol } from '../core/CoreSelection';
-import { buildSingboxConfig } from '../core/SingboxConfig';
+import { buildSingboxConfig, GeneratedSingboxConfig } from '../core/SingboxConfig';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { SubscriptionStore } from '../storage/SubscriptionStore';
 import { createStopCommandVpnWant, createStopVpnWant, createVpnWant, isMatchingVpnSessionDetails } from '../vpn/VpnConstants';
@@ -259,8 +259,13 @@ export class ConnectionController {
       return this.getSnapshot();
     }
 
-    clearSingboxLog(context.filesDir);
-    const generated = buildSingboxConfig(normalizedJson, settings, context.filesDir);
+    let generated: GeneratedSingboxConfig;
+    try {
+      clearSingboxLog(context.filesDir);
+      generated = buildSingboxConfig(normalizedJson, settings, context.filesDir);
+    } catch (error) {
+      return this.failStartPreparation(startGeneration, error as Object);
+    }
     if (!generated.ok) {
       this.status = ConnectionStatus.ERROR;
       this.lastError = generated.message;
