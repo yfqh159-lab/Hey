@@ -28,6 +28,7 @@ import {
 } from '../core/Profile';
 import { DEFAULT_CORE_LOG_LEVEL, DEFAULT_MUX_XUDP_QUIC, normalizeCoreLogLevel, normalizeMuxXudpQuic } from '../core/ProtocolOptions';
 import { DNS_PROXY, normalizeRemoteDnsValue } from '../core/DnsAddresses';
+import { normalizeHttpsUrl } from '../core/HttpDefaults';
 import { isReservedAppRuntimePort } from '../core/XrayConfig';
 
 const PREFERENCES_NAME: string = 'hey_vpn_settings';
@@ -278,7 +279,7 @@ export class SettingsStore {
       domesticDns: SettingsStore.stringValue(raw.domesticDns, base.domesticDns),
       dnsHosts: SettingsStore.stringValue(raw.dnsHosts, base.dnsHosts),
       delayTestUrl: SettingsStore.stringValue(raw.delayTestUrl, base.delayTestUrl),
-      ipApiUrl: SettingsStore.stringValue(raw.ipApiUrl, base.ipApiUrl),
+      ipApiUrl: normalizeHttpsUrl(SettingsStore.stringValue(raw.ipApiUrl, base.ipApiUrl)),
       realPingConcurrency: normalizeRealPingConcurrency(raw.realPingConcurrency, base.realPingConcurrency),
       homeDelayTestInterval: normalizeHomeDelayTestInterval(raw.homeDelayTestInterval, base.homeDelayTestInterval),
       logLevel: normalizeCoreLogLevel(SettingsStore.stringValue(raw.logLevel, base.logLevel), base.logLevel),

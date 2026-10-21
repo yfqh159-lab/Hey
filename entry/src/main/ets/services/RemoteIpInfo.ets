@@ -1,5 +1,5 @@
 import { http } from '@kit.NetworkKit';
-import { APP_HTTP_USER_AGENT } from '../core/HttpDefaults';
+import { APP_HTTP_USER_AGENT, normalizeHttpsUrl } from '../core/HttpDefaults';
 import { LOCAL_HTTP_PROXY_HOST } from '../core/XrayConfig';
 
 interface RemoteIpPayload {
@@ -226,13 +226,9 @@ function parseIpv6Units(value: string): Array<number> | null {
 
 // 未填写地址时返回空串，调用方据此跳过请求；高级设置仍允许替换或关闭默认服务。
 export function normalizeIpApiUrl(ipApiUrl: string): string {
-  const target = ipApiUrl.trim();
   // The result is used as evidence that traffic reached the expected public egress.
   // Plain HTTP can be altered in transit and must not be presented as verified state.
-  if (target.toLowerCase().startsWith('https://')) {
-    return target;
-  }
-  return '';
+  return normalizeHttpsUrl(ipApiUrl);
 }
 
 function responseBodyText(result: Object | string | ArrayBuffer): string {

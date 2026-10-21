@@ -75,6 +75,9 @@ printf 'ArkTS HTTP request allowlist verification passed\n'
 node <<'NODE'
 const fs = require('fs');
 const source = fs.readFileSync('entry/src/main/ets/services/RemoteIpInfo.ets', 'utf8');
+const defaults = fs.readFileSync('entry/src/main/ets/core/HttpDefaults.ets', 'utf8');
+const settings = fs.readFileSync('entry/src/main/ets/features/settings/SettingsController.ets', 'utf8');
+const settingsStore = fs.readFileSync('entry/src/main/ets/storage/SettingsStore.ets', 'utf8');
 const fetchAt = source.indexOf('export async function fetchRemoteIpInfo(');
 const fetchEnd = source.indexOf('\nexport function parseRemoteIpInfoContent(', fetchAt);
 const fetchBody = source.slice(fetchAt, fetchEnd);
@@ -89,8 +92,14 @@ if (fetchAt < 0 || fetchEnd < 0 ||
   throw new Error('exit-IP check can bypass its required loopback runtime proxy');
 }
 if (normalizeAt < 0 || normalizeEnd < 0 ||
-  !normalizeBody.includes("target.toLowerCase().startsWith('https://')") ||
-  normalizeBody.includes("startsWith('http://')")) {
+  !normalizeBody.includes('return normalizeHttpsUrl(ipApiUrl);') ||
+  !defaults.includes('export function normalizeHttpsUrl(value: string): string') ||
+  !defaults.includes("const prefix = 'https://';") ||
+  !defaults.includes("authority.includes('@')") ||
+  settings.includes('ipApiUrl: draft.ipApiUrl.trim()') ||
+  !settings.includes('ipApiUrl: normalizeHttpsUrl(draft.ipApiUrl)') ||
+  !settingsStore.includes(
+    'ipApiUrl: normalizeHttpsUrl(SettingsStore.stringValue(raw.ipApiUrl, base.ipApiUrl))')) {
   throw new Error('exit-IP verification accepts an unauthenticated plaintext endpoint');
 }
 NODE

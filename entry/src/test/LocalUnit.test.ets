@@ -3084,7 +3084,16 @@ export default function localUnitTest() {
       expect(normalizeIpApiUrl('')).assertEqual('');
       expect(normalizeIpApiUrl('ftp://example.com')).assertEqual('');
       expect(normalizeIpApiUrl('http://example.com/ip')).assertEqual('');
+      expect(normalizeIpApiUrl('https://')).assertEqual('');
+      expect(normalizeIpApiUrl('https://user:pass@example.com/ip')).assertEqual('');
       expect(normalizeIpApiUrl(' HTTPS://example.com/ip ')).assertEqual('HTTPS://example.com/ip');
+
+      const controller = new SettingsController();
+      const settingsDraft = controller.toDraft(buildSettingsFixture());
+      settingsDraft.ipApiUrl = 'http://example.com/ip';
+      expect(controller.buildSettings(settingsDraft).ipApiUrl).assertEqual('');
+      settingsDraft.ipApiUrl = ' HTTPS://example.com/ip ';
+      expect(controller.buildSettings(settingsDraft).ipApiUrl).assertEqual('HTTPS://example.com/ip');
     });
 
     it('formats runtime values through shared helpers', 0, () => {

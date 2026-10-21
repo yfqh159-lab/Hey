@@ -4,6 +4,7 @@ import { normalizeCoreLogLevel, normalizeFragmentPackets, normalizeMuxXudpQuic }
 import { DEFAULT_APP_SETTINGS, SettingsStore } from '../../storage/SettingsStore';
 import { isReservedAppRuntimePort } from '../../core/XrayConfig';
 import { normalizeRemoteDnsValue } from '../../core/DnsAddresses';
+import { normalizeHttpsUrl } from '../../core/HttpDefaults';
 
 export interface SettingsDraft {
   language: AppLanguage;
@@ -204,7 +205,7 @@ export class SettingsController {
       domesticDns: draft.domesticDns.trim(),
       dnsHosts: draft.dnsHosts.trim(),
       delayTestUrl: draft.delayTestUrl.trim(),
-      ipApiUrl: draft.ipApiUrl.trim(),
+      ipApiUrl: normalizeHttpsUrl(draft.ipApiUrl),
       realPingConcurrency: this.realPingConcurrencyValue(draft.realPingConcurrency, DEFAULT_APP_SETTINGS.realPingConcurrency),
       homeDelayTestInterval: this.homeDelayTestIntervalValue(draft.homeDelayTestInterval, DEFAULT_APP_SETTINGS.homeDelayTestInterval),
       logLevel: normalizeCoreLogLevel(draft.logLevel, DEFAULT_APP_SETTINGS.logLevel),
