@@ -70,7 +70,9 @@ function isValidAssetDownloadProxyPort(proxyPort: number): boolean {
 }
 
 export class AssetsController {
-  private geoUpdateRunning: boolean = false;
+  // 所有 .dat 文件替换/删除共用一把进程内互斥锁。页面离开后重新进入会丢失本地
+  // downloadingFile 状态，因此不能只依赖 UI 防止双文件事务与单文件操作竞争。
+  private assetMutationRunning: boolean = false;
   
   private pad(val: number): string {
     return val < 10 ? `0${val}` : `${val}`;
@@ -111,17 +113,17 @@ export class AssetsController {
   // 检查可信默认发布源。两个核心文件全部通过版本、大小、格式和 SHA-256 校验后才一起替换。
   // 若安装阶段失败，则回滚本次已替换的文件；进程中断留下的事务状态会在下次检查时恢复。
   async checkAndUpdateBuiltinGeo(context: common.Context): Promise<BuiltinGeoUpdateResult> {
-    if (this.geoUpdateRunning) {
-      throw new Error('Geo update is already running');
+    if (this.assetMutationRunning) {
+      throw new Error('Asset update is already running');
     }
-    this.geoUpdateRunning = true;
+    this.assetMutationRunning = true;
     try {
       return await this.performBuiltinGeoUpdate(context);
     } catch (error) {
       await this.recordGeoUpdateFailure(context);
       throw error;
     } finally {
-      this.geoUpdateRunning = false;
+      this.assetMutationRunning = false;
     }
   }
 
@@ -250,15 +252,23 @@ export class AssetsController {
     onError: (errMsg: string) => void,
     onComplete: () => void
   ): Promise<void> {
-    onStart();
+    if (this.assetMutationRunning) {
+      const busyMessage = this.t(language, 'assets.downloadBusy');
+      promptAction.showToast({ message: busyMessage });
+      onError(busyMessage);
+      onComplete();
+      return;
+    }
+    this.assetMutationRunning = true;
 
     const targetFileName = fileName.endsWith('.dat') ? fileName : `${fileName}.dat`;
     const targetPath = `${context.filesDir}/${targetFileName}`;
     // 临时文件始终从最终目标派生，便于冷启动统一识别和清理中断的单文件替换。
     const tempPath = `${targetPath}.tmp`;
-    const proxyPort = await this.resolveDownloadProxyPort(context);
 
     try {
+      onStart();
+      const proxyPort = await this.resolveDownloadProxyPort(context);
       promptAction.showToast({ message: this.t(language, 'assets.downloading').replace('{title}', fileName) });
       // 内置文件的高级 URL 与自定义 .dat 使用同一条校验路径：远端必须在
       // 数据文件旁提供 `${url}.sha256sum`，任何失败都不会覆盖现有文件。
@@ -280,6 +290,7 @@ export class AssetsController {
       });
       onError(errMsg);
     } finally {
+      this.assetMutationRunning = false;
       onComplete();
     }
   }
@@ -292,6 +303,12 @@ export class AssetsController {
     onProgress: (fileName: string) => void,
     onComplete: () => void
   ): Promise<void> {
+    if (this.assetMutationRunning) {
+      promptAction.showToast({ message: this.t(language, 'assets.downloadBusy') });
+      onComplete();
+      return;
+    }
+    this.assetMutationRunning = true;
     try {
       promptAction.showToast({ message: this.t(language, 'assets.updatingAll') });
       const proxyPort = await this.resolveDownloadProxyPort(context);
@@ -318,12 +335,13 @@ export class AssetsController {
       } else {
         promptAction.showToast({ message: this.t(language, 'assets.updateAllFailed') });
       }
-      onComplete();
     } catch (error) {
       promptAction.showToast({
         message: this.t(language, 'assets.updateAllError')
           .replace('{error}', redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error)))
       });
+    } finally {
+      this.assetMutationRunning = false;
       onComplete();
     }
   }
@@ -815,6 +833,13 @@ export class AssetsController {
     onSuccess: () => void,
     onError: (errMsg: string) => void
   ): Promise<boolean> {
+    if (this.assetMutationRunning) {
+      const message = this.t(language, 'assets.downloadBusy');
+      promptAction.showToast({ message });
+      onError(message);
+      return false;
+    }
+    this.assetMutationRunning = true;
     const destPath = `${context.filesDir}/${destFileName}`;
     const tempPath = `${context.filesDir}/${destFileName}.tmp`;
 
@@ -866,6 +891,8 @@ export class AssetsController {
       promptAction.showToast({ message: this.t(language, 'assets.action.importLocal.failed').replace('{error}', errMsg) });
       onError(errMsg);
       return false;
+    } finally {
+      this.assetMutationRunning = false;
     }
   }
 
@@ -876,6 +903,12 @@ export class AssetsController {
     language: AppLanguage,
     onComplete: (success: boolean) => void
   ): void {
+    if (this.assetMutationRunning) {
+      promptAction.showToast({ message: this.t(language, 'assets.downloadBusy') });
+      onComplete(false);
+      return;
+    }
+    this.assetMutationRunning = true;
     const targetPath = `${context.filesDir}/${fileName}`;
     let success = false;
     try {
@@ -889,12 +922,18 @@ export class AssetsController {
       const message = redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error));
       promptAction.showToast({ message: this.t(language, 'assets.deleteFailed').replace('{error}', message) });
     } finally {
+      this.assetMutationRunning = false;
       onComplete(success);
     }
   }
 
   // 删除自定义 URL 链接及本地 dat 文件
   async deleteCustomAsset(context: common.Context, item: CustomAssetUrl, customAssets: Array<CustomAssetUrl>, language: AppLanguage): Promise<Array<CustomAssetUrl>> {
+    if (this.assetMutationRunning) {
+      promptAction.showToast({ message: this.t(language, 'assets.downloadBusy') });
+      return customAssets;
+    }
+    this.assetMutationRunning = true;
     const path = `${context.filesDir}/${item.name}.dat`;
     try {
       this.removeStandaloneAssetFiles(path);
@@ -906,6 +945,8 @@ export class AssetsController {
       const message = redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error));
       promptAction.showToast({ message: this.t(language, 'assets.deleteFailed').replace('{error}', message) });
       return customAssets;
+    } finally {
+      this.assetMutationRunning = false;
     }
   }
 
