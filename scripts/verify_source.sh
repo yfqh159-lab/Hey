@@ -411,6 +411,33 @@ if (syncAt < 0 || syncNowAt < 0 || cancelAt < 0 || cancelNowAt < 0 || enqueueAt 
 NODE
 printf 'subscription schedule serialization verification passed\n'
 
+# Foreground edits, manual refreshes and WorkScheduler refreshes share one controller singleton.
+# Preserve intent order across the whole network-fetch/store/schedule operation so an old fetch
+# cannot finish after a newer edit and restore the old URL, nodes or active group.
+node <<'NODE'
+const fs = require('fs');
+const source = fs.readFileSync('entry/src/main/ets/features/subscriptions/SubscriptionsController.ets', 'utf8');
+for (const name of [
+  'saveGroup', 'update', 'addGroup', 'updateGroup', 'updateAll', 'updateDue',
+  'updateDueGroup', 'selectGroup', 'toggleGroup', 'removeGroup', 'moveGroup'
+]) {
+  const methodAt = source.indexOf(`  ${name}(`);
+  const implementationAt = source.indexOf(`\n  private async ${name}Now(`, methodAt);
+  const wrapper = source.slice(methodAt, implementationAt < 0 ? source.length : implementationAt);
+  if (methodAt < 0 || implementationAt < 0 || !wrapper.includes('this.enqueueOperation(')) {
+    throw new Error(`${name} bypasses serialized subscription controller operations`);
+  }
+}
+if (!source.includes('private operationTail: Promise<void> = Promise.resolve();') ||
+  !source.includes('this.operationTail = task.then(') ||
+  !source.includes('const groupId = group.id;') ||
+  !source.includes('const groupName = group.name;') ||
+  !source.includes('const wasEnabled = group.enabled;')) {
+  throw new Error('subscription controller operation queue or queued group snapshots are missing');
+}
+NODE
+printf 'subscription controller operation ordering verification passed\n'
+
 # Throttled and forced traffic-total saves are fire-and-forget and may overlap. Preserve call
 # order, snapshot each sample before queueing, and let write failures reach the existing caller log.
 node <<'NODE'

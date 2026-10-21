@@ -36,11 +36,18 @@ interface SubscriptionGroupUpdateResult {
 }
 
 export class SubscriptionsController {
+  private operationTail: Promise<void> = Promise.resolve();
+
   async load(context: common.Context, language: AppLanguage): Promise<SubscriptionsControllerState> {
     return this.buildState(await SubscriptionStore.load(context), language, '');
   }
 
-  async saveGroup(context: common.Context, urlValue: string, language: AppLanguage): Promise<SubscriptionsControllerState> {
+  saveGroup(context: common.Context, urlValue: string, language: AppLanguage): Promise<SubscriptionsControllerState> {
+    return this.enqueueOperation(
+      (): Promise<SubscriptionsControllerState> => this.saveGroupNow(context, urlValue, language));
+  }
+
+  private async saveGroupNow(context: common.Context, urlValue: string, language: AppLanguage): Promise<SubscriptionsControllerState> {
     const url = urlValue.trim();
     if (url.length === 0) {
       return this.buildState(await SubscriptionStore.load(context), language, translate(language, 'error.emptySubscriptionUrl'));
@@ -57,7 +64,13 @@ export class SubscriptionsController {
     }
   }
 
-  async update(context: common.Context, groupId: string, urlValue: string, selectedNodeId: string, language: AppLanguage, proxyPort: number = 0): Promise<SubscriptionsControllerState> {
+  update(context: common.Context, groupId: string, urlValue: string, selectedNodeId: string, language: AppLanguage, proxyPort: number = 0): Promise<SubscriptionsControllerState> {
+    return this.enqueueOperation(
+      (): Promise<SubscriptionsControllerState> =>
+        this.updateNow(context, groupId, urlValue, selectedNodeId, language, proxyPort));
+  }
+
+  private async updateNow(context: common.Context, groupId: string, urlValue: string, selectedNodeId: string, language: AppLanguage, proxyPort: number): Promise<SubscriptionsControllerState> {
     if (groupId === 'sub-local') {
       return this.buildState(await SubscriptionStore.load(context), language, translate(language, 'subscription.update.localGroupSkipped'));
     }
@@ -128,7 +141,7 @@ export class SubscriptionsController {
     }
   }
 
-  async addGroup(
+  addGroup(
     context: common.Context,
     name: string,
     url: string,
@@ -140,6 +153,25 @@ export class SubscriptionsController {
     language: AppLanguage,
     autoUpdate: boolean = false,
     updateIntervalMinutes: number = DEFAULT_SUBSCRIPTION_UPDATE_INTERVAL_MINUTES
+  ): Promise<SubscriptionsControllerState> {
+    return this.enqueueOperation(
+      (): Promise<SubscriptionsControllerState> => this.addGroupNow(
+        context, name, url, userAgent, filter, prevProfile, nextProfile, allowInsecureUrl,
+        language, autoUpdate, updateIntervalMinutes));
+  }
+
+  private async addGroupNow(
+    context: common.Context,
+    name: string,
+    url: string,
+    userAgent: string,
+    filter: string,
+    prevProfile: string,
+    nextProfile: string,
+    allowInsecureUrl: boolean,
+    language: AppLanguage,
+    autoUpdate: boolean,
+    updateIntervalMinutes: number
   ): Promise<SubscriptionsControllerState> {
     const trimmedName = name.trim();
     const trimmedUrl = url.trim();
@@ -160,7 +192,7 @@ export class SubscriptionsController {
     }
   }
 
-  async updateGroup(
+  updateGroup(
     context: common.Context,
     groupId: string,
     name: string,
@@ -173,6 +205,26 @@ export class SubscriptionsController {
     language: AppLanguage,
     autoUpdate: boolean = false,
     updateIntervalMinutes: number = DEFAULT_SUBSCRIPTION_UPDATE_INTERVAL_MINUTES
+  ): Promise<SubscriptionsControllerState> {
+    return this.enqueueOperation(
+      (): Promise<SubscriptionsControllerState> => this.updateGroupNow(
+        context, groupId, name, url, userAgent, filter, prevProfile, nextProfile,
+        allowInsecureUrl, language, autoUpdate, updateIntervalMinutes));
+  }
+
+  private async updateGroupNow(
+    context: common.Context,
+    groupId: string,
+    name: string,
+    url: string,
+    userAgent: string,
+    filter: string,
+    prevProfile: string,
+    nextProfile: string,
+    allowInsecureUrl: boolean,
+    language: AppLanguage,
+    autoUpdate: boolean,
+    updateIntervalMinutes: number
   ): Promise<SubscriptionsControllerState> {
     const trimmedName = name.trim();
     const trimmedUrl = url.trim();
@@ -193,7 +245,12 @@ export class SubscriptionsController {
     }
   }
 
-  async updateAll(context: common.Context, language: AppLanguage, proxyPort: number = 0): Promise<SubscriptionsControllerState> {
+  updateAll(context: common.Context, language: AppLanguage, proxyPort: number = 0): Promise<SubscriptionsControllerState> {
+    return this.enqueueOperation(
+      (): Promise<SubscriptionsControllerState> => this.updateAllNow(context, language, proxyPort));
+  }
+
+  private async updateAllNow(context: common.Context, language: AppLanguage, proxyPort: number): Promise<SubscriptionsControllerState> {
     let subscription = await SubscriptionStore.load(context);
     let successCount = 0;
     let failedCount = 0;
@@ -226,7 +283,12 @@ export class SubscriptionsController {
     return this.buildState(subscription, language, msg);
   }
 
-  async updateDue(context: common.Context, language: AppLanguage, now: number = Date.now(), proxyPort: number = 0): Promise<SubscriptionAutoUpdateResult> {
+  updateDue(context: common.Context, language: AppLanguage, now: number = Date.now(), proxyPort: number = 0): Promise<SubscriptionAutoUpdateResult> {
+    return this.enqueueOperation(
+      (): Promise<SubscriptionAutoUpdateResult> => this.updateDueNow(context, language, now, proxyPort));
+  }
+
+  private async updateDueNow(context: common.Context, language: AppLanguage, now: number, proxyPort: number): Promise<SubscriptionAutoUpdateResult> {
     let subscription = await SubscriptionStore.load(context);
     let updatedCount = 0;
     let failedCount = 0;
@@ -266,7 +328,13 @@ export class SubscriptionsController {
     };
   }
 
-  async updateDueGroup(context: common.Context, groupId: string, language: AppLanguage, now: number = Date.now(), proxyPort: number = 0): Promise<SubscriptionAutoUpdateResult> {
+  updateDueGroup(context: common.Context, groupId: string, language: AppLanguage, now: number = Date.now(), proxyPort: number = 0): Promise<SubscriptionAutoUpdateResult> {
+    return this.enqueueOperation(
+      (): Promise<SubscriptionAutoUpdateResult> =>
+        this.updateDueGroupNow(context, groupId, language, now, proxyPort));
+  }
+
+  private async updateDueGroupNow(context: common.Context, groupId: string, language: AppLanguage, now: number, proxyPort: number): Promise<SubscriptionAutoUpdateResult> {
     let subscription = await SubscriptionStore.load(context);
     const group = this.findGroup(subscription.groups, groupId);
     if (group === null || !isSubscriptionAutoUpdateDue(group, now)) {
@@ -304,44 +372,86 @@ export class SubscriptionsController {
     };
   }
 
-  async selectGroup(context: common.Context, group: SubscriptionGroup, language: AppLanguage): Promise<SubscriptionsControllerState> {
+  selectGroup(context: common.Context, group: SubscriptionGroup, language: AppLanguage): Promise<SubscriptionsControllerState> {
+    const groupId = group.id;
+    const groupName = group.name;
+    return this.enqueueOperation(
+      (): Promise<SubscriptionsControllerState> => this.selectGroupNow(context, groupId, groupName, language));
+  }
+
+  private async selectGroupNow(context: common.Context, groupId: string, groupName: string, language: AppLanguage): Promise<SubscriptionsControllerState> {
     try {
       // 切组只是「浏览」该组节点列表：仅切换活动组，不改写当前节点 / 连接配置（解耦）。
-      const subscription = await SubscriptionStore.selectGroup(context, group.id);
-      return this.buildState(subscription, language, formatOne(language, 'log.openedSubscriptionGroup', 'name', group.name));
+      const subscription = await SubscriptionStore.selectGroup(context, groupId);
+      return this.buildState(subscription, language, formatOne(language, 'log.openedSubscriptionGroup', 'name', groupName));
     } catch (error) {
       return this.buildState(await SubscriptionStore.load(context), language, formatOne(language, 'error.selectSubscriptionGroup', 'error', this.stringifyError(error)));
     }
   }
 
-  async toggleGroup(context: common.Context, group: SubscriptionGroup, language: AppLanguage): Promise<SubscriptionsControllerState> {
+  toggleGroup(context: common.Context, group: SubscriptionGroup, language: AppLanguage): Promise<SubscriptionsControllerState> {
+    const groupId = group.id;
+    const groupName = group.name;
+    const wasEnabled = group.enabled;
+    return this.enqueueOperation(
+      (): Promise<SubscriptionsControllerState> =>
+        this.toggleGroupNow(context, groupId, groupName, wasEnabled, language));
+  }
+
+  private async toggleGroupNow(context: common.Context, groupId: string, groupName: string, wasEnabled: boolean, language: AppLanguage): Promise<SubscriptionsControllerState> {
     try {
-      const subscription = await SubscriptionStore.toggleGroup(context, group.id);
+      const subscription = await SubscriptionStore.toggleGroup(context, groupId);
       await this.syncBackgroundSchedule(context);
-      const status = group.enabled ? translate(language, 'common.disabled') : translate(language, 'common.enabled');
-      return this.buildState(subscription, language, formatTwo(language, 'log.subscriptionGroupToggled', 'name', group.name, 'status', status));
+      const status = wasEnabled ? translate(language, 'common.disabled') : translate(language, 'common.enabled');
+      return this.buildState(subscription, language, formatTwo(language, 'log.subscriptionGroupToggled', 'name', groupName, 'status', status));
     } catch (error) {
       return this.buildState(await SubscriptionStore.load(context), language, formatOne(language, 'error.toggleSubscriptionGroup', 'error', this.stringifyError(error)));
     }
   }
 
-  async removeGroup(context: common.Context, group: SubscriptionGroup, language: AppLanguage): Promise<SubscriptionsControllerState> {
+  removeGroup(context: common.Context, group: SubscriptionGroup, language: AppLanguage): Promise<SubscriptionsControllerState> {
+    const groupId = group.id;
+    const groupName = group.name;
+    return this.enqueueOperation(
+      (): Promise<SubscriptionsControllerState> => this.removeGroupNow(context, groupId, groupName, language));
+  }
+
+  private async removeGroupNow(context: common.Context, groupId: string, groupName: string, language: AppLanguage): Promise<SubscriptionsControllerState> {
     try {
-      const subscription = await SubscriptionStore.removeGroup(context, group.id);
+      const subscription = await SubscriptionStore.removeGroup(context, groupId);
       await this.syncBackgroundSchedule(context);
-      return this.buildState(subscription, language, formatOne(language, 'log.removedSubscriptionGroup', 'name', group.name));
+      return this.buildState(subscription, language, formatOne(language, 'log.removedSubscriptionGroup', 'name', groupName));
     } catch (error) {
       return this.buildState(await SubscriptionStore.load(context), language, formatOne(language, 'error.removeSubscriptionGroup', 'error', this.stringifyError(error)));
     }
   }
 
-  async moveGroup(context: common.Context, group: SubscriptionGroup, delta: number, language: AppLanguage): Promise<SubscriptionsControllerState> {
+  moveGroup(context: common.Context, group: SubscriptionGroup, delta: number, language: AppLanguage): Promise<SubscriptionsControllerState> {
+    const groupId = group.id;
+    const groupName = group.name;
+    return this.enqueueOperation(
+      (): Promise<SubscriptionsControllerState> => this.moveGroupNow(context, groupId, groupName, delta, language));
+  }
+
+  private async moveGroupNow(context: common.Context, groupId: string, groupName: string, delta: number, language: AppLanguage): Promise<SubscriptionsControllerState> {
     try {
-      const subscription = await SubscriptionStore.moveGroup(context, group.id, delta);
-      return this.buildState(subscription, language, formatOne(language, 'log.subscriptionGroupReordered', 'name', group.name));
+      const subscription = await SubscriptionStore.moveGroup(context, groupId, delta);
+      return this.buildState(subscription, language, formatOne(language, 'log.subscriptionGroupReordered', 'name', groupName));
     } catch (error) {
       return this.buildState(await SubscriptionStore.load(context), language, formatOne(language, 'error.moveSubscriptionGroup', 'error', this.stringifyError(error)));
     }
+  }
+
+  private enqueueOperation<T>(operation: () => Promise<T>): Promise<T> {
+    const task = this.operationTail.then(
+      (): Promise<T> => operation(),
+      (): Promise<T> => operation()
+    );
+    this.operationTail = task.then(
+      (): void => {},
+      (_error: Object): void => {}
+    );
+    return task;
   }
 
   private buildState(subscription: SubscriptionProfile, language: AppLanguage, message: string): SubscriptionsControllerState {
