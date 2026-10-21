@@ -927,16 +927,7 @@ struct Index {
       .width('100%')
       .padding({ left: Space.xxl, right: Space.xxl, top: Space.xxl, bottom: Space.sm })
 
-      if (this.lastError.length > 0) {
-        Text(this.lastError)
-          .fontSize(FontSz.footnote)
-          .fontColor(AppColor.danger)
-          .width('100%')
-          .padding({ left: Space.xxl, right: Space.xxl, top: Space.sm, bottom: Space.sm })
-          .backgroundColor(AppColor.dangerTint)
-          .margin({ left: Space.lg, right: Space.lg })
-          .borderRadius(Radius.md)
-      }
+      this.HomeErrorBanner()
 
       // 连接核心区（垂直居中）
       Column({ space: Space.xl }) {
@@ -1008,6 +999,22 @@ struct Index {
       .onClick(() => {
         this.handleConnectionButton();
       })
+    }
+  }
+
+  @Builder
+  private HomeErrorBanner() {
+    if (this.lastError.length > 0) {
+      Text(this.lastError)
+        .fontSize(FontSz.footnote)
+        .fontColor(AppColor.danger)
+        .width('100%')
+        .maxLines(3)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .padding({ left: Space.xxl, right: Space.xxl, top: Space.sm, bottom: Space.sm })
+        .backgroundColor(AppColor.dangerTint)
+        .margin({ left: Space.lg, right: Space.lg, bottom: Space.xs })
+        .borderRadius(Radius.md)
     }
   }
 
@@ -1232,6 +1239,7 @@ struct Index {
     Column() {
       // 标题栏 / 搜索栏（就地切换）
       this.NodesHeader()
+      this.HomeErrorBanner()
 
       if (this.subscriptionGroups.length > 0) {
         this.GroupTabs()

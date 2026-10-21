@@ -732,13 +732,19 @@ const laterConnect = tabs.indexOf('this.ConnectTab()');
 const nodes = indexSource.slice(nodesAt, nodesEnd);
 const bar = indexSource.slice(barAt, barEnd);
 const ring = indexSource.slice(ringAt, ringEnd);
+const connectAt = indexSource.indexOf('  private ConnectTab()');
+const connectEnd = indexSource.indexOf('\n  @Builder\n  private ConnectRing()', connectAt);
+const connect = indexSource.slice(connectAt, connectEnd);
 if (firstNodes < 0 || laterConnect < 0 || firstNodes > laterConnect ||
   !nodes.includes('this.NodeListConnectionBar()') ||
+  !nodes.includes('this.HomeErrorBanner()') ||
+  connectAt < 0 || connectEnd < 0 || !connect.includes('this.HomeErrorBanner()') ||
   !bar.includes('this.statusLabel()') ||
   !bar.includes('this.findSelectedNodeName()') ||
   !bar.includes('this.handleConnectionButton();') ||
   !ring.includes('this.handleConnectionButton();') ||
-  !indexSource.includes('private handleConnectionButton(): void')) {
+  !indexSource.includes('private handleConnectionButton(): void') ||
+  !indexSource.includes('private HomeErrorBanner()')) {
   throw new Error('home must open on the node list with one shared connection action');
 }
 NODE
