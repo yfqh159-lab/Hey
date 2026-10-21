@@ -21,13 +21,15 @@ export interface DiagnosticEvent {
 export class DiagnosticLog {
   static append(context: common.Context, event: DiagnosticEvent): void {
     const path = DiagnosticLog.path(context);
+    let file: fs.File | null = null;
     try {
       DiagnosticLog.rotateIfNeeded(path);
-      const file = fs.openSync(path, fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE | fs.OpenMode.APPEND);
+      file = fs.openSync(path, fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE | fs.OpenMode.APPEND);
       fs.writeSync(file.fd, `${JSON.stringify(DiagnosticLog.redact(event))}\n`);
-      fs.closeSync(file);
     } catch (error) {
       console.error(`Diagnostic append failed: ${redactDiagnosticText(JSON.stringify(error))}`);
+    } finally {
+      DiagnosticLog.closeFile(file, 'append');
     }
   }
 
@@ -47,11 +49,13 @@ export class DiagnosticLog {
 
   static clear(context: common.Context): void {
     const path = DiagnosticLog.path(context);
+    let file: fs.File | null = null;
     try {
-      const file = fs.openSync(path, fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
-      fs.closeSync(file);
+      file = fs.openSync(path, fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
     } catch (error) {
       console.error(`Diagnostic clear failed: ${redactDiagnosticText(JSON.stringify(error))}`);
+    } finally {
+      DiagnosticLog.closeFile(file, 'clear');
     }
   }
 
@@ -88,6 +92,7 @@ export class DiagnosticLog {
   }
 
   private static rotateIfNeeded(path: string): void {
+    let file: fs.File | null = null;
     try {
       if (!fs.accessSync(path)) {
         return;
@@ -99,11 +104,12 @@ export class DiagnosticLog {
 
       const raw = fs.readTextSync(path);
       const trimmed = raw.length > TRIMMED_FILE_BYTES ? raw.slice(raw.length - TRIMMED_FILE_BYTES) : raw;
-      const file = fs.openSync(path, fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+      file = fs.openSync(path, fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
       fs.writeSync(file.fd, trimmed);
-      fs.closeSync(file);
     } catch (error) {
       console.error(`Diagnostic rotate failed: ${redactDiagnosticText(JSON.stringify(error))}`);
+    } finally {
+      DiagnosticLog.closeFile(file, 'rotate');
     }
   }
 
@@ -119,10 +125,21 @@ export class DiagnosticLog {
           level: 'warn',
           source: 'diagnostic',
           message: 'Skipped malformed diagnostic line.',
-          details: JSON.stringify(error)
+          details: redactDiagnosticText(JSON.stringify(error))
         });
       }
     }
     return events;
+  }
+
+  private static closeFile(file: fs.File | null, operation: string): void {
+    if (file === null) {
+      return;
+    }
+    try {
+      fs.closeSync(file);
+    } catch (error) {
+      console.error(`Diagnostic ${operation} close failed: ${redactDiagnosticText(JSON.stringify(error))}`);
+    }
   }
 }

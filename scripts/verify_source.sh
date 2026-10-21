@@ -1065,6 +1065,16 @@ for (const file of etsFiles('entry/src/main/ets')) {
 if (unsafe.length > 0) {
   throw new Error(`raw JSON error was written to console/hilog: ${unsafe.join(', ')}`);
 }
+
+const diagnosticLog = fs.readFileSync('entry/src/main/ets/services/DiagnosticLog.ets', 'utf8');
+for (const operation of ['append', 'clear', 'rotate']) {
+  if (!diagnosticLog.includes(`DiagnosticLog.closeFile(file, '${operation}');`)) {
+    throw new Error(`diagnostic ${operation} path can leak its file descriptor after an exception`);
+  }
+}
+if (!diagnosticLog.includes('details: redactDiagnosticText(JSON.stringify(error))')) {
+  throw new Error('malformed diagnostic parse errors can bypass the log redaction boundary');
+}
 NODE
 printf 'ArkTS console/hilog error redaction verification passed\n'
 
