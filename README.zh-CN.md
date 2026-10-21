@@ -88,7 +88,7 @@ WireGuard、SOCKS、HTTP，或 sing-box 自身的细粒度流量统计。
   `ss://`、`socks://`、`socks4://`、`socks5://`、`http://`、`https://`、`wireguard://`、
   `hysteria2://`、`hy2://`、`anytls://`、`tuic://` 分享链接。
   `hey://` 深链、系统分享、扫码这三个外部入口都会先完整展示目标内容并等待用户确认，
-  不会自行添加配置源，也不会自行发起请求。确认扫码得到的订阅 URL 时只保存来源，
+  不会自行添加配置源，也不会自行发起请求。确认这些入口收到的订阅 URL 时只保存来源，
   下载仍需用户前往订阅页另行手动触发。
 - 导出：`formatOutboundJsonToShareLink` 已实现协议的节点分享链接、节点详情/导出页二维码、
   路由规则 JSON，以及本地完整备份 JSON。

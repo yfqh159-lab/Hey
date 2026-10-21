@@ -334,7 +334,38 @@ struct Index {
       return;
     }
     AppStorage.setOrCreate('pendingSharedTextImport', '');
-    await this.importSharedTextPayload(payload);
+    this.confirmSharedTextImport(payload.trim());
+  }
+
+  private confirmSharedTextImport(payload: string): void {
+    try {
+      this.getUIContext().showAlertDialog({
+        title: this.t('sharedText.confirm.title'),
+        message: `${this.t('sharedText.confirm.message')}\n\n${payload}`,
+        autoCancel: false,
+        alignment: DialogAlignment.Bottom,
+        offset: { dx: 0, dy: -20 },
+        primaryButton: {
+          value: this.t('action.add'),
+          fontColor: AppColor.onBrand,
+          backgroundColor: AppColor.brand,
+          action: () => {
+            this.importSharedTextPayload(payload);
+          }
+        },
+        secondaryButton: {
+          value: this.t('action.cancel'),
+          fontColor: AppColor.textSecondary,
+          backgroundColor: AppColor.bg,
+          action: () => {
+            SHARED_RUNTIME_CONTROLLER.appendLog(this.t('sharedText.confirm.declined'));
+          }
+        }
+      });
+    } catch (err) {
+      // 无法显示确认框时安全失败，不能静默导入外部应用提供的内容。
+      SHARED_RUNTIME_CONTROLLER.appendLog(this.t('sharedText.confirm.declined'));
+    }
   }
 
   private async importSharedTextPayload(payload: string): Promise<void> {
@@ -388,11 +419,24 @@ struct Index {
       return false;
     }
 
+    const profile = await SubscriptionStore.load(context);
+    const existing = SubscriptionStore.findGroupByUrl(profile.groups, url);
+    if (existing !== null) {
+      const selected = await SUBSCRIPTIONS_CONTROLLER.selectGroup(context, existing, this.language);
+      this.applySubscriptionsState(selected);
+      SHARED_RUNTIME_CONTROLLER.appendLog(this.t('scanner.subscriptionAlreadyAdded'));
+      return false;
+    }
+
     const name = subscriptionNameFromDeepLink(url);
     const added = await SUBSCRIPTIONS_CONTROLLER.addGroup(context, name, url, '', '', '', '', false, this.language);
-    const state = await SUBSCRIPTIONS_CONTROLLER.update(context, added.selectedGroupId, url, this.selectedNodeId, this.language, this.subscriptionProxyPort());
-    this.applySubscriptionsState(state);
-    SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('log.deepLinkSub', 'name', name));
+    if (SubscriptionStore.findGroupByUrl(added.subscriptionGroups, url) === null) {
+      this.lastError = added.subscriptionMessage;
+      SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
+      return false;
+    }
+    this.applySubscriptionsState(added);
+    SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('log.sharedSubscriptionAdded', 'name', name));
     return true;
   }
 
