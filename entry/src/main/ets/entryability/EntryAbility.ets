@@ -9,11 +9,18 @@ import { extractSharedTextFromWant } from '../core/SharedTextImport';
 import { APP_LANGUAGE_STORAGE_KEY, DEFAULT_LANGUAGE } from '../core/I18n';
 import { SettingsStore } from '../storage/SettingsStore';
 import { NETWORK_SCENE_MANAGER } from '../services/NetworkSceneManager';
+import { prepareNativeXrayAssets } from '../native/HeyNative';
 
 const DOMAIN = 0x0000;
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+    // 必须早于扫码/分享解析等任何可能懒加载 Go c-shared 核心的页面逻辑。
+    // Go runtime 初始化后再由 musl setenv 改写 environ 可能触发原生崩溃。
+    const assetInit = prepareNativeXrayAssets(this.context.filesDir);
+    if (!assetInit.ok) {
+      hilog.error(DOMAIN, 'testTag', 'Failed to initialize Xray assets before native core load: %{public}s', assetInit.message);
+    }
     this.applyStoredColorMode();
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onCreate');
     this.stashDeepLink(want);

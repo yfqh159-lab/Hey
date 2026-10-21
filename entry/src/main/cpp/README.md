@@ -57,6 +57,12 @@ CMake copies the prebuilt `.so` files from
 `entry/src/main/cpp/prebuilt/arm64-v8a/` into the HAP native library directory
 after building `libheyvpn.so`.
 
+`XRAY_LOCATION_ASSET` is initialized before any Go c-shared library is loaded:
+the UI process does this during `EntryAbility.onCreate`, while the VPN extension
+does it before starting either Xray or sing-box. The bridge refuses a late
+`setenv` after libxray, libsingbox, or libheytun2socks has been loaded because
+musl environment reallocation can race Go runtime initialization.
+
 ## Environment variables and `dlopen`
 
 `PrepareXrayAssetDir` in `napi_init.cpp` sets `XRAY_LOCATION_ASSET` (the Geo data

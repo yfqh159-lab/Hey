@@ -79,6 +79,7 @@ interface FreePortsData {
 
 interface NativeBridge {
   validateConfig(configJson: string): NativeResult;
+  prepareXrayAssets(workDir: string): NativeResult;
   setTunFd(tunFd: number): NativeResult;
   startXray(configJson: string, workDir: string): NativeResult;
   stopXray(): NativeResult;
@@ -109,6 +110,10 @@ const bridge = heyNative as NativeBridge;
 
 export function validateNativeConfig(configJson: string): NativeResult {
   return bridge.validateConfig(configJson);
+}
+
+export function prepareNativeXrayAssets(workDir: string): NativeResult {
+  return bridge.prepareXrayAssets(workDir);
 }
 
 export function setNativeTunFd(tunFd: number): NativeResult {

@@ -18,6 +18,7 @@ export interface RuntimeStats {
 }
 
 export const validateConfig: (configJson: string) => NativeResult;
+export const prepareXrayAssets: (workDir: string) => NativeResult;
 export const setTunFd: (tunFd: number) => NativeResult;
 export const startXray: (configJson: string, workDir: string) => NativeResult;
 export const stopXray: () => NativeResult;

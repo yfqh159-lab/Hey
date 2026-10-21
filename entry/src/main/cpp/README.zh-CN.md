@@ -57,4 +57,6 @@ libXray `v26.7.28` 的 run / ping 请求不再带 `datDir`），而且必须在�
 `libxray.so` **之前**设。任何 Go c-shared 库加载之后都不能再调 `setenv`：Go 只在运行时
 初始化时拷贝一次 `environ`，而这个初始化在 `dlopen` 返回后另起线程异步进行；之后 C 侧再
 `setenv`（musl 会 realloc / free `environ` 数组）就会和它竞争，曾导致 VPN 扩展进程
-SIGSEGV。详见 [`docs/building-native-cores.md`](../../../../docs/building-native-cores.md) §5。
+SIGSEGV。主进程会在页面加载前准备该变量，VPN 扩展在 Xray 或 sing-box 首次启动前准备；
+桥还会拒绝在任一 Go 共享库已经加载后补设环境变量。详见
+[`docs/building-native-cores.md`](../../../../docs/building-native-cores.md) §5。

@@ -368,18 +368,47 @@ bool LoadXrayCore(std::string& message);
 // 2. c-shared 库在 dlopen 返回后另起线程异步初始化运行时，期间读取 dlopen 时捕获的
 //    environ 数组；此时再 setenv，musl 会 realloc/free 旧数组，Go 初始化线程读到野指针
 //    即 SIGSEGV（VPN 扩展进程启动 Xray 时的真机崩溃）。
-// 因此只在库未加载时 setenv 一次，加载后不再改动环境变量。
+// 因此只在任意 Go c-shared 库加载前 setenv 一次，加载后不再改动环境变量。
 std::mutex g_xrayAssetEnvMutex;
 bool g_xrayAssetEnvSet = false;
 
-void PrepareXrayAssetDir(const std::string& dir)
+bool PrepareXrayAssetDir(const std::string& dir, std::string& message)
 {
     std::lock_guard<std::mutex> lock(g_xrayAssetEnvMutex);
-    if (g_xrayAssetEnvSet || g_xrayHandle != nullptr || dir.empty()) {
-        return;
+    if (g_xrayAssetEnvSet) {
+        return true;
     }
-    setenv("XRAY_LOCATION_ASSET", dir.c_str(), 1);
+    if (dir.empty()) {
+        message = "Xray asset directory is empty.";
+        return false;
+    }
+    // libxray/libsingbox/libheytun2socks 各自带独立 Go runtime。任何一个 dlopen 后
+    // 都不能再用 musl setenv 改写 environ，否则其异步初始化线程可能读到已释放内存。
+    if (g_xrayHandle != nullptr || g_singboxHandle != nullptr || g_tun2socksHandle != nullptr) {
+        message = "Cannot initialize Xray assets after a Go shared library has loaded; restart the process.";
+        return false;
+    }
+    if (setenv("XRAY_LOCATION_ASSET", dir.c_str(), 1) != 0) {
+        message = ErrnoMessage("Failed to initialize Xray asset directory");
+        return false;
+    }
     g_xrayAssetEnvSet = true;
+    return true;
+}
+
+napi_value PrepareXrayAssets(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1] = { nullptr };
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    if (argc < 1) {
+        return CreateResultQuiet(env, false, "Missing Xray asset directory.");
+    }
+    std::string message;
+    if (!PrepareXrayAssetDir(GetStringArg(env, args[0]), message)) {
+        return CreateResultQuiet(env, false, message);
+    }
+    return CreateResultQuiet(env, true, "Xray asset directory initialized.");
 }
 
 bool LoadXray()
@@ -673,7 +702,9 @@ napi_value PingOutbound(napi_env env, napi_callback_info info)
 
     std::string message;
     // 新版 libXray 的 ping 不再从请求取 datDir，需在首次加载核心前设置资源目录。
-    PrepareXrayAssetDir(datDir);
+    if (!PrepareXrayAssetDir(datDir, message)) {
+        return CreatePingResult(env, false, -1, message);
+    }
 
     // 并发测速时每个 ping 用独立的 socks 端口，按端口区分配置文件名，避免多个并发
     // ping 同时写同一个文件互相覆盖（旧实现固定 PING_CONFIG_FILE 会造成串行/串读）。
@@ -1045,14 +1076,17 @@ napi_value StartXray(napi_env env, napi_callback_info info)
         return CreateResult(env, false, "Missing native work directory for Xray config.");
     }
     // 新版 libXray 的 runXrayFromJson 不再从请求取 datDir，需在首次加载核心前设置资源目录。
-    PrepareXrayAssetDir(workDir);
+    std::string message;
+    if (!PrepareXrayAssetDir(workDir, message)) {
+        g_xrayRunning.store(false);
+        return CreateResult(env, false, message);
+    }
 
     if (!LoadXray()) {
         g_xrayRunning.store(false);
         return CreateResult(env, false, g_lastMessage);
     }
 
-    std::string message;
     if (!LoadXrayCore(message)) {
         g_xrayRunning.store(false);
         return CreateResult(env, false, message);
@@ -1400,6 +1434,12 @@ napi_value SingboxStart(napi_env env, napi_callback_info info)
     }
 
     std::string message;
+    // 即便本次选择 sing-box，也先固定 Xray 资源目录。这样同一扩展进程稍后切回
+    // Xray 时无需在 Go runtime 已加载后调用 setenv。
+    if (!PrepareXrayAssetDir(workDir, message)) {
+        g_singboxRunning.store(false);
+        return CreateResult(env, false, message);
+    }
     if (!LoadSingboxCore(message)) {
         g_singboxRunning.store(false);
         return CreateResult(env, false, message);
@@ -1465,6 +1505,7 @@ static napi_value Init(napi_env env, napi_value exports)
 {
     napi_property_descriptor desc[] = {
         { "validateConfig", nullptr, ValidateConfig, nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "prepareXrayAssets", nullptr, PrepareXrayAssets, nullptr, nullptr, nullptr, napi_default, nullptr },
         { "setTunFd", nullptr, SetTunFd, nullptr, nullptr, nullptr, napi_default, nullptr },
         { "startXray", nullptr, StartXray, nullptr, nullptr, nullptr, napi_default, nullptr },
         { "stopXray", nullptr, StopXray, nullptr, nullptr, nullptr, napi_default, nullptr },

@@ -189,13 +189,12 @@ libXray v26.7.28 的 run / ping 请求不再带 datDir，Geo 资源目录只能�
 1. **Go 只在运行时初始化时拷贝一次 `environ`**。`dlopen` 之后 C 侧再 `setenv`，Go 根本看不到新值，Geo 资源目录就丢了。
 2. **c-shared 运行时在 `dlopen` 返回后另起线程异步初始化**，初始化期间会读 `dlopen` 时捕获的 musl `environ` 数组。这时 C 侧 `setenv`，musl 会 realloc / free 旧数组，Go 初始化线程读到野指针，直接 SIGSEGV。这正是迁移到 libXray v26.7.28 后 VPN 扩展进程启动 Xray 就崩的真因：崩在非主线程（Go 线程），和 TLS 墙、工具链都无关。
 
-因此 `PrepareXrayAssetDir` 用互斥锁保护，只在 `g_xrayHandle == nullptr`（库还没加载）时 `setenv` 一次，由 `StartXray` / `PingOutbound` 在首次加载核心前调用。以后给 napi 桥加代码时：
+因此 `PrepareXrayAssetDir` 用互斥锁保护，只在所有 Go c-shared handle 都为空时 `setenv` 一次。主进程由 `EntryAbility` 在页面加载前调用 `prepareXrayAssets(filesDir)`；VPN 扩展进程则由 `StartXray` / `PingOutbound` / `SingboxStart` 在首次加载核心前调用。这样即使同一进程先运行 sing-box、之后切回 Xray，也不需要在 Go runtime 已加载后修改环境变量。以后给 napi 桥加代码时：
 
 - 需要传给 Go 的环境变量，一律放到对应库首次 `dlopen` **之前**设置；
 - 这条规则适用于所有 Go c-shared 库（libxray / libsingbox / libheytun2socks）：同进程里任一 Go 库加载后，`environ` 就可能正被它的初始化线程读取；
-- 运行期要传的参数走调用参数（JSON 请求、函数实参），不要走环境变量。
-
-> 现状的一处缺口：`PrepareXrayAssetDir` 只检查 libxray 自己有没有加载。如果同一进程里先加载过 libsingbox / libheytun2socks（例如先用 sing-box 连过、再切回 Xray），它仍会 `setenv` 一次。那时那些库的异步初始化通常早已结束，风险很低，但严格说不满足上面的规则，改这块时留意。
+- 运行期要传的参数走调用参数（JSON 请求、函数实参），不要走环境变量；
+- 若任一 Go 共享库已经加载而环境仍未初始化，桥会明确失败并要求重启进程，而不是冒险调用 `setenv`。
 
 ---
 
