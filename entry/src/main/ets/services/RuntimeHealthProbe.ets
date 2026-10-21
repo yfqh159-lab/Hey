@@ -63,19 +63,43 @@ export async function waitForRuntimeSocksHealth(
   if (!isRuntimeHealthPort(port) || timeoutMs <= 0 || retryIntervalMs <= 0) {
     return { ok: false, status: 'invalid-endpoint' };
   }
-  const deadline = Date.now() + timeoutMs;
-  do {
-    const remaining = Math.max(1, deadline - Date.now());
-    const probe = await probeRuntimeSocksHealth(port, Math.min(500, remaining));
-    if (probe.ok) {
-      return probe;
-    }
-    const sleepMs = Math.min(retryIntervalMs, deadline - Date.now());
-    if (sleepMs > 0) {
-      await delay(sleepMs);
-    }
-  } while (Date.now() < deadline);
-  return { ok: false, status: 'startup-timeout' };
+  return new Promise<RuntimeHealthProbeResult>((resolve) => {
+    let settled = false;
+    let cancelled = false;
+    let timerId: number = -1;
+    const finish = (result: RuntimeHealthProbeResult): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cancelled = true;
+      if (timerId >= 0) {
+        clearTimeout(timerId);
+      }
+      resolve(result);
+    };
+    // setTimeout is not derived from wall-clock timestamps. If it wins while one bounded TCP
+    // probe is pending, cancelled prevents that late probe from scheduling another attempt.
+    timerId = setTimeout(() => {
+      finish({ ok: false, status: 'startup-timeout' });
+    }, timeoutMs);
+    const poll = async (): Promise<void> => {
+      while (!cancelled) {
+        const probe = await probeRuntimeSocksHealth(port, Math.min(500, timeoutMs));
+        if (cancelled) {
+          return;
+        }
+        if (probe.ok) {
+          finish(probe);
+          return;
+        }
+        await delay(retryIntervalMs);
+      }
+    };
+    poll().catch((_error: Object): void => {
+      finish({ ok: false, status: 'startup-timeout' });
+    });
+  });
 }
 
 export function isRuntimeHealthPort(port: number): boolean {

@@ -1939,12 +1939,14 @@ if (proxyStartAt < 0 || proxyStartEnd < 0 || proxyImmediateFenceAt < 0 || proxyP
   throw new Error('proxy-only startup or handover can cross an asynchronous Geo replacement window');
 }
 if (!health.includes('expectedSessionId: string') || !health.includes('eventDetails: string | undefined') ||
-  !health.includes('eventDetails.startsWith(`${marker};`)')) {
+  !health.includes('eventDetails.startsWith(`${marker};`)') ||
+  health.includes('eventAt < startedAt')) {
   throw new Error('VPN diagnostic errors are not matched to the exact active session');
 }
 if (!health.includes('export function shouldApplyVpnDiagnosticStats(') ||
   !health.includes("eventSource === 'vpn-stats'") ||
   !health.includes('eventSessionId === expectedSessionId') ||
+  health.includes('eventAt >= startedAt') ||
   !diagnosticLog.includes('sessionId?: string;') ||
   !diagnosticLog.includes('sanitized.sessionId = redactDiagnosticText(event.sessionId);') ||
   !vpn.includes('sessionId: this.sessionId,') ||
@@ -2484,12 +2486,20 @@ const probe = fs.readFileSync('entry/src/main/ets/services/RuntimeHealthProbe.et
 const tcpAt = probe.indexOf('export async function probeRuntimeTcpHealth(');
 const waitAt = probe.indexOf('\nexport async function waitForRuntimeSocksHealth(', tcpAt);
 const tcp = probe.slice(tcpAt, waitAt);
+const waitEnd = probe.indexOf('\nexport function isRuntimeHealthPort(', waitAt);
+const wait = probe.slice(waitAt, waitEnd);
 if (tcpAt < 0 || waitAt < 0 ||
   !tcp.includes('await withProbeTimeout(') ||
   !tcp.includes('tcp.connect({') ||
   !tcp.includes('await withProbeTimeout(tcp.close(), Math.min(500, timeoutMs));') ||
   !probe.includes('function withProbeTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T>')) {
   throw new Error('runtime SOCKS health connect/close promises are not bounded');
+}
+if (waitEnd < 0 || !wait.includes('timerId = setTimeout(() => {') ||
+  !wait.includes("finish({ ok: false, status: 'startup-timeout' });") ||
+  !wait.includes('while (!cancelled)') || !wait.includes('if (cancelled) {') ||
+  wait.includes('Date.now()')) {
+  throw new Error('runtime SOCKS readiness uses a wall-clock deadline or leaves retries alive after timeout');
 }
 NODE
 printf 'bounded runtime health probe verification passed\n'

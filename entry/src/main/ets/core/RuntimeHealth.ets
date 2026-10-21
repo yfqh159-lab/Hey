@@ -87,7 +87,8 @@ export function shouldApplyVpnDiagnosticError(
   // STARTING 的错误由 ConnectionController.start() 自己消费并回滚；刷新定时器不能
   // 同时进入停止流程，否则会与尚未返回的启动协程争用状态。
   if (normalizeAppRuntimeMode(mode) !== APP_MODE_VPN || status !== ConnectionStatus.RUNNING || startedAt <= 0 ||
-    eventAt < startedAt || eventLevel !== 'error' || eventSource !== 'vpn' || expectedSessionId.length === 0 ||
+    !Number.isFinite(eventAt) || eventAt <= 0 || eventLevel !== 'error' || eventSource !== 'vpn' ||
+    expectedSessionId.length === 0 ||
     eventDetails === undefined) {
     return false;
   }
@@ -110,6 +111,6 @@ export function shouldApplyVpnDiagnosticStats(
   eventSessionId: string | undefined
 ): boolean {
   return normalizeAppRuntimeMode(mode) === APP_MODE_VPN && status === ConnectionStatus.RUNNING &&
-    startedAt > 0 && eventAt >= startedAt && eventSource === 'vpn-stats' &&
+    startedAt > 0 && Number.isFinite(eventAt) && eventAt > 0 && eventSource === 'vpn-stats' &&
     expectedSessionId.length > 0 && eventSessionId === expectedSessionId;
 }

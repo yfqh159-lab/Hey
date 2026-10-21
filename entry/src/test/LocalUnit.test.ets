@@ -3164,7 +3164,7 @@ export default function localUnitTest() {
         'session=current')).assertFalse();
       expect(shouldApplyVpnDiagnosticError(
         APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 99, 'error', 'vpn', 'current',
-        'session=current')).assertFalse();
+        'session=current')).assertTrue();
       expect(shouldApplyVpnDiagnosticError(
         APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 101, 'error', 'subscription-work', 'current',
         'session=current')).assertFalse();
@@ -3186,6 +3186,9 @@ export default function localUnitTest() {
       expect(shouldApplyVpnDiagnosticError(
         APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 101, 'error', 'vpn', 'current',
         undefined)).assertFalse();
+      expect(shouldApplyVpnDiagnosticError(
+        APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 0, 'error', 'vpn', 'current',
+        'session=current')).assertFalse();
     });
 
     it('only applies diagnostic stats from the exact active VPN session', 0, () => {
@@ -3200,7 +3203,7 @@ export default function localUnitTest() {
         .assertFalse();
       expect(shouldApplyVpnDiagnosticStats(
         APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 99, 'vpn-stats', 'current', 'current'))
-        .assertFalse();
+        .assertTrue();
       expect(shouldApplyVpnDiagnosticStats(
         APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 101, 'vpn', 'current', 'current'))
         .assertFalse();
@@ -3209,6 +3212,9 @@ export default function localUnitTest() {
         .assertFalse();
       expect(shouldApplyVpnDiagnosticStats(
         APP_MODE_VPN, ConnectionStatus.IDLE, 100, 101, 'vpn-stats', 'current', 'current'))
+        .assertFalse();
+      expect(shouldApplyVpnDiagnosticStats(
+        APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 0, 'vpn-stats', 'current', 'current'))
         .assertFalse();
     });
 
