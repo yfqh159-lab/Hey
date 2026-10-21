@@ -29,6 +29,7 @@ import { buildSingboxConfig } from '../main/ets/core/SingboxConfig';
 import { exportRoutingRulesJson, importRoutingRulesJson } from '../main/ets/core/RoutingRules';
 import { buildConfigBackup, parseConfigBackup, serializeConfigBackup, CONFIG_BACKUP_APP_TAG, CONFIG_BACKUP_VERSION } from '../main/ets/core/ConfigBackup';
 import { AssetStore, CustomAssetUrl, GeoUpdateMetadata } from '../main/ets/storage/AssetStore';
+import { ControlCardStore } from '../main/ets/storage/ControlCardStore';
 import { ProfileStore } from '../main/ets/storage/ProfileStore';
 import { SubscriptionStore } from '../main/ets/storage/SubscriptionStore';
 import { ProxyProfile, SubscriptionProfile } from '../main/ets/core/Profile';
@@ -440,6 +441,51 @@ export default function localUnitTest() {
       const empty = SettingsStore.selectStoredSettings('', '');
       expect(empty.source).assertEqual('empty');
       expect(empty.settings?.mode ?? '').assertEqual(APP_MODE_VPN);
+    });
+
+    it('recovers the persisted local-proxy runtime state without changing it to TUN', 0, () => {
+      const state = buildControlCardFormData(
+        'zh-rCN', ConnectionStatus.RUNNING, '00:10', '', false, APP_MODE_PROXY_ONLY);
+      const raw = JSON.stringify(state);
+
+      const primary = ControlCardStore.selectStoredState(raw, '{broken');
+      expect(primary.source).assertEqual('primary');
+      expect(primary.state?.runtimeStatus ?? ConnectionStatus.IDLE).assertEqual(ConnectionStatus.RUNNING);
+      expect(primary.state?.runtimeMode ?? '').assertEqual(APP_MODE_PROXY_ONLY);
+
+      const recovered = ControlCardStore.selectStoredState('{broken', raw);
+      expect(recovered.source).assertEqual('backup');
+      expect(recovered.state?.runtimeStatus ?? ConnectionStatus.IDLE).assertEqual(ConnectionStatus.RUNNING);
+      expect(recovered.state?.runtimeMode ?? '').assertEqual(APP_MODE_PROXY_ONLY);
+
+      const invalid = ControlCardStore.selectStoredState('{}', '{also-broken');
+      expect(invalid.source).assertEqual('invalid');
+      expect(invalid.state === null).assertTrue();
+
+      const empty = ControlCardStore.selectStoredState('', '');
+      expect(empty.source).assertEqual('empty');
+      expect(empty.state?.runtimeStatus ?? ConnectionStatus.ERROR).assertEqual(ConnectionStatus.IDLE);
+    });
+
+    it('recovers and validates persisted control-card identifiers', 0, () => {
+      const raw = '["form-a","form-a","",42,"form-b"]';
+      const primary = ControlCardStore.selectStoredFormIds(raw, '{broken');
+      expect(primary.source).assertEqual('primary');
+      expect(primary.ids?.length ?? 0).assertEqual(2);
+      expect(primary.ids?.[0] ?? '').assertEqual('form-a');
+      expect(primary.ids?.[1] ?? '').assertEqual('form-b');
+
+      const recovered = ControlCardStore.selectStoredFormIds('{broken', '["form-c"]');
+      expect(recovered.source).assertEqual('backup');
+      expect(recovered.ids?.[0] ?? '').assertEqual('form-c');
+
+      const invalid = ControlCardStore.selectStoredFormIds('{}', '{also-broken');
+      expect(invalid.source).assertEqual('invalid');
+      expect(invalid.ids === null).assertTrue();
+
+      const empty = ControlCardStore.selectStoredFormIds('', '');
+      expect(empty.source).assertEqual('empty');
+      expect(empty.ids?.length ?? -1).assertEqual(0);
     });
 
     it('recovers custom Geo sources and verified update metadata independently', 0, () => {
