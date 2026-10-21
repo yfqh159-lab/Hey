@@ -42,6 +42,27 @@ git diff --check
 ./scripts/verify_prebuilt_native.sh
 bash -n scripts/*.sh
 
+# All ArkTS HTTP call sites are security-sensitive because Hey excludes itself from the
+# VPN to avoid a routing loop. Keep the small reviewed allowlist explicit: Geo and
+# subscription downloads select the current runtime proxy fail-closed, while exit-IP
+# verification always requires a valid loopback proxy port. A new caller must be audited
+# before it is added here; in particular, delay tests must never fall back to direct HTTP.
+expected_http_request_files=(
+  entry/src/main/ets/features/assets/AssetsController.ets
+  entry/src/main/ets/services/RemoteIpInfo.ets
+  entry/src/main/ets/services/SubscriptionManager.ets
+)
+mapfile -t actual_http_request_files < <(
+  grep -RlE 'http[.]createHttp[[:space:]]*[(]' entry/src/main/ets --include='*.ets' 2>/dev/null | sort || true
+)
+if [[ "${actual_http_request_files[*]}" != "${expected_http_request_files[*]}" ]]; then
+  printf 'unexpected ArkTS HTTP request call sites:\n' >&2
+  printf 'expected:\n  %s\n' "${expected_http_request_files[*]}" >&2
+  printf 'actual:\n  %s\n' "${actual_http_request_files[*]}" >&2
+  exit 1
+fi
+printf 'ArkTS HTTP request allowlist verification passed\n'
+
 if ! command -v node >/dev/null 2>&1; then
   printf 'node is required for the translation-key consistency check.\n' >&2
   exit 1

@@ -1,5 +1,4 @@
-import { http, socket } from '@kit.NetworkKit';
-import { APP_HTTP_USER_AGENT } from '../core/HttpDefaults';
+import { socket } from '@kit.NetworkKit';
 import { taskpool } from '@kit.ArkTS';
 import { XrayConfigType } from '../core/Profile';
 import { DEFAULT_SOCKS_HOST, DELAY_TEST_SOCKS_PORT, buildDelayTestConfig } from '../core/XrayConfig';
@@ -220,49 +219,5 @@ export class DelayTester {
       // present physical-network latency as node latency and could hide an unavailable core.
       status: nativeDelayFailureStatus(result.message)
     };
-  }
-
-
-  static async measure(url: string, timeoutMs: number = 8000): Promise<DelayTestResult> {
-    const target = url.trim();
-    if (!target.startsWith('http://') && !target.startsWith('https://')) {
-      return {
-        ok: false,
-        delayMs: -1,
-        status: 'invalid-url'
-      };
-    }
-
-    const startedAt = Date.now();
-    const request = http.createHttp();
-    try {
-      const response = await request.request(target, {
-        method: http.RequestMethod.GET,
-        expectDataType: http.HttpDataType.STRING,
-        readTimeout: timeoutMs,
-        connectTimeout: timeoutMs,
-        header: {
-          'User-Agent': APP_HTTP_USER_AGENT,
-          'Accept': '*/*',
-          'Cache-Control': 'no-cache'
-        }
-      });
-      const delayMs = Math.max(0, Date.now() - startedAt);
-      const responseCode = Number(response.responseCode);
-      return {
-        ok: responseCode >= 200 && responseCode < 500,
-        delayMs,
-        status: `HTTP ${responseCode}`
-      };
-    } catch (_error) {
-      return {
-        ok: false,
-        delayMs: -1,
-        // 自定义探测 URL 可能含私密查询参数，不回显系统请求错误。
-        status: 'request-failed'
-      };
-    } finally {
-      request.destroy();
-    }
   }
 }
