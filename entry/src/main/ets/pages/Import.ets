@@ -2,7 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { router, promptAction } from '@kit.ArkUI';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { resolveImportedNodeName } from '../core/ImportedNodeNames';
-import { AppLanguage } from '../core/Profile';
+import { AppLanguage, XrayConfigType } from '../core/Profile';
 import { markRuntimeSettingsRestartNeeded } from '../core/SettingsChange';
 import { NODES_CONTROLLER } from '../features/nodes/NodesController';
 import { SETTINGS_CONTROLLER } from '../features/settings/SettingsController';
@@ -363,6 +363,7 @@ struct ImportPage {
         }
 
         let importedCount = 0;
+        let duplicateCount = 0;
         let lastValidationError = '';
         for (let index = 0; index < nativeResult.outbounds.length; index++) {
           const outbound = nativeResult.outbounds[index];
@@ -371,17 +372,22 @@ struct ImportPage {
             lastValidationError = imported.lastError;
             continue;
           }
-          await SubscriptionStore.addManualNode(
+          if (!await this.addManualNodeIfUnique(
             context,
             resolveImportedNodeName(imported.profile.outboundJson, outbound.name),
             imported.profile.outboundJson,
             imported.profile.configType
-          );
+          )) {
+            duplicateCount++;
+            continue;
+          }
           importedCount++;
         }
 
         if (importedCount === 0) {
-          this.lastError = lastValidationError.length > 0 ? lastValidationError : saved.lastError;
+          this.lastError = duplicateCount > 0 ?
+            this.f1('scanner.duplicateNodes', 'count', duplicateCount.toString()) :
+            (lastValidationError.length > 0 ? lastValidationError : saved.lastError);
           return;
         }
 
@@ -398,7 +404,10 @@ struct ImportPage {
       }
 
       const nodeName = resolveImportedNodeName(saved.profile.outboundJson, this.t('import.linkNodeName'));
-      await SubscriptionStore.addManualNode(context, nodeName, saved.profile.outboundJson, saved.profile.configType);
+      if (!await this.addManualNodeIfUnique(context, nodeName, saved.profile.outboundJson, saved.profile.configType)) {
+        this.lastError = this.f1('scanner.duplicateNode', 'name', nodeName);
+        return;
+      }
       markRuntimeSettingsRestartNeeded();
       try {
         this.getUIContext().getPromptAction().showToast({ message: this.t('import.nodeImported') });
@@ -419,6 +428,19 @@ struct ImportPage {
 
   private f1(key: string, name: string, value: string): string {
     return formatOne(this.language, key, name, value);
+  }
+
+  private async addManualNodeIfUnique(
+    context: common.Context,
+    name: string,
+    outboundJson: string,
+    configType?: XrayConfigType
+  ): Promise<boolean> {
+    if (await SubscriptionStore.findDuplicateNode(context, outboundJson, configType) !== null) {
+      return false;
+    }
+    await SubscriptionStore.addManualNode(context, name, outboundJson, configType);
+    return true;
   }
 
   private protocolDisplayTitle(protocol: string): string {
