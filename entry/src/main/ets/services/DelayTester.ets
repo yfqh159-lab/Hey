@@ -1,6 +1,6 @@
 import { socket } from '@kit.NetworkKit';
 import { taskpool } from '@kit.ArkTS';
-import { XrayConfigType } from '../core/Profile';
+import { DELAY_STATUS_UDP_ONLY, XrayConfigType } from '../core/Profile';
 import { DEFAULT_SOCKS_HOST, DELAY_TEST_SOCKS_PORT, buildDelayTestConfig } from '../core/XrayConfig';
 import { NativePingResult, nativeXrayAssetReadiness, pingNativeOutbound } from '../native/HeyNative';
 import { isSingboxOnlyProtocol } from '../core/CoreSelection';
@@ -15,8 +15,6 @@ export interface DelayTestResult {
 // 无法建临时实例做真实 ping；服务器端口通常只监听 UDP，快速 TCP 探测多半失败。
 // 这类"无法用快速探测测出延迟"的情况用此中性状态标记，UI 据此显示中性文案而非红色"失败"
 // （节点本身可正常使用，只是延迟测不出来）。
-export const DELAY_STATUS_UDP_ONLY: string = 'udp-only';
-
 interface DelayProbeServer {
   address?: string;
   port?: number;

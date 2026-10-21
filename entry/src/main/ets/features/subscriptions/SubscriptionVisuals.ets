@@ -6,7 +6,7 @@
  *   最后回退地球图标，并给出去掉前缀国旗后的展示名；
  * - 延迟分级：把 ProxyNode 的延迟/状态归一到 5 档，用于信号点与文字着色。
  */
-import { ProxyNode } from '../../core/Profile';
+import { DELAY_STATUS_UDP_ONLY, ProxyNode } from '../../core/Profile';
 import { AppColor } from '../../theme/Theme';
 
 /** 头像调色板：给每个来源一个稳定的品牌色。 */
@@ -58,6 +58,9 @@ export function nodeDelayLevel(node: ProxyNode): NodeDelayLevel {
       return 'warn';
     }
     return 'bad';
+  }
+  if (node.delayStatus === DELAY_STATUS_UDP_ONLY) {
+    return 'pending';
   }
   if (node.delayStatus.length > 0) {
     return 'bad';

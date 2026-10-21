@@ -127,6 +127,9 @@ export const DEFAULT_VPN_INTERFACE_ADDRESS_INDEX: number = 0;
 // 延迟探测端点默认留空，测速退化为到服务器的 TCP 握手时延。出口地址仅在代理已经
 // 运行后通过本地回环 HTTP 代理查询；默认服务只返回公网 IP，不请求地理归属信息。
 export const DEFAULT_DELAY_TEST_URL: string = '';
+// sing-box 独有的 UDP/QUIC 协议无法由临时 Xray 出站验证；该状态表示“不可测”，
+// 不是节点失败，批量清理不得据此删除节点。
+export const DELAY_STATUS_UDP_ONLY: string = 'udp-only';
 export const DEFAULT_IP_API_URL: string = 'https://api.ipify.org?format=json';
 export const VPN_BYPASS_LAN_FOLLOW_CONFIG: string = '0';
 export const VPN_BYPASS_LAN_BYPASS: string = '1';

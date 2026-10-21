@@ -1,7 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
-import { AppLanguage, ProxyNode, SubscriptionGroup } from '../core/Profile';
+import { AppLanguage, DELAY_STATUS_UDP_ONLY, ProxyNode, SubscriptionGroup } from '../core/Profile';
 import { NODES_CONTROLLER, NodesControllerState } from '../features/nodes/NodesController';
 import { SubscriptionNodeListRow } from '../features/subscriptions/SubscriptionRows';
 import { SUBSCRIPTIONS_CONTROLLER, SubscriptionsControllerState } from '../features/subscriptions/SubscriptionsController';
@@ -458,6 +458,9 @@ struct SubscriptionDetailPage {
     }
     if (node.delayMs >= 0) {
       return this.f1('node.delay.ms', 'value', node.delayMs.toString());
+    }
+    if (node.delayStatus === DELAY_STATUS_UDP_ONLY) {
+      return this.t('node.delay.udpOnly');
     }
     if (node.delayStatus.length > 0) {
       return this.t('node.delay.failed');

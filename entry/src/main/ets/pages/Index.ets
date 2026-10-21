@@ -4,7 +4,7 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import { IconButton } from '../components/IconButton';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { BOTTOM_SAFE_HEIGHT_KEY, TOP_SAFE_HEIGHT_KEY } from '../core/Immersive';
-import { APP_MODE_VPN, AppLanguage, AppRuntimeMode, AppSettings, ConnectionStatus, isProxyOnlyRuntimeMode, normalizeAppRuntimeMode, normalizeHomeDelayTestInterval, normalizeRealPingConcurrency, ProxyNode, ProxyProfile, resolveDelayTestUrl, RuntimeStats, SubscriptionGroup, SubscriptionProfile, XrayConfigType } from '../core/Profile';
+import { APP_MODE_VPN, AppLanguage, AppRuntimeMode, AppSettings, ConnectionStatus, DELAY_STATUS_UDP_ONLY, isProxyOnlyRuntimeMode, normalizeAppRuntimeMode, normalizeHomeDelayTestInterval, normalizeRealPingConcurrency, ProxyNode, ProxyProfile, resolveDelayTestUrl, RuntimeStats, SubscriptionGroup, SubscriptionProfile, XrayConfigType } from '../core/Profile';
 import { CoreSelectionStore, requiredCoreForProtocol, CORE_TYPE_SINGBOX } from '../core/CoreSelection';
 import { DELAY_TEST_BATCH_PORT_BASE, normalizeOutboundInput } from '../core/XrayConfig';
 import { DeepLinkControlAction, DeepLinkIntent, parseDeepLink, subscriptionNameFromDeepLink } from '../core/DeepLink';
@@ -17,7 +17,7 @@ import {
   shouldDeferBusyControlAction,
   shouldOfferConnectionStop
 } from '../core/ConnectionInteraction';
-import { DelayTester, DelayTestResult, DELAY_STATUS_UDP_ONLY } from '../services/DelayTester';
+import { DelayTester, DelayTestResult } from '../services/DelayTester';
 import { convertNativeShareTextToOutbounds } from '../services/NativeShareConverter';
 import { CONTROL_CARD_MANAGER } from '../services/ControlCardManager';
 import { calculateSpeedNotificationRates, sampleSpeedNotificationStats, SpeedNotificationSample } from '../core/SpeedNotification';
