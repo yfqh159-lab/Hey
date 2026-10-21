@@ -5,7 +5,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppRuntimeMode, AppSettings, ConnectionStatus, GeneratedXrayConfig, normalizeAppRuntimeMode, ProxyProfile, RuntimeStats } from '../core/Profile';
 import { resolveDynamicPolicyGroupConfigJson } from '../core/AdvancedOutboundBuilder';
 import { selectRuntimeLocalSocksPort, shouldExposeLocalHttpProxy, shouldUseDynamicLocalSocksPort, withRuntimeLocalSocksPort } from '../core/LocalProxy';
-import { buildRuntimeXrayConfig, injectXrayLogFile, LOCAL_HTTP_PROXY_PORT, METRICS_PORT, normalizeConfigInput, XRAY_CORE_LOG_FILE } from '../core/XrayConfig';
+import { buildRuntimeXrayConfig, injectXrayLogFile, LOCAL_HTTP_PROXY_PORT, METRICS_PORT, normalizeConfigInput, VPN_DATA_SOCKS_PORT, XRAY_CORE_LOG_FILE } from '../core/XrayConfig';
 import { normalizeCoreLogLevel } from '../core/ProtocolOptions';
 import { CORE_TYPE_SINGBOX, CORE_TYPE_XRAY, CoreSelectionStore, CoreType, isSingboxCore, isSingboxOnlyProtocol } from '../core/CoreSelection';
 import { buildSingboxConfig } from '../core/SingboxConfig';
@@ -124,7 +124,9 @@ export class ConnectionController {
         this.generatedConfig.configJson.length);
       vpnStartRequested = true;
       await this.withTimeout(vpnExtension.startVpnExtensionAbility(createVpnWant(
-        this.generatedConfig.configJson
+        this.generatedConfig.configJson,
+        CORE_TYPE_XRAY,
+        this.generatedConfig.runtimeHealthPort
       )), START_VPN_TIMEOUT_MS, '启动 VPN 超时：系统 VPN 授权服务没有响应。若 hilog 中出现 com.huawei.hmos.vpndialog bundle not exist，说明当前系统镜像缺少 VPN 授权组件，请改用真机测试。');
       hilog.info(LOG_DOMAIN, LOG_TAG, 'startVpnExtensionAbility returned.');
       const startEvent = await this.waitForDiagnosticEvent(context, requestedAt, START_VPN_READY_TIMEOUT_MS, (event: DiagnosticEvent) => {
@@ -188,7 +190,8 @@ export class ConnectionController {
       vpnStartRequested = true;
       await this.withTimeout(vpnExtension.startVpnExtensionAbility(createVpnWant(
         generated.configJson,
-        CORE_TYPE_SINGBOX
+        CORE_TYPE_SINGBOX,
+        VPN_DATA_SOCKS_PORT
       )), START_VPN_TIMEOUT_MS, '启动 VPN 超时：系统 VPN 授权服务没有响应。若为模拟器缺少 VPN 授权组件，请改用真机测试。');
       const startEvent = await this.waitForDiagnosticEvent(context, requestedAt, START_VPN_READY_TIMEOUT_MS, (event: DiagnosticEvent) => {
         return event.source === 'vpn' && (event.message === VPN_STARTED_MESSAGE || event.message === VPN_START_FAILED_MESSAGE);

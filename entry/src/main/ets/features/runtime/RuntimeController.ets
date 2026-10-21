@@ -1,6 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { DEFAULT_LANGUAGE, translate } from '../../core/I18n';
 import { shouldExposeLocalHttpProxy } from '../../core/LocalProxy';
+import { isProxyOnlyRuntimeUnhealthy } from '../../core/RuntimeHealth';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppLanguage, AppRuntimeMode, AppSettings, ConnectionStatus, normalizeAppRuntimeMode, ProxyProfile, RuntimeStats } from '../../core/Profile';
 import { LOCAL_HTTP_PROXY_PORT, VPN_DATA_SOCKS_PORT } from '../../core/XrayConfig';
 import { CoreSelectionStore, isSingboxCore } from '../../core/CoreSelection';
@@ -11,6 +12,7 @@ import { DiagnosticEvent, DiagnosticLog } from '../../services/DiagnosticLog';
 import { clearCoreLog, readCoreLogEntries } from '../../services/CoreLogReader';
 import { LogEntry, normalizeLogLevel } from '../logs/LogModel';
 import { fetchRemoteIpInfo, RemoteIpInfoResult } from '../../services/RemoteIpInfo';
+import { probeRuntimeSocksHealth } from '../../services/RuntimeHealthProbe';
 import { measureRuntimeProfileDelay, RuntimeDelayResult } from '../../services/RuntimeDelay';
 import { connectionStatusBackground, connectionStatusColor, formatClockTime, formatDuration } from '../../utils/Formatters';
 import { formatOne, localizedConnectionStatus, localizeCoreMessage, localizeDiagnosticHeartbeat } from '../../utils/LocalizationPresenter';
@@ -22,6 +24,8 @@ const EMPTY_STATS: RuntimeStats = {
   tunRunning: false,
   lastMessage: translate(DEFAULT_LANGUAGE, 'runtime.nativeBridgeNotQueried')
 };
+const LOCAL_PROXY_HEALTH_INTERVAL_MS: number = 5000;
+const LOCAL_PROXY_UNHEALTHY_SAMPLE_LIMIT: number = 2;
 
 export interface RuntimeViewState {
   status: ConnectionStatus;
@@ -62,6 +66,8 @@ export class RuntimeController {
   // 只保存当前会话经代理实测得到的公网 IP；断开/切换会话立即清空，避免展示旧出口。
   private egressIp: string = '';
   private egressIpChecking: boolean = false;
+  private lastProxyHealthProbeAt: number = 0;
+  private proxyUnhealthySampleCount: number = 0;
 
   async start(context: common.Context, profile: ProxyProfile, settings: AppSettings, language: AppLanguage): Promise<RuntimeViewState> {
     this.runtimeMode = normalizeAppRuntimeMode(settings.mode, APP_MODE_VPN);
@@ -69,6 +75,7 @@ export class RuntimeController {
     this.activeSettings = settings;
     this.resetConnectionDelay();
     this.resetEgressIp();
+    this.resetProxyHealth();
     this.appendLog(this.runtimeMode === APP_MODE_PROXY_ONLY ? translate(language, 'log.startingProxy') : translate(language, 'log.startingVpn'));
     const snapshot = await this.controller.start(context, profile, settings);
     this.applySnapshot(snapshot, language);
@@ -87,6 +94,7 @@ export class RuntimeController {
     const stoppingMode = this.runtimeMode;
     this.resetConnectionDelay();
     this.resetEgressIp();
+    this.resetProxyHealth();
     this.appendLog(stoppingMode === APP_MODE_PROXY_ONLY ? translate(language, 'log.stoppingProxy') : translate(language, 'log.stoppingVpn'));
     const snapshot = await this.controller.stop(context);
     this.applySnapshot(snapshot, language);
@@ -155,6 +163,11 @@ export class RuntimeController {
   async refresh(context: common.Context, language: AppLanguage): Promise<RuntimeViewState> {
     await this.reconcilePersistedVpnState(context, language);
     this.stats = this.controller.getStats();
+    if (isProxyOnlyRuntimeUnhealthy(this.runtimeMode, this.status, this.stats)) {
+      await this.cleanupUnhealthyProxy(context, language);
+    } else {
+      await this.checkProxyOnlyRuntimeHealth(context, language);
+    }
     // 运行中显示实际使用的内核（anytls/tuic 会强制切到 sing-box）；空闲时显示全局设置。
     const snap = this.controller.getSnapshot();
     const running = snap.status === ConnectionStatus.RUNNING || snap.status === ConnectionStatus.STARTING;
@@ -502,6 +515,57 @@ export class RuntimeController {
     this.resetConnectionDelay();
     this.resetEgressIp();
     this.appendLog(message);
+  }
+
+  // 本地代理与 UI 共进程：native 明确报告停止时立即处理，其余情况再探测实际 SOCKS
+  // 监听器。异常退出时执行一次幂等停止以清理残余资源，但绝不自动启动。
+  private async cleanupUnhealthyProxy(context: common.Context, language: AppLanguage): Promise<void> {
+    const message = translate(language, 'runtime.proxyHealthLost');
+    await this.controller.stop(context);
+    this.status = ConnectionStatus.ERROR;
+    this.startedAt = 0;
+    this.elapsedText = '00:00';
+    this.lastError = message;
+    this.activeProfile = null;
+    this.activeSettings = null;
+    this.resetConnectionDelay();
+    this.resetEgressIp();
+    this.appendLog(message);
+  }
+
+  private async checkProxyOnlyRuntimeHealth(context: common.Context, language: AppLanguage): Promise<void> {
+    if (this.runtimeMode !== APP_MODE_PROXY_ONLY || this.status !== ConnectionStatus.RUNNING) {
+      return;
+    }
+    const generated = this.controller.getSnapshot().generatedConfig;
+    if (generated === null || generated.runtimeHealthPort === undefined) {
+      return;
+    }
+    const healthPort = generated.runtimeHealthPort;
+    const now = Date.now();
+    if (now - this.lastProxyHealthProbeAt < LOCAL_PROXY_HEALTH_INTERVAL_MS) {
+      return;
+    }
+    this.lastProxyHealthProbeAt = now;
+    const sessionStartedAt = this.startedAt;
+    const result = await probeRuntimeSocksHealth(healthPort);
+    if (this.runtimeMode !== APP_MODE_PROXY_ONLY || this.status !== ConnectionStatus.RUNNING ||
+      this.startedAt !== sessionStartedAt) {
+      return;
+    }
+    if (result.ok) {
+      this.proxyUnhealthySampleCount = 0;
+      return;
+    }
+    this.proxyUnhealthySampleCount++;
+    if (this.proxyUnhealthySampleCount >= LOCAL_PROXY_UNHEALTHY_SAMPLE_LIMIT) {
+      await this.cleanupUnhealthyProxy(context, language);
+    }
+  }
+
+  private resetProxyHealth(): void {
+    this.lastProxyHealthProbeAt = 0;
+    this.proxyUnhealthySampleCount = 0;
   }
 
   private applyDiagnosticError(events: Array<DiagnosticEvent>, language: AppLanguage): void {

@@ -10,12 +10,12 @@ import {
   createDefaultVpnConfig,
   normalizeVpnMtu,
   VPN_COMMAND_KEY,
-  VPN_COMMAND_STOP
+  VPN_COMMAND_STOP,
+  VPN_HEALTH_PORT_KEY
 } from './VpnConstants';
 import { SETTINGS_CONTROLLER } from '../features/settings/SettingsController';
 import {
   getNativeStats,
-  queryNativeTraffic,
   startNativeHevTun,
   startNativeSingbox,
   startNativeTun2Socks,
@@ -24,11 +24,12 @@ import {
   stopNativeTun2Socks,
   stopNativeXray
 } from '../native/HeyNative';
-import { METRICS_SERVER_URL, VPN_DATA_SOCKS_HOST, VPN_DATA_SOCKS_PORT } from '../core/XrayConfig';
+import { VPN_DATA_SOCKS_HOST, VPN_DATA_SOCKS_PORT } from '../core/XrayConfig';
 import { buildHevTunConfigYaml } from '../core/HevTunConfig';
 import { isSingboxCore } from '../core/CoreSelection';
 import { DiagnosticLog } from '../services/DiagnosticLog';
 import { VpnRuntimeStateStore } from '../services/VpnRuntimeStateStore';
+import { isRuntimeHealthPort, probeRuntimeSocksHealth } from '../services/RuntimeHealthProbe';
 
 const LOG_DOMAIN: number = 0x0001;
 const LOG_TAG: string = 'HeyVpnAbility';
@@ -79,6 +80,8 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   // 创建 TUN / 启动核心 / 回写 active。该闩锁在 Ability 实例生命周期内只会 false→true。
   private stopRequested: boolean = false;
   private unhealthySampleCount: number = 0;
+  private healthProbeInFlight: boolean = false;
+  private runtimeHealthProbePort: number = 0;
   // 网络场景自动化（后台断开）：VPN 扩展进程内轮询网络，切到可信网络即拆隧道。
   private netScenePollTimerId: number = -1;
   private netSceneSignature: string = '';
@@ -121,6 +124,10 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     const configJson = this.getStringParameter(want, 'xrayConfigJson', '');
     const useSingbox = isSingboxCore(this.getStringParameter(want, 'coreType', 'xray'));
     this.activeCoreType = useSingbox ? 'singbox' : 'xray';
+    // 自定义完整配置未必包含 Hey 的回环 SOCKS 入口；只探测主进程
+    // 随已生成配置明确传入的端口。
+    const requestedHealthPort = Number(this.getStringParameter(want, VPN_HEALTH_PORT_KEY, '0'));
+    this.runtimeHealthProbePort = isRuntimeHealthPort(requestedHealthPort) ? requestedHealthPort : 0;
 
     try {
       this.emitInfo('VPN start requested.', `core=${useSingbox ? 'singbox' : 'xray'}, configBytes=${configJson.length}`);
@@ -346,6 +353,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
           this.vpnConnection = null;
         }
         this.tunFd = -1;
+        this.runtimeHealthProbePort = 0;
       } while (this.cleanupAgainRequested);
     } finally {
       this.cleaningUp = false;
@@ -375,28 +383,37 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     }
   }
 
-  private recordStatsSafely(): void {
-    if (this.cleaningUp) {
+  private async recordStatsSafely(): Promise<void> {
+    if (this.cleaningUp || this.healthProbeInFlight) {
       return;
     }
+    this.healthProbeInFlight = true;
     try {
-      this.recordStats();
+      await this.recordStats();
     } catch (error) {
       this.noteUnhealthySample(`statsError=${this.errorMessage(error)}`);
+    } finally {
+      this.healthProbeInFlight = false;
     }
   }
 
-  private recordStats(): void {
+  private async recordStats(): Promise<void> {
     const stats: RuntimeStats = getNativeStats();
-    // Prefer real per-tag counters from the Xray metrics endpoint; fall back to
-    // the native bridge's own values when the metrics query is unavailable.
-    let uploadBytes = stats.uploadBytes;
-    let downloadBytes = stats.downloadBytes;
-    const traffic = queryNativeTraffic(METRICS_SERVER_URL);
-    if (traffic.ok) {
-      uploadBytes = traffic.uploadBytes;
-      downloadBytes = traffic.downloadBytes;
+    if (this.runtimeHealthProbePort > 0) {
+      const probe = await probeRuntimeSocksHealth(this.runtimeHealthProbePort);
+      if (this.cleaningUp || this.stopRequested) {
+        return;
+      }
+      if (!probe.ok) {
+        this.emitInfo('Xray runtime health probe failed; waiting for confirmation.', `status=${probe.status}`);
+        this.noteUnhealthySample(`xrayProbe=${probe.status}`);
+        return;
+      }
     }
+    // 当前 libxray 只导出 CGoInvoke/CGoFree，不再导出旧 CGoQueryStats；流量采用
+    // tun2socks/hev 数据面的真实累计字节。核心存活由上面的 SOCKS 数据入口探测。
+    const uploadBytes = stats.uploadBytes;
+    const downloadBytes = stats.downloadBytes;
     const now = Date.now();
     if (now - this.lastRuntimeStateAt >= RUNTIME_STATE_INTERVAL_MS) {
       this.lastRuntimeStateAt = now;

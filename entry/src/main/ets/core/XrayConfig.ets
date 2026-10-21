@@ -1950,7 +1950,10 @@ function buildXrayConfigFromOutbounds(
     socksPort: runtimeSocksPort,
     httpProxyHost: runtimeHttpProxyHost,
     httpProxyPort: runtimeHttpProxyPort,
-    metricsServer: speedEnabled ? METRICS_SERVER_URL : undefined
+    metricsServer: speedEnabled ? METRICS_SERVER_URL : undefined,
+    // 健康检查直接连接实际 SOCKS 数据入口：VPN 模式是 tun2socks 目标，
+    // 本地代理模式则是对用户暴露的 SOCKS 端口。
+    runtimeHealthPort: vpnMode ? VPN_DATA_SOCKS_PORT : runtimeSocksPort
   };
 }
 

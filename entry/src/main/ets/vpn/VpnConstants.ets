@@ -58,17 +58,19 @@ const ADDRESS_FAMILY_IPV4: number = 1;
 const ADDRESS_FAMILY_IPV6: number = 2;
 
 export const VPN_CORE_TYPE_KEY: string = 'coreType';
+export const VPN_HEALTH_PORT_KEY: string = 'healthPort';
 
 // configJson 是当前内核（Xray 或 sing-box）的完整运行配置；coreType 告诉 VPN 扩展
 // 该调用哪个内核的 native 生命周期（默认 xray）。
-export function createVpnWant(configJson: string, coreType?: string): Want {
+export function createVpnWant(configJson: string, coreType?: string, healthPort?: number): Want {
   return {
     deviceId: '',
     bundleName: BUNDLE_NAME,
     abilityName: VPN_ABILITY_NAME,
     parameters: {
       xrayConfigJson: configJson as Object,
-      coreType: (coreType ?? 'xray') as Object
+      coreType: (coreType ?? 'xray') as Object,
+      healthPort: (healthPort ?? 0) as Object
     }
   };
 }
