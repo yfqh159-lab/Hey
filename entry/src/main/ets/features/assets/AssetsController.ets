@@ -136,6 +136,10 @@ export class AssetsController {
     return this.geoMetadataStoreInFlight !== null;
   }
 
+  isAssetMutationRunning(): boolean {
+    return this.assetMutationRunning;
+  }
+
   async loadGeoUpdateMetadata(context: common.Context): Promise<GeoUpdateMetadata> {
     if (this.geoMetadataLoadInFlight === null) {
       const promise = AssetStore.loadGeoUpdateMetadata(context);

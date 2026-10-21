@@ -71,13 +71,14 @@ struct AssetsPage {
   @State private geoUrlInput: string = '';
   private pageActive: boolean = false;
   private pageGeneration: number = 0;
+  private geoCheckGeneration: number = 0;
 
   aboutToAppear(): void {
     this.pageActive = true;
-    // A previous page generation may have finished while this route was hidden.
-    // The controller remains the cross-navigation mutation lock and will reject
-    // a second update if the original operation is still in flight.
-    this.downloadingFile = '';
+    // A previous page generation may still own the shared .dat mutation lock.
+    // Restore a conservative busy indicator instead of briefly offering another
+    // update that the controller must reject.
+    this.downloadingFile = ASSETS_CONTROLLER.isAssetMutationRunning() ? GEOSITE_FILE_NAME : '';
     const pageGeneration = ++this.pageGeneration;
     this.loadState(pageGeneration);
     this.loadCustomAssets(pageGeneration);
@@ -873,36 +874,39 @@ struct AssetsPage {
   }
 
   private async checkGeoUpdate(): Promise<void> {
-    if (this.downloadingFile.length > 0) {
+    if (this.downloadingFile.length > 0 || ASSETS_CONTROLLER.isAssetMutationRunning()) {
       this.toast(this.t('assets.downloadBusy'));
       return;
     }
     const context = this.getUIContext().getHostContext() as common.Context;
     const pageGeneration = this.pageGeneration;
+    const geoCheckGeneration = ++this.geoCheckGeneration;
     this.downloadingFile = GEOSITE_FILE_NAME;
     this.toast(this.t('assets.updatingAll'));
     try {
       const result = await ASSETS_CONTROLLER.checkAndUpdateBuiltinGeo(context);
-      if (!this.isCurrentPage(pageGeneration)) {
+      if (!this.isCurrentGeoCheckPage(pageGeneration, geoCheckGeneration)) {
         this.logDetachedGeoResult(result);
-        if (this.pageActive) {
-          this.downloadingFile = '';
+        if (this.pageActive && this.isCurrentGeoCheck(geoCheckGeneration)) {
           await this.loadState(this.pageGeneration);
+          if (this.isCurrentGeoCheck(geoCheckGeneration)) {
+            this.downloadingFile = '';
+          }
         }
         return;
       }
       let metadataConfirmed = result.metadataSaved;
       if (result.metadataSaved) {
         try {
-          if (!await this.loadGeoMetadata(pageGeneration)) {
-            if (!this.isCurrentPage(pageGeneration)) {
+          if (!await this.loadGeoMetadata(pageGeneration, geoCheckGeneration)) {
+            if (!this.isCurrentGeoCheckPage(pageGeneration, geoCheckGeneration)) {
               return;
             }
             metadataConfirmed = false;
             this.applyVerifiedGeoResult(result);
           }
         } catch (metadataError) {
-          if (!this.isCurrentPage(pageGeneration)) {
+          if (!this.isCurrentGeoCheckPage(pageGeneration, geoCheckGeneration)) {
             return;
           }
           // 文件事务及元数据保存均已成功；页面重读失败不能把真实更新结果改报为失败。
@@ -939,7 +943,7 @@ struct AssetsPage {
       // 存储正常时仍刷新“上次检查失败”时间；无论如何都保留下面的原始检查错误。
       if (!ASSETS_CONTROLLER.isGeoMetadataStorePending()) {
         try {
-          await this.loadGeoMetadata(pageGeneration);
+          await this.loadGeoMetadata(pageGeneration, geoCheckGeneration);
         } catch (metadataError) {
           // 展示记录刷新失败只能作为附加诊断，不能遮蔽真正的下载或校验失败。
           const metadataMessage = redactDiagnosticText(
@@ -950,14 +954,16 @@ struct AssetsPage {
       }
       const localized = this.f1('assets.geo.checkFailed', 'error', message);
       SHARED_RUNTIME_CONTROLLER.appendLog(localized);
-      if (this.isCurrentPage(pageGeneration)) {
+      if (this.isCurrentGeoCheckPage(pageGeneration, geoCheckGeneration)) {
         this.toast(localized);
-      } else if (this.pageActive) {
-        this.downloadingFile = '';
+      } else if (this.pageActive && this.isCurrentGeoCheck(geoCheckGeneration)) {
         await this.loadState(this.pageGeneration);
+        if (this.isCurrentGeoCheck(geoCheckGeneration)) {
+          this.downloadingFile = '';
+        }
       }
     } finally {
-      if (this.isCurrentPage(pageGeneration)) {
+      if (this.isCurrentGeoCheckPage(pageGeneration, geoCheckGeneration)) {
         this.downloadingFile = '';
         this.updateFileStatus();
       }
@@ -1327,7 +1333,7 @@ struct AssetsPage {
     }
   }
 
-  private async loadGeoMetadata(pageGeneration: number): Promise<boolean> {
+  private async loadGeoMetadata(pageGeneration: number, geoCheckGeneration?: number): Promise<boolean> {
     const context = this.getUIContext().getHostContext() as common.Context;
     const metadata = await ASSETS_CONTROLLER.loadGeoUpdateMetadata(context);
     if (!await ASSETS_CONTROLLER.isBuiltinGeoMetadataCurrent(context, metadata)) {
@@ -1338,14 +1344,14 @@ struct AssetsPage {
       } catch (error) {
         // ignore stale-record cleanup failure
       }
-      if (!this.isCurrentPage(pageGeneration)) {
+      if (!this.isCurrentGeoMetadataRequest(pageGeneration, geoCheckGeneration)) {
         return false;
       }
       this.geoAssetHashes = {};
       this.geoUpdateSummary = this.t('assets.geo.defaultSource');
       return false;
     }
-    if (!this.isCurrentPage(pageGeneration)) {
+    if (!this.isCurrentGeoMetadataRequest(pageGeneration, geoCheckGeneration)) {
       return false;
     }
     this.applyGeoMetadata(metadata);
@@ -1354,6 +1360,19 @@ struct AssetsPage {
 
   private isCurrentPage(pageGeneration: number): boolean {
     return this.pageActive && pageGeneration === this.pageGeneration;
+  }
+
+  private isCurrentGeoCheck(geoCheckGeneration: number): boolean {
+    return geoCheckGeneration === this.geoCheckGeneration;
+  }
+
+  private isCurrentGeoCheckPage(pageGeneration: number, geoCheckGeneration: number): boolean {
+    return this.isCurrentPage(pageGeneration) && this.isCurrentGeoCheck(geoCheckGeneration);
+  }
+
+  private isCurrentGeoMetadataRequest(pageGeneration: number, geoCheckGeneration?: number): boolean {
+    return this.isCurrentPage(pageGeneration) &&
+      (geoCheckGeneration === undefined || this.isCurrentGeoCheck(geoCheckGeneration));
   }
 
   private applyVerifiedGeoResult(result: BuiltinGeoUpdateResult): void {
