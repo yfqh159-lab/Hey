@@ -64,7 +64,7 @@ export const SETTINGS_CATALOG: SettingGroup[] = [
     color: '#16A34A',
     items: [
       { key: 'perApp', titleKey: 'settings.perAppProxy', type: 'nav', route: AppRoute.PER_APP },
-      { key: 'localDns', titleKey: 'settings.localDns', type: 'toggle' },
+      { key: 'localDns', titleKey: 'settings.localDns', type: 'toggle', descKey: 'settings.localDns.detail' },
       { key: 'fakeDns', titleKey: 'settings.fakeDns', type: 'toggle', dependsOn: 'localDns', descKey: 'settings.fakeDns.detail' },
       { key: 'localDnsPort', titleKey: 'settings.localDnsPort', type: 'input', inputKind: 'number' },
       { key: 'proxySharing', titleKey: 'settings.proxySharing', type: 'toggle' },
@@ -115,7 +115,7 @@ export const SETTINGS_CATALOG: SettingGroup[] = [
     titleKey: 'settings.cat.advanced',
     color: '#64748B',
     items: [
-      { key: 'remoteDns', titleKey: 'settings.remoteDns', type: 'input' },
+      { key: 'remoteDns', titleKey: 'settings.remoteDns', type: 'input', descKey: 'settings.remoteDns.detail' },
       { key: 'domesticDns', titleKey: 'settings.domesticDns', type: 'input' },
       { key: 'dnsHosts', titleKey: 'settings.dnsHosts', type: 'input' },
       { key: 'outboundDomainResolveMethod', titleKey: 'settings.outboundDomainResolveMethod', type: 'option' },

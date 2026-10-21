@@ -153,7 +153,9 @@ export function createDefaultVpnConfig(
   const config: vpnExtension.VpnConfig = {
     addresses,
     routes,
-    dnsAddresses: normalizeVpnDnsAddresses(vpnDns),
+    // 空设置使用当前 TUN 网段的虚拟 router 地址，仅作为被核心劫持的 DNS 目的地址，
+    // 不把任何公共 DNS 服务商写进系统 VPN 配置。
+    dnsAddresses: normalizeVpnDnsAddresses(vpnDns, addressConfig.ipv4Router),
     mtu: normalizeVpnMtu(vpnMtu),
     isIPv4Accepted: true,
     isIPv6Accepted: routeIpv6
@@ -191,8 +193,8 @@ export function resolveVpnBypassLan(
   return hasDirectPrivateRoutingRule(routingRules);
 }
 
-export function normalizeVpnDnsAddresses(vpnDns?: string): string[] {
-  return normalizeVpnDnsServers(vpnDns);
+export function normalizeVpnDnsAddresses(vpnDns?: string, fallback: string = DNS_VPN): string[] {
+  return normalizeVpnDnsServers(vpnDns, fallback);
 }
 
 function buildVpnRoutes(bypassLan: boolean, ipv6Enabled: boolean): Array<vpnExtension.RouteInfo> {

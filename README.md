@@ -44,7 +44,9 @@ Geo release and verify both core files against its published SHA-256 sums.
 Concretely, the repository ships no server address, no config source, no rule
 set, and no region or country preset. Geo files are downloaded only after the
 user taps the check action; they are not bundled or updated on a schedule. The
-factory defaults for the delay-test URL and every DNS field are empty. Exit-IP
+factory default for the delay-test URL is empty. Remote DNS uses an IP-form DoH
+endpoint routed through the proxy to avoid falling back to the physical-network
+resolver; it can be replaced in advanced settings. Other DNS fields are empty. Exit-IP
 checks use an HTTPS endpoint that returns only the public address, run only
 after the user starts a proxy, and can be disabled or replaced in advanced
 settings. Deep links,

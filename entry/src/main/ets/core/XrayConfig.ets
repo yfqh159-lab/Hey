@@ -2213,15 +2213,18 @@ function buildDnsConfig(settings: AppSettings | undefined): XrayDnsConfig {
     };
     return defaultDns;
   }
-  const remoteDns = normalizeDnsServers(settings.remoteDns, '', true);
+  // localhost 模式不受 dns tag 路由控制，会直接使用系统解析器。空设置必须回退到经代理
+  // 的 DoH，避免“应用 DNS 已进 TUN、Xray 又从物理网络查询”的二次泄漏。
+  const remoteDnsValue = settings.remoteDns.trim();
+  const remoteDns = normalizeDnsServers(remoteDnsValue.length > 0 ? remoteDnsValue : undefined, DNS_PROXY, true);
   const domesticDns = normalizeDnsServers(settings.domesticDns, '', true);
   const servers: Array<string | XrayDnsServerConfig> = [];
   addDnsServerValues(servers, remoteDns);
   addDnsProxyDomainServer(servers, remoteDns, collectDnsRuleDomains(settings, ['proxy', 'proxy-chain', 'policy-group']));
   addDomesticDnsServers(servers, domesticDns, collectDnsRuleDomains(settings, ['direct']));
-  // 用户一个 DNS 都没填时用 localhost（走系统 DNS），不预置任何公共 DNS 服务商。
+  // 防御性回退：正常情况下 remoteDns 至少包含 DNS_PROXY。
   if (servers.length === 0) {
-    servers.push('localhost');
+    servers.push(DNS_PROXY);
   }
   const dns: XrayDnsConfig = {
     servers,

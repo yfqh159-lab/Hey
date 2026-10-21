@@ -27,6 +27,7 @@ import {
   RoutingRule
 } from '../core/Profile';
 import { DEFAULT_CORE_LOG_LEVEL, DEFAULT_MUX_XUDP_QUIC, normalizeCoreLogLevel, normalizeMuxXudpQuic } from '../core/ProtocolOptions';
+import { DNS_PROXY } from '../core/DnsAddresses';
 
 const PREFERENCES_NAME: string = 'hey_vpn_settings';
 const SETTINGS_KEY: string = 'app_settings';
@@ -79,7 +80,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   vpnDns: '',
   // 远程 DNS 走 DoH（HTTPS/TCP）而非明文 UDP：内置 DNS 的上游查询经节点转发时，很多节点
   // 不放行 UDP、只有 TCP 通（测速用 TCP 所以显示节点可用）。DoH 绕开该限制（issue #6）。
-  remoteDns: '',
+  remoteDns: DNS_PROXY,
   domesticDns: '',
   dnsHosts: '',
   delayTestUrl: DEFAULT_DELAY_TEST_URL,

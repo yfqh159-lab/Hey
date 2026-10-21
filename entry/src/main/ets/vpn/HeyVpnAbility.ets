@@ -8,7 +8,6 @@ import { NetSceneStopFlag } from '../services/NetSceneStopFlag';
 import { resolveVpnInterfaceAddressConfig, RuntimeStats } from '../core/Profile';
 import {
   createDefaultVpnConfig,
-  normalizeVpnDnsAddresses,
   normalizeVpnMtu,
   VPN_COMMAND_KEY,
   VPN_COMMAND_STOP
@@ -101,7 +100,6 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       const perAppEnabled = settings.perAppProxyEnabled;
       const bypassMode = settings.perAppProxyBypass ?? false;
       const appList = settings.perAppProxyList ?? [];
-      const dnsAddresses = normalizeVpnDnsAddresses(settings.vpnDns);
       const vpnMtu = normalizeVpnMtu(settings.vpnMtu);
       const addressConfig = resolveVpnInterfaceAddressConfig(settings.vpnInterfaceAddressIndex);
       const vpnConfig = createDefaultVpnConfig(
@@ -116,6 +114,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         settings.routingRules,
         settings.trafficMode === 'rules' && settings.routeOnlyEnabled
       );
+      const dnsAddresses = vpnConfig.dnsAddresses ?? [];
       this.tunFd = await this.vpnConnection.create(vpnConfig);
       this.emitInfo('VPN created.', `tunFd=${this.tunFd}, dns=${dnsAddresses.join(',')}, ipv6=${settings.ipv6Enabled}, preferIpv6=${settings.preferIpv6}, mtu=${vpnMtu}, address=${addressConfig.displayName}, bypassLan=${settings.vpnBypassLan}`);
 

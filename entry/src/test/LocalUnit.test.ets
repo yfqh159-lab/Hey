@@ -1430,7 +1430,7 @@ export default function localUnitTest() {
       expect(DEFAULT_APP_SETTINGS.hevTunRwTimeout).assertEqual(DEFAULT_HEV_TUN_RW_TIMEOUT);
       // 默认劫持 DNS（issue #6）；上游地址出厂为空，跟随系统，由用户自行填写。
       expect(DEFAULT_APP_SETTINGS.localDnsEnabled).assertTrue();
-      expect(DEFAULT_APP_SETTINGS.remoteDns).assertEqual('');
+      expect(DEFAULT_APP_SETTINGS.remoteDns).assertEqual('https://1.1.1.1/dns-query');
       expect(DEFAULT_APP_SETTINGS.domesticDns).assertEqual('');
       expect(LOCAL_SOCKS_PROXY_PORT).assertEqual(18080);
       const result = buildXrayConfigWithSettings(VLESS_REALITY_OUTBOUND, DEFAULT_APP_SETTINGS);
@@ -1448,15 +1448,17 @@ export default function localUnitTest() {
     it('hijacks dns to the core resolver by default in vpn mode', 0, () => {
       // issue #6：默认劫持 DNS，tun-in 的 53 端口 → 内置 dns-out，浏览器解析不再依赖节点转发 UDP。
       expect(DEFAULT_APP_SETTINGS.localDnsEnabled).assertTrue();
-      const result = buildXrayConfigWithSettings(VLESS_REALITY_OUTBOUND, DEFAULT_APP_SETTINGS);
+      const settings = JSON.parse(JSON.stringify(DEFAULT_APP_SETTINGS)) as AppSettings;
+      // 兼容旧版本已持久化的空值：运行时仍必须回退到经代理 DoH，而不是 localhost。
+      settings.remoteDns = '';
+      const result = buildXrayConfigWithSettings(VLESS_REALITY_OUTBOUND, settings);
       expect(result.configJson).assertContain('"tag": "dns-out"');
       expect(result.configJson).assertContain('"protocol": "dns"');
       expect(result.configJson).assertContain('"outboundTag": "dns-out"');
       expect(result.configJson).assertContain('"port": "53"');
-      // 用户未填上游 DNS 时用 localhost（跟随系统），不把任何公共 DNS 设为上游。
-      // （hosts 里的 A/AAAA bootstrap 条目是防解析自举失败，不是上游 server。）
-      expect(result.configJson).assertContain('"localhost"');
-      expect(result.configJson.indexOf('"https://1.1.1.1/dns-query"')).assertEqual(-1);
+      // 未填上游 DNS 时使用经代理访问的 IP 形式 DoH，避免 localhost 直接调用系统 DNS 泄漏。
+      expect(result.configJson).assertContain('"https://1.1.1.1/dns-query"');
+      expect(result.configJson.indexOf('"localhost"')).assertEqual(-1);
     });
 
     it('builds proxy only runtime without tun and with local socks inbound', 0, () => {
@@ -2357,17 +2359,17 @@ export default function localUnitTest() {
       expect(blocked[1]).assertEqual('com.tencent.mm');
     });
 
-    it('uses the protocol spec vpn dns default', 0, () => {
+    it('uses the selected tun router as the synthetic vpn dns default', 0, () => {
       expect(DEFAULT_VPN_DNS_ADDRESSES.length).assertEqual(1);
-      expect(DEFAULT_VPN_DNS_ADDRESSES[0]).assertEqual('1.1.1.1');
+      expect(DEFAULT_VPN_DNS_ADDRESSES[0]).assertEqual('10.10.14.2');
 
       const unset = normalizeVpnDnsAddresses();
       expect(unset.length).assertEqual(1);
-      expect(unset[0]).assertEqual('1.1.1.1');
+      expect(unset[0]).assertEqual('10.10.14.2');
 
       const blank = normalizeVpnDnsAddresses(' , ');
       expect(blank.length).assertEqual(1);
-      expect(blank[0]).assertEqual('1.1.1.1');
+      expect(blank[0]).assertEqual('10.10.14.2');
 
       const explicit = normalizeVpnDnsAddresses(' 9.9.9.9, 1.1.1.1,9.9.9.9 ');
       expect(explicit.length).assertEqual(2);
@@ -2382,7 +2384,12 @@ export default function localUnitTest() {
       const config = createDefaultVpnConfig(false, false, [], '');
       const dnsAddresses = config.dnsAddresses ?? [];
       expect(dnsAddresses.length).assertEqual(1);
-      expect(dnsAddresses[0]).assertEqual('1.1.1.1');
+      expect(dnsAddresses[0]).assertEqual('10.10.14.2');
+
+      const alternateTun = createDefaultVpnConfig(false, false, [], '', false, undefined, 1);
+      const alternateDns = alternateTun.dnsAddresses ?? [];
+      expect(alternateDns.length).assertEqual(1);
+      expect(alternateDns[0]).assertEqual('10.1.0.2');
     });
 
     it('normalizes ui mode night', 0, () => {

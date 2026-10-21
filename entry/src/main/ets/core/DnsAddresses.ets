@@ -1,6 +1,10 @@
-export const DNS_PROXY: string = '1.1.1.1';
+// 提供经代理访问的默认远程解析器。使用 IP 形式避免 DoH 主机名自举时先调用系统 DNS；
+// Xray 内置 DNS 产生的 HTTPS 查询再由 dns tag 路由到代理出站。
+export const DNS_PROXY: string = 'https://1.1.1.1/dns-query';
 export const DNS_DIRECT: string = '223.5.5.5';
-export const DNS_VPN: string = '1.1.1.1';
+// 仅作为 VPN 接口的虚拟 DNS 目的地址，UDP/TCP 53 会在核心配置中被劫持到 dns-out；
+// 不是公共 DNS 服务商。createDefaultVpnConfig 会按用户选择的 TUN 网段传入对应 router。
+export const DNS_VPN: string = '10.10.14.2';
 
 const IPV4_REGEX: RegExp =
   /^([01]?[0-9]?[0-9]|2[0-4][0-9]|25[0-5])\.([01]?[0-9]?[0-9]|2[0-4][0-9]|25[0-5])\.([01]?[0-9]?[0-9]|2[0-4][0-9]|25[0-5])\.([01]?[0-9]?[0-9]|2[0-4][0-9]|25[0-5])$/;
@@ -27,13 +31,13 @@ export function normalizeDnsServers(value: string | undefined, fallback: string,
   return filterDnsServers(source, allowCoreDns);
 }
 
-export function normalizeVpnDnsServers(value?: string): Array<string> {
+export function normalizeVpnDnsServers(value?: string, fallback: string = DNS_VPN): Array<string> {
   if (value === undefined || value.trim().length === 0) {
-    return [DNS_VPN];
+    return [fallback];
   }
   const result = filterDnsServers(value, false);
   if (result.length === 0) {
-    return [DNS_VPN];
+    return [fallback];
   }
   return result;
 }
