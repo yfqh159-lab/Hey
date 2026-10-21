@@ -12,6 +12,7 @@ import { normalizeConfigInput } from '../core/XrayConfig';
 
 const PREFERENCES_NAME: string = 'hey_vpn_subscription';
 const SUBSCRIPTION_KEY: string = 'subscription_profile';
+const SUBSCRIPTION_BACKUP_KEY: string = 'subscription_profile_backup';
 
 export interface ManualNodeUpdateResult {
   updated: boolean;
@@ -28,19 +29,47 @@ export interface NodeDelayUpdate {
   delayTestAt: number;
 }
 
+export interface StoredSubscriptionSelection {
+  profile: SubscriptionProfile | null;
+  source: string;
+}
+
 export class SubscriptionStore {
   static async load(context: common.Context): Promise<SubscriptionProfile> {
-    try {
-      const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-      const rawValue = await store.get(SUBSCRIPTION_KEY, '');
-      const raw = rawValue.toString();
-      if (raw.length === 0) {
-        return SubscriptionStore.createEmpty();
-      }
-      return SubscriptionStore.normalize(JSON.parse(raw) as SubscriptionProfile);
-    } catch (error) {
-      return SubscriptionStore.createEmpty();
+    const store = await preferences.getPreferences(context, PREFERENCES_NAME);
+    const primaryRaw = (await store.get(SUBSCRIPTION_KEY, '')).toString();
+    const backupRaw = (await store.get(SUBSCRIPTION_BACKUP_KEY, '')).toString();
+    const selection = SubscriptionStore.selectStoredProfile(primaryRaw, backupRaw);
+    if (selection.profile !== null && selection.source !== 'backup') {
+      return selection.profile;
     }
+    if (selection.profile !== null) {
+      // 返回上一份完整数据优先于把损坏主副本当成空库。尽力修复主键；修复失败不阻断
+      // 本次只读恢复，后续任何显式保存仍会正常向上层报告错误。
+      try {
+        await store.put(SUBSCRIPTION_KEY, JSON.stringify(selection.profile));
+        await store.flush();
+      } catch (_error) {
+        // keep recovered in-memory value
+      }
+      return selection.profile;
+    }
+    throw new Error('Stored node database is unreadable; the existing data was not overwritten.');
+  }
+
+  static selectStoredProfile(primaryRaw: string, backupRaw: string): StoredSubscriptionSelection {
+    if (primaryRaw.length === 0 && backupRaw.length === 0) {
+      return { profile: SubscriptionStore.createEmpty(), source: 'empty' };
+    }
+    const primary = SubscriptionStore.parseStoredProfile(primaryRaw);
+    if (primary !== null) {
+      return { profile: primary, source: 'primary' };
+    }
+    const backup = SubscriptionStore.parseStoredProfile(backupRaw);
+    if (backup !== null) {
+      return { profile: backup, source: 'backup' };
+    }
+    return { profile: null, source: 'invalid' };
   }
 
   static async saveUrl(context: common.Context, url: string, groupId?: string, touchUpdatedAt: boolean = true): Promise<SubscriptionProfile> {
@@ -116,7 +145,7 @@ export class SubscriptionStore {
         }
       }
     }
-    await SubscriptionStore.save(context, SubscriptionStore.normalize(profile));
+    await SubscriptionStore.save(context, SubscriptionStore.normalize(profile), false);
     return SubscriptionStore.load(context);
   }
 
@@ -139,7 +168,7 @@ export class SubscriptionStore {
         }
       }
     }
-    await SubscriptionStore.save(context, SubscriptionStore.normalize(profile));
+    await SubscriptionStore.save(context, SubscriptionStore.normalize(profile), false);
     return SubscriptionStore.load(context);
   }
 
@@ -490,12 +519,46 @@ export class SubscriptionStore {
     };
   }
 
-  private static async save(context: common.Context, profile: SubscriptionProfile): Promise<void> {
+  private static async save(context: common.Context, profile: SubscriptionProfile, preservePrevious: boolean = true): Promise<void> {
     // 节点/订阅写入失败必须交给上层决定提示或重试；否则扫码导入、选择或删除会在
     // 内存中看似成功，应用重启后却恢复旧数据。
     const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-    await store.put(SUBSCRIPTION_KEY, JSON.stringify(profile));
+    const nextRaw = JSON.stringify(profile);
+    if (preservePrevious) {
+      const currentRaw = (await store.get(SUBSCRIPTION_KEY, '')).toString();
+      if (SubscriptionStore.parseStoredProfile(currentRaw) !== null) {
+        await store.put(SUBSCRIPTION_BACKUP_KEY, currentRaw);
+      } else {
+        const backupRaw = (await store.get(SUBSCRIPTION_BACKUP_KEY, '')).toString();
+        if (SubscriptionStore.parseStoredProfile(backupRaw) === null) {
+          // 首次保存也建立一份可恢复副本；已有有效备份则绝不拿损坏主副本覆盖它。
+          await store.put(SUBSCRIPTION_BACKUP_KEY, nextRaw);
+        }
+      }
+    }
+    await store.put(SUBSCRIPTION_KEY, nextRaw);
     await store.flush();
+  }
+
+  private static parseStoredProfile(raw: string): SubscriptionProfile | null {
+    if (raw.length === 0) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(raw) as SubscriptionProfile;
+      if (parsed === null || typeof parsed !== 'object') {
+        return null;
+      }
+      const record = parsed as Record<string, Object>;
+      // 当前格式必须有 groups；旧版迁移格式至少有 nodes。单纯的 `{}` 或错误类型
+      // 不能被 normalize 成“合法空库”，否则会掩盖损坏并在下一次写入时覆盖备份。
+      if (!Array.isArray(record['groups']) && !Array.isArray(record['nodes'])) {
+        return null;
+      }
+      return SubscriptionStore.normalize(parsed);
+    } catch (_error) {
+      return null;
+    }
   }
 
   private static normalize(raw: SubscriptionProfile): SubscriptionProfile {

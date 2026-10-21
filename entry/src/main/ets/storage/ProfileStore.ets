@@ -4,31 +4,47 @@ import { DEFAULT_PROFILE_ID, ProxyProfile, XrayConfigType } from '../core/Profil
 
 const PREFERENCES_NAME: string = 'hey_vpn_profile';
 const PROFILE_KEY: string = 'default_profile';
+const PROFILE_BACKUP_KEY: string = 'default_profile_backup';
+
+export interface StoredProfileSelection {
+  profile: ProxyProfile | null;
+  source: string;
+}
 
 export class ProfileStore {
   static async load(context: common.Context): Promise<ProxyProfile> {
-    try {
-      const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-      const rawValue = await store.get(PROFILE_KEY, '');
-      const raw = rawValue.toString();
-      if (raw.length === 0) {
-        return ProfileStore.createEmptyProfile();
-      }
-
-      const profile = JSON.parse(raw) as ProxyProfile;
-      if (profile.id === undefined || profile.id.length === 0) {
-        return ProfileStore.createEmptyProfile();
-      }
-      return {
-        id: profile.id,
-        name: profile.name ?? 'Default Xray Profile',
-        outboundJson: profile.outboundJson ?? '',
-        configType: ProfileStore.normalizeConfigType(profile.configType, profile.outboundJson ?? ''),
-        updatedAt: profile.updatedAt ?? 0
-      };
-    } catch (error) {
-      return ProfileStore.createEmptyProfile();
+    const store = await preferences.getPreferences(context, PREFERENCES_NAME);
+    const primaryRaw = (await store.get(PROFILE_KEY, '')).toString();
+    const backupRaw = (await store.get(PROFILE_BACKUP_KEY, '')).toString();
+    const selection = ProfileStore.selectStoredProfile(primaryRaw, backupRaw);
+    if (selection.profile !== null && selection.source !== 'backup') {
+      return selection.profile;
     }
+    if (selection.profile !== null) {
+      try {
+        await store.put(PROFILE_KEY, JSON.stringify(selection.profile));
+        await store.flush();
+      } catch (_error) {
+        // keep recovered in-memory value
+      }
+      return selection.profile;
+    }
+    throw new Error('Stored selected profile is unreadable; the existing data was not overwritten.');
+  }
+
+  static selectStoredProfile(primaryRaw: string, backupRaw: string): StoredProfileSelection {
+    if (primaryRaw.length === 0 && backupRaw.length === 0) {
+      return { profile: ProfileStore.createEmptyProfile(), source: 'empty' };
+    }
+    const primary = ProfileStore.parseStoredProfile(primaryRaw);
+    if (primary !== null) {
+      return { profile: primary, source: 'primary' };
+    }
+    const backup = ProfileStore.parseStoredProfile(backupRaw);
+    if (backup !== null) {
+      return { profile: backup, source: 'backup' };
+    }
+    return { profile: null, source: 'invalid' };
   }
 
   static async save(context: common.Context, outboundJson: string, configType: XrayConfigType = 'outbound'): Promise<ProxyProfile> {
@@ -43,9 +59,41 @@ export class ProfileStore {
     // 调用方已有面向用户的错误处理；让 ArkData 错误向上传递，避免 UI/订阅库已经
     // 指向新节点，而重启应用后又静默回到旧 Profile。
     const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-    await store.put(PROFILE_KEY, JSON.stringify(profile));
+    const nextRaw = JSON.stringify(profile);
+    const currentRaw = (await store.get(PROFILE_KEY, '')).toString();
+    if (ProfileStore.parseStoredProfile(currentRaw) !== null) {
+      await store.put(PROFILE_BACKUP_KEY, currentRaw);
+    } else {
+      const backupRaw = (await store.get(PROFILE_BACKUP_KEY, '')).toString();
+      if (ProfileStore.parseStoredProfile(backupRaw) === null) {
+        await store.put(PROFILE_BACKUP_KEY, nextRaw);
+      }
+    }
+    await store.put(PROFILE_KEY, nextRaw);
     await store.flush();
     return profile;
+  }
+
+  private static parseStoredProfile(raw: string): ProxyProfile | null {
+    if (raw.length === 0) {
+      return null;
+    }
+    try {
+      const profile = JSON.parse(raw) as ProxyProfile;
+      if (profile === null || typeof profile !== 'object' || typeof profile.id !== 'string' || profile.id.length === 0 ||
+        (profile.outboundJson !== undefined && typeof profile.outboundJson !== 'string')) {
+        return null;
+      }
+      return {
+        id: profile.id,
+        name: profile.name ?? 'Default Xray Profile',
+        outboundJson: profile.outboundJson ?? '',
+        configType: ProfileStore.normalizeConfigType(profile.configType, profile.outboundJson ?? ''),
+        updatedAt: profile.updatedAt ?? 0
+      };
+    } catch (_error) {
+      return null;
+    }
   }
 
   private static createEmptyProfile(): ProxyProfile {

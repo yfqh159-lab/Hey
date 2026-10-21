@@ -29,6 +29,8 @@ import { buildSingboxConfig } from '../main/ets/core/SingboxConfig';
 import { exportRoutingRulesJson, importRoutingRulesJson } from '../main/ets/core/RoutingRules';
 import { buildConfigBackup, parseConfigBackup, serializeConfigBackup, CONFIG_BACKUP_APP_TAG, CONFIG_BACKUP_VERSION } from '../main/ets/core/ConfigBackup';
 import { CustomAssetUrl } from '../main/ets/storage/AssetStore';
+import { ProfileStore } from '../main/ets/storage/ProfileStore';
+import { SubscriptionStore } from '../main/ets/storage/SubscriptionStore';
 import { ProxyProfile, SubscriptionProfile } from '../main/ets/core/Profile';
 import { decideRuntimeSettingsRestart, shouldRestartRuntimeForSettingsChange } from '../main/ets/core/SettingsChange';
 import { decideActiveNodeRemovalAction, decideConfigChangeAction, decideNodeSwitchAction } from '../main/ets/core/RuntimeReconnect';
@@ -363,6 +365,56 @@ export default function localUnitTest() {
       expect(resolveGlobalSelectedNodeId(groups, 'missing-node', 'also-missing')).assertEqual('');
       // 无任何组 → 返回空。
       expect(resolveGlobalSelectedNodeId([], 'whatever', 'whatever')).assertEqual('');
+    });
+  });
+
+  describe('criticalStoreRecovery', () => {
+    it('uses a valid node database primary and falls back to the last valid backup', 0, () => {
+      const nodes = buildNodeFixture();
+      const group = buildGroupFixture('sub-a', 'A', nodes, nodes[0].id);
+      const subscription: SubscriptionProfile = {
+        url: group.url,
+        selectedNodeId: nodes[0].id,
+        nodes,
+        updatedAt: 100,
+        selectedGroupId: group.id,
+        groups: [group]
+      };
+      const raw = JSON.stringify(subscription);
+
+      const primary = SubscriptionStore.selectStoredProfile(raw, '{broken');
+      expect(primary.source).assertEqual('primary');
+      expect(primary.profile?.selectedNodeId ?? '').assertEqual(nodes[0].id);
+
+      const recovered = SubscriptionStore.selectStoredProfile('{broken', raw);
+      expect(recovered.source).assertEqual('backup');
+      expect(recovered.profile?.groups.length ?? 0).assertEqual(1);
+
+      const invalid = SubscriptionStore.selectStoredProfile('{}', '{also-broken');
+      expect(invalid.source).assertEqual('invalid');
+      expect(invalid.profile === null).assertTrue();
+
+      const empty = SubscriptionStore.selectStoredProfile('', '');
+      expect(empty.source).assertEqual('empty');
+      expect(empty.profile?.groups.length ?? -1).assertEqual(0);
+    });
+
+    it('uses a valid selected profile primary and falls back to the last valid backup', 0, () => {
+      const profile: ProxyProfile = {
+        id: 'default-profile',
+        name: 'Default Xray Profile',
+        outboundJson: VLESS_REALITY_OUTBOUND,
+        configType: 'outbound',
+        updatedAt: 101
+      };
+      const raw = JSON.stringify(profile);
+
+      expect(ProfileStore.selectStoredProfile(raw, '{broken').source).assertEqual('primary');
+      const recovered = ProfileStore.selectStoredProfile('{broken', raw);
+      expect(recovered.source).assertEqual('backup');
+      expect(recovered.profile?.updatedAt ?? 0).assertEqual(101);
+      expect(ProfileStore.selectStoredProfile('{}', '{broken').source).assertEqual('invalid');
+      expect(ProfileStore.selectStoredProfile('', '').source).assertEqual('empty');
     });
   });
 
