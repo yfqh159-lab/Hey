@@ -393,7 +393,9 @@ struct ScannerPage {
     }
     this.importBuffer = value.trim();
     this.lastError = '';
-    await this.importResult();
+    // 扫码/相册只负责识别并展示原文。必须由用户检查内容后再次点击导入，
+    // 才允许保存节点；若内容是订阅 URL，也只有这一步之后才会发起网络请求。
+    promptAction.showToast({ message: this.t('scanner.reviewBeforeImport') });
   }
 
   private async pasteFromClipboard(): Promise<void> {

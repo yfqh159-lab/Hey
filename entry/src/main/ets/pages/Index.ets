@@ -999,6 +999,17 @@ struct Index {
           .fontColor(AppColor.textPrimary)
           .layoutWeight(1)
 
+        // 首页节点列表直接提供扫码入口，避免先进入设置或二级导入页。
+        IconButton({
+          icon: $r('app.media.ic_qr_code'),
+          buttonSize: 44,
+          iconSize: 24,
+          iconColor: AppColor.brand,
+          onAction: () => {
+            this.getUIContext().getRouter().pushUrl({ url: AppRoute.SCANNER });
+          }
+        })
+
         IconButton({
           icon: $r('app.media.ic_search'),
           buttonSize: 44,
