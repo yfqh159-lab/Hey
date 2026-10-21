@@ -24,6 +24,9 @@ export class SpeedNotificationManager {
   private permissionRequested: boolean = false;
   private slotReady: boolean = false;
   private publishing: boolean = false;
+  // cancel() 先递增代际，使已经进入权限/slot/publish await 的旧任务失效。系统 publish
+  // 若在 cancel 之后才完成，旧任务会再撤销一次，不能把已断开的会话重新显示为运行中。
+  private operationGeneration: number = 0;
   private lastPublishAt: number = 0;
   private lastSample: SpeedNotificationSample | null = null;
   private tapWantAgent: WantAgent | null = null;
@@ -81,6 +84,7 @@ export class SpeedNotificationManager {
   }
 
   async cancel(context: common.Context): Promise<void> {
+    this.operationGeneration++;
     if (!this.notificationMayBeVisible) {
       return;
     }
@@ -105,12 +109,22 @@ export class SpeedNotificationManager {
       return;
     }
     this.publishing = true;
+    const operationGeneration = this.operationGeneration;
     try {
       if (!await this.ensureEnabled(context)) {
         return;
       }
+      if (operationGeneration !== this.operationGeneration) {
+        return;
+      }
       await this.ensureSlot();
+      if (operationGeneration !== this.operationGeneration) {
+        return;
+      }
       const tapAgent = await this.ensureTapWantAgent();
+      if (operationGeneration !== this.operationGeneration) {
+        return;
+      }
       const request: notificationManager.NotificationRequest = {
         id: SPEED_NOTIFICATION_ID,
         label: SPEED_NOTIFICATION_LABEL,
@@ -132,6 +146,12 @@ export class SpeedNotificationManager {
         request.wantAgent = tapAgent;
       }
       await notificationManager.publish(request);
+      if (operationGeneration !== this.operationGeneration) {
+        // cancel() 可能先于底层 publish() 完成；此时系统通知刚被旧任务重新创建，
+        // 必须由旧任务自己补撤销。当前 publishing 闩锁仍在，不会误删并发的新发布。
+        await this.cancelStalePublish();
+        return;
+      }
       this.published = true;
       this.notificationMayBeVisible = true;
       this.lastPublishAt = now;
@@ -140,6 +160,17 @@ export class SpeedNotificationManager {
     } finally {
       this.publishing = false;
     }
+  }
+
+  private async cancelStalePublish(): Promise<void> {
+    try {
+      await notificationManager.cancel(SPEED_NOTIFICATION_ID, SPEED_NOTIFICATION_LABEL);
+    } catch (_error) {
+      // 系统可能已由并发 cancel 或 Extension 清理；本地状态仍必须回到未发布。
+    }
+    this.published = false;
+    this.notificationMayBeVisible = false;
+    this.lastPublishAt = 0;
   }
 
   private async ensureEnabled(context: common.Context): Promise<boolean> {

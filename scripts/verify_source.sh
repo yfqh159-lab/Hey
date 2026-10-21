@@ -1717,6 +1717,23 @@ printf 'VPN session-owned in-flight guard verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');
+const source = fs.readFileSync('entry/src/main/ets/services/SpeedNotificationManager.ets', 'utf8');
+const cancelAt = source.indexOf('  async cancel(');
+const publishAt = source.indexOf('  private async publish(', cancelAt);
+const staleCancelAt = source.indexOf('  private async cancelStalePublish(', publishAt);
+if (cancelAt < 0 || publishAt < 0 || staleCancelAt < 0 ||
+  !source.slice(cancelAt, publishAt).includes('this.operationGeneration++;') ||
+  !source.slice(publishAt, staleCancelAt).includes('const operationGeneration = this.operationGeneration;') ||
+  (source.slice(publishAt, staleCancelAt).match(/operationGeneration !== this\.operationGeneration/g) || []).length < 4 ||
+  !source.slice(publishAt, staleCancelAt).includes('await this.cancelStalePublish();') ||
+  !source.slice(staleCancelAt).includes('notificationManager.cancel(SPEED_NOTIFICATION_ID, SPEED_NOTIFICATION_LABEL)')) {
+  throw new Error('late speed-notification publish is not fenced by disconnect generation');
+}
+NODE
+printf 'late speed-notification cancellation verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
 const probe = fs.readFileSync('entry/src/main/ets/services/RuntimeHealthProbe.ets', 'utf8');
 const tcpAt = probe.indexOf('export async function probeRuntimeTcpHealth(');
 const waitAt = probe.indexOf('\nexport async function waitForRuntimeSocksHealth(', tcpAt);
