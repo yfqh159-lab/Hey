@@ -134,12 +134,13 @@ traffic stats.
   apps, so the page lists a handful of common local apps as typing shortcuts
   and lets you enter any package name by hand. Nothing is ever selected for
   you, and the list is neither derived from nor tied to any destination.
-- Network continuity and scenario automation: the VPN Extension records only
-  actual underlying bearer changes and keeps the TUN/core running so new Xray
-  connections can follow the system's new default network. An optional,
-  user-authored list of trusted Wi-Fi SSIDs plus a cellular toggle can request
-  automatic disconnect only; it never auto-connects. The app never classifies
-  a network on its own — the list is entirely yours.
+- Network continuity and scenario automation: the app observes underlying
+  bearer changes during its lifecycle and revalidates the exit, while the VPN
+  Extension keeps the TUN/core running so new Xray connections can follow the
+  system's new default network. An optional, user-authored list of trusted
+  Wi-Fi SSIDs plus a cellular toggle can request automatic disconnect only; it
+  never auto-connects. With automation off, observation never connects or
+  disconnects. The app never classifies a network on its own.
 - VPN continuity state: the VPN Extension writes a credential-free health
   heartbeat in the shared app sandbox. If the UI process is recreated while the
   extension is still healthy, it adopts that existing session without starting
