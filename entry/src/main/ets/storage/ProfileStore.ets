@@ -39,13 +39,12 @@ export class ProfileStore {
       configType: ProfileStore.normalizeConfigType(configType),
       updatedAt: Date.now()
     };
-    try {
-      const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-      await store.put(PROFILE_KEY, JSON.stringify(profile));
-      await store.flush();
-    } catch (error) {
-      // ignore
-    }
+    // Profile 决定下一次手动连接使用哪个配置，其持久化失败不能伪装成成功。
+    // 调用方已有面向用户的错误处理；让 ArkData 错误向上传递，避免 UI/订阅库已经
+    // 指向新节点，而重启应用后又静默回到旧 Profile。
+    const store = await preferences.getPreferences(context, PREFERENCES_NAME);
+    await store.put(PROFILE_KEY, JSON.stringify(profile));
+    await store.flush();
     return profile;
   }
 
