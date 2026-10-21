@@ -5,7 +5,7 @@ import { IconButton } from '../components/IconButton';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { BOTTOM_SAFE_HEIGHT_KEY, TOP_SAFE_HEIGHT_KEY } from '../core/Immersive';
 import { APP_MODE_VPN, AppLanguage, AppRuntimeMode, AppSettings, ConnectionStatus, DELAY_STATUS_UDP_ONLY, DELAY_STATUS_UNAVAILABLE, isNeutralDelayStatus, isProxyOnlyRuntimeMode, normalizeAppRuntimeMode, normalizeHomeDelayTestInterval, normalizeRealPingConcurrency, ProxyNode, ProxyProfile, resolveDelayTestUrl, RuntimeStats, SubscriptionGroup, SubscriptionProfile, XrayConfigType } from '../core/Profile';
-import { CoreSelectionStore, requiredCoreForProtocol, CORE_TYPE_SINGBOX } from '../core/CoreSelection';
+import { CoreSelectionStore, CoreType, requiredCoreForProtocol, CORE_TYPE_SINGBOX } from '../core/CoreSelection';
 import { DELAY_TEST_BATCH_PORT_BASE, normalizeOutboundInput } from '../core/XrayConfig';
 import { DeepLinkControlAction, DeepLinkIntent, parseDeepLink, subscriptionNameFromDeepLink } from '../core/DeepLink';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
@@ -109,6 +109,7 @@ struct Index {
   // 既不把默认值当权威数据，也不向设置/节点串行队列反复追加 pending 任务。
   private settingsLoadInFlight: Promise<AppSettings> | null = null;
   private nodesLoadInFlight: Promise<NodesControllerState> | null = null;
+  private connectionCoreLoadInFlight: Promise<CoreType> | null = null;
 
   @State private currentTab: number = 0;
   @State private showSearch: boolean = false;
@@ -2039,7 +2040,8 @@ struct Index {
         this.allGroupsSelected = false;
       }
     } catch (error) {
-      this.lastError = this.f1('error.loadSettings', 'error', redactDiagnosticText(JSON.stringify(error)));
+      const detail = error instanceof Error ? error.message : JSON.stringify(error);
+      this.lastError = this.f1('error.loadSettings', 'error', redactDiagnosticText(detail));
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
       if (strict) {
         throw new Error(this.lastError);
@@ -2146,39 +2148,80 @@ struct Index {
     if (this.isBusy()) {
       return;
     }
-    const context = this.getUIContext().getHostContext() as common.Context;
-    const currentCore = await CoreSelectionStore.load(context);
-    // 用当前待连接的 outbound 推协议（与 ConnectionController 判定 forceSingbox 的口径一致），
-    // 不依赖 this.nodes 是否包含当前节点（当前节点是全局值，可能不在正浏览的组里）。
-    const protocol = normalizeOutboundInput(this.outboundJson).protocol;
-    const requiredCore = requiredCoreForProtocol(currentCore, protocol, this.currentSettings.mode);
-    if (requiredCore === null) {
+    // 本地代理模式固定使用 Xray 的 SOCKS/HTTP 入站，不创建 TUN，也没有临时切换
+    // sing-box 的可选项；跳过无关的全局内核偏好读取，直接进入连接准备。
+    if (isProxyOnlyRuntimeMode(this.currentSettings.mode)) {
       await this.startConnection();
       return;
     }
-    const coreLabel = requiredCore === CORE_TYPE_SINGBOX ? 'sing-box' : 'Xray';
-    AlertDialog.show({
-      title: this.t('coreSwitch.title'),
-      message: this.f2('coreSwitch.message', 'protocol', protocol.toUpperCase(), 'core', coreLabel),
-      autoCancel: true,
-      alignment: DialogAlignment.Bottom,
-      offset: { dx: 0, dy: -20 },
-      primaryButton: {
-        value: this.t('coreSwitch.confirm'),
-        fontColor: AppColor.onBrand,
-        backgroundColor: AppColor.brand,
-        action: () => {
-          this.startConnection();
-        }
-      },
-      secondaryButton: {
-        value: this.t('action.cancel'),
-        fontColor: AppColor.textSecondary,
-        backgroundColor: AppColor.bg,
-        action: () => {
-        }
+    this.connectionOperationRunning = true;
+    try {
+      const context = this.getUIContext().getHostContext() as common.Context;
+      const currentCore = await withAuthoritativeStorageTimeout(
+        this.loadConnectionCoreSingleFlight(context), 'connection core read');
+      // 用当前待连接的 outbound 推协议（与 ConnectionController 判定 forceSingbox 的口径一致），
+      // 不依赖 this.nodes 是否包含当前节点（当前节点是全局值，可能不在正浏览的组里）。
+      const protocol = normalizeOutboundInput(this.outboundJson).protocol;
+      const requiredCore = requiredCoreForProtocol(currentCore, protocol, this.currentSettings.mode);
+      if (requiredCore === null) {
+        // startConnection() 自己获取操作闩锁；先释放本轮准备态，避免它把连接误判为重复点击。
+        this.connectionOperationRunning = false;
+        await this.startConnection();
+        return;
       }
-    });
+      const coreLabel = requiredCore === CORE_TYPE_SINGBOX ? 'sing-box' : 'Xray';
+      AlertDialog.show({
+        title: this.t('coreSwitch.title'),
+        message: this.f2('coreSwitch.message', 'protocol', protocol.toUpperCase(), 'core', coreLabel),
+        autoCancel: true,
+        alignment: DialogAlignment.Bottom,
+        offset: { dx: 0, dy: -20 },
+        primaryButton: {
+          value: this.t('coreSwitch.confirm'),
+          fontColor: AppColor.onBrand,
+          backgroundColor: AppColor.brand,
+          action: () => {
+            this.startConnection();
+          }
+        },
+        secondaryButton: {
+          value: this.t('action.cancel'),
+          fontColor: AppColor.textSecondary,
+          backgroundColor: AppColor.bg,
+          action: () => {
+          }
+        }
+      });
+    } catch (error) {
+      this.lastError = this.f1('error.loadSettings', 'error', redactDiagnosticText(JSON.stringify(error)));
+      SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
+      try {
+        this.getUIContext().getPromptAction().showToast({ message: this.lastError });
+      } catch (promptError) {
+        // ignore
+      }
+    } finally {
+      this.connectionOperationRunning = false;
+    }
+  }
+
+  private loadConnectionCoreSingleFlight(context: common.Context): Promise<CoreType> {
+    if (this.connectionCoreLoadInFlight !== null) {
+      return this.connectionCoreLoadInFlight;
+    }
+    const promise = CoreSelectionStore.load(context);
+    this.connectionCoreLoadInFlight = promise;
+    promise.then(
+      (_coreType: CoreType): void => this.releaseConnectionCoreLoad(promise),
+      (_error: Object): void => this.releaseConnectionCoreLoad(promise)
+    );
+    return promise;
+  }
+
+  private releaseConnectionCoreLoad(promise: Promise<CoreType>): void {
+    if (this.connectionCoreLoadInFlight === promise) {
+      this.connectionCoreLoadInFlight = null;
+    }
   }
 
   private async startConnection(): Promise<void> {

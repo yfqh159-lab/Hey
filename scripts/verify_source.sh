@@ -1008,6 +1008,28 @@ if (!indexSource.includes('const AUTHORITATIVE_STORAGE_READ_TIMEOUT_MS: number =
   !indexSource.includes('this.releaseNodesLoad(promise)')) {
   throw new Error('authoritative settings or node reads can stall recovery or accumulate queued tasks');
 }
+const coreConfirmAt = indexSource.indexOf('  private async confirmCoreSwitchAndConnect(): Promise<void>');
+const coreConfirmEnd = indexSource.indexOf('\n  private async startConnection(): Promise<void>', coreConfirmAt);
+const coreConfirm = indexSource.slice(coreConfirmAt, coreConfirmEnd);
+if (coreConfirmAt < 0 || coreConfirmEnd < 0 ||
+  !indexSource.includes('private connectionCoreLoadInFlight: Promise<CoreType> | null = null;') ||
+  !coreConfirm.includes('if (isProxyOnlyRuntimeMode(this.currentSettings.mode)) {\n      await this.startConnection();') ||
+  !coreConfirm.includes('this.connectionOperationRunning = true;') ||
+  !coreConfirm.includes("this.loadConnectionCoreSingleFlight(context), 'connection core read'") ||
+  !coreConfirm.includes('this.connectionOperationRunning = false;\n        await this.startConnection();') ||
+  !coreConfirm.includes('this.releaseConnectionCoreLoad(promise)') ||
+  !coreConfirm.includes('finally {\n      this.connectionOperationRunning = false;')) {
+  throw new Error('connection core preparation can stall, overlap, or block the actual start handoff');
+}
+const connectionControllerSource = fs.readFileSync('entry/src/main/ets/services/ConnectionController.ets', 'utf8');
+const controllerStartAt = connectionControllerSource.indexOf('  async start(context: common.Context');
+const controllerSingboxAt = connectionControllerSource.indexOf('\n  // sing-box 内核启动路径', controllerStartAt);
+const controllerStart = connectionControllerSource.slice(controllerStartAt, controllerSingboxAt);
+if (controllerStartAt < 0 || controllerSingboxAt < 0 ||
+  !controllerStart.includes('let coreType: CoreType = CORE_TYPE_XRAY;') ||
+  !controllerStart.includes('if (requestedMode !== APP_MODE_PROXY_ONLY) {\n      try {\n        coreType = await this.withTimeout(')) {
+  throw new Error('proxy-only startup still depends on the unrelated global core preference');
+}
 for (const start of [settingsAt, nodesLoadAt, runtimeRefreshPerformAt]) {
   const nextMethod = indexSource.indexOf('\n  private ', start + 1);
   const body = indexSource.slice(start, nextMethod);
@@ -1200,12 +1222,14 @@ if (requestedModeAssignment < 0 || firstCoreSelectionAwait < 0 ||
 }
 const coreLoadCatch = startBody.indexOf('return this.failStartPreparation(startGeneration, error as Object);', firstCoreSelectionAwait);
 const postCoreGenerationCheck = startBody.indexOf('if (!this.isCurrentStart(startGeneration))', firstCoreSelectionAwait);
-if (!startBody.includes('let coreType: CoreType;') || coreLoadCatch < firstCoreSelectionAwait ||
+if (!startBody.includes('let coreType: CoreType = CORE_TYPE_XRAY;') ||
+  !startBody.includes('if (requestedMode !== APP_MODE_PROXY_ONLY) {') ||
+  coreLoadCatch < firstCoreSelectionAwait ||
   postCoreGenerationCheck < coreLoadCatch) {
   throw new Error('core selection read failures can leave connection startup stuck');
 }
 if (!controller.includes('const PREPARATION_STORE_TIMEOUT_MS: number = 5000;') ||
-  !startBody.includes('CoreSelectionStore.load(context),\n        PREPARATION_STORE_TIMEOUT_MS,') ||
+  !startBody.includes('CoreSelectionStore.load(context),\n          PREPARATION_STORE_TIMEOUT_MS,') ||
   !startBody.includes('this.resolveRuntimeConfigJson(context, validation.normalizedJson, validation.configType),\n        PREPARATION_STORE_TIMEOUT_MS,')) {
   throw new Error('connection preparation storage reads can permanently hold STARTING');
 }
