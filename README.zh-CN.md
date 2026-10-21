@@ -171,6 +171,16 @@ entry/build/default/outputs/default/entry-default-signed.hap
 node "$HVIGORW" --mode module -p module=entry@default -p isLocalTest=true test --no-daemon
 ```
 
+构建前先确认稀疏检出中包含全部随包原生核心，并检查 AArch64 桥接符号及 TLSDESC ABI
+是否与 N-API 桥一致：
+
+```bash
+./scripts/verify_prebuilt_native.sh
+```
+
+若稀疏检出缺少 `prebuilt/arm64-v8a`，可运行
+`git sparse-checkout add entry/src/main/cpp/prebuilt` 恢复该目录。
+
 提交前跑一遍措辞校验：
 
 ```bash

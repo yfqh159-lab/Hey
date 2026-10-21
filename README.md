@@ -212,6 +212,16 @@ Run the unit tests:
 node "$HVIGORW" --mode module -p module=entry@default -p isLocalTest=true test --no-daemon
 ```
 
+Before building, verify that the sparse checkout contains all packaged native
+cores and that their AArch64 bridge symbols/TLSDESC ABI match the N-API bridge:
+
+```bash
+./scripts/verify_prebuilt_native.sh
+```
+
+If `prebuilt/arm64-v8a` is absent in a sparse checkout, restore it with
+`git sparse-checkout add entry/src/main/cpp/prebuilt`.
+
 Run the wording check before sending a patch:
 
 ```bash
