@@ -2,7 +2,7 @@ import { socket } from '@kit.NetworkKit';
 import { taskpool } from '@kit.ArkTS';
 import { XrayConfigType } from '../core/Profile';
 import { DEFAULT_SOCKS_HOST, DELAY_TEST_SOCKS_PORT, buildDelayTestConfig } from '../core/XrayConfig';
-import { NativePingResult, pingNativeOutbound } from '../native/HeyNative';
+import { NativePingResult, nativeXrayAssetReadiness, pingNativeOutbound } from '../native/HeyNative';
 import { isSingboxOnlyProtocol } from '../core/CoreSelection';
 
 export interface DelayTestResult {
@@ -189,6 +189,11 @@ export class DelayTester {
         return tcpResult;
       }
       return { ok: false, delayMs: -1, status: DELAY_STATUS_UDP_ONLY };
+    }
+    // EntryAbility 必须先完成中断 Geo 事务恢复并设置 XRAY_LOCATION_ASSET。失败时
+    // 不把临时核心投递到 worker，否则可能让 Go runtime 读取半套或错误目录的数据。
+    if (!nativeXrayAssetReadiness().ready) {
+      return { ok: false, delayMs: -1, status: 'core-unavailable' };
     }
     const timeoutSeconds = Math.max(1, Math.floor(timeoutMs / 1000));
     let result: NativePingResult;

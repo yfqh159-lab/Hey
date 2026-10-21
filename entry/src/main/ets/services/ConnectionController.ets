@@ -12,7 +12,7 @@ import { buildSingboxConfig, GeneratedSingboxConfig } from '../core/SingboxConfi
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { SubscriptionStore } from '../storage/SubscriptionStore';
 import { createStopCommandVpnWant, createStopVpnWant, createVpnWant, isMatchingVpnSessionDetails } from '../vpn/VpnConstants';
-import { getNativeFreePorts, getNativeStats, startNativeXray, stopNativeXray, testNativeXrayConfig } from '../native/HeyNative';
+import { getNativeFreePorts, getNativeStats, nativeXrayAssetReadiness, startNativeXray, stopNativeXray, testNativeXrayConfig } from '../native/HeyNative';
 import { DiagnosticEvent, DiagnosticLog } from './DiagnosticLog';
 import { clearCoreLog, clearSingboxLog } from './CoreLogReader';
 import { OUTBOUND_DOMAIN_RESOLVER } from './OutboundDomainResolver';
@@ -112,6 +112,14 @@ export class ConnectionController {
       if (this.lastError.length === 0) {
         this.lastError = '上次连接资源尚未确认清理，请先重试断开。';
       }
+      return this.getSnapshot();
+    }
+    const assetReadiness = nativeXrayAssetReadiness();
+    if (!assetReadiness.ready) {
+      this.status = ConnectionStatus.ERROR;
+      this.lastError = redactDiagnosticText(
+        `Xray 资源目录尚未安全初始化：${assetReadiness.message}`
+      );
       return this.getSnapshot();
     }
 

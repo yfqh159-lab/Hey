@@ -44,6 +44,11 @@ export interface NativeTextResult {
   message: string;
 }
 
+export interface NativeXrayAssetReadiness {
+  ready: boolean;
+  message: string;
+}
+
 // libXray wraps every CGo return value in a CallResponse. The native bridge
 // decodes the base64 envelope and hands us the JSON below as the message.
 interface CallResponseString {
@@ -107,13 +112,34 @@ interface NativeBridge {
 }
 
 const bridge = heyNative as NativeBridge;
+let nativeXrayAssetsReady: boolean = false;
+let nativeXrayAssetsMessage: string = 'Xray asset directory has not been initialized.';
+
+export function nativeXrayAssetReadiness(): NativeXrayAssetReadiness {
+  return {
+    ready: nativeXrayAssetsReady,
+    message: nativeXrayAssetsMessage
+  };
+}
+
+export function markNativeXrayAssetsUnavailable(message: string): void {
+  nativeXrayAssetsReady = false;
+  nativeXrayAssetsMessage = message.length > 0 ? message : 'Xray asset initialization failed.';
+}
 
 export function validateNativeConfig(configJson: string): NativeResult {
   return bridge.validateConfig(configJson);
 }
 
 export function prepareNativeXrayAssets(workDir: string): NativeResult {
-  return bridge.prepareXrayAssets(workDir);
+  const result = bridge.prepareXrayAssets(workDir);
+  if (result.ok) {
+    nativeXrayAssetsReady = true;
+    nativeXrayAssetsMessage = '';
+  } else {
+    markNativeXrayAssetsUnavailable(result.message);
+  }
+  return result;
 }
 
 export function setNativeTunFd(tunFd: number): NativeResult {

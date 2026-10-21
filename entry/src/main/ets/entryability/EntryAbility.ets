@@ -9,7 +9,7 @@ import { extractSharedTextFromWant } from '../core/SharedTextImport';
 import { APP_LANGUAGE_STORAGE_KEY, DEFAULT_LANGUAGE } from '../core/I18n';
 import { SettingsStore } from '../storage/SettingsStore';
 import { NETWORK_SCENE_MANAGER } from '../services/NetworkSceneManager';
-import { prepareNativeXrayAssets } from '../native/HeyNative';
+import { markNativeXrayAssetsUnavailable, prepareNativeXrayAssets } from '../native/HeyNative';
 import { ASSETS_CONTROLLER } from '../features/assets/AssetsController';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 
@@ -19,18 +19,31 @@ export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     // Geo 双文件事务或高级单文件替换可能因上次进程被杀而中断。必须先同步恢复，
     // 再初始化 XRAY_LOCATION_ASSET/加载 Go runtime，避免核心观察到半新半旧或缺失的数据文件。
+    let geoRecoveryReady = true;
     try {
       ASSETS_CONTROLLER.recoverInterruptedBuiltinGeoUpdate(this.context);
     } catch (error) {
+      geoRecoveryReady = false;
+      const message = redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error));
+      markNativeXrayAssetsUnavailable(`Geo recovery failed: ${message}`);
       hilog.error(DOMAIN, 'testTag', 'Failed to recover interrupted Geo update before core initialization: %{public}s',
-        redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error)));
+        message);
     }
     // 必须早于扫码/分享解析等任何可能懒加载 Go c-shared 核心的页面逻辑。
     // Go runtime 初始化后再由 musl setenv 改写 environ 可能触发原生崩溃。
-    const assetInit = prepareNativeXrayAssets(this.context.filesDir);
-    if (!assetInit.ok) {
-      hilog.error(DOMAIN, 'testTag', 'Failed to initialize Xray assets before native core load: %{public}s',
-        redactDiagnosticText(assetInit.message));
+    if (geoRecoveryReady) {
+      try {
+        const assetInit = prepareNativeXrayAssets(this.context.filesDir);
+        if (!assetInit.ok) {
+          hilog.error(DOMAIN, 'testTag', 'Failed to initialize Xray assets before native core load: %{public}s',
+            redactDiagnosticText(assetInit.message));
+        }
+      } catch (error) {
+        const message = redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error));
+        markNativeXrayAssetsUnavailable(`Xray asset initialization failed: ${message}`);
+        hilog.error(DOMAIN, 'testTag', 'Failed to initialize Xray assets before native core load: %{public}s',
+          message);
+      }
     }
     this.applyStoredColorMode();
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onCreate');

@@ -1,7 +1,7 @@
 import { extractOutboundsFromXrayConfig } from '../core/XrayOutbounds';
 import { normalizeConfigInput } from '../core/XrayConfig';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
-import { convertNativeShareLinksToXrayJson } from '../native/HeyNative';
+import { convertNativeShareLinksToXrayJson, nativeXrayAssetReadiness } from '../native/HeyNative';
 
 export interface NativeShareOutbound {
   name: string;
@@ -17,6 +17,14 @@ export interface NativeShareConversionResult {
 
 export function convertNativeShareTextToOutbounds(text: string): NativeShareConversionResult {
   try {
+    const readiness = nativeXrayAssetReadiness();
+    if (!readiness.ready) {
+      return {
+        ok: false,
+        outbounds: [],
+        message: redactDiagnosticText(`Native share conversion unavailable: ${readiness.message}`)
+      };
+    }
     // Native conversion errors may contain the original share link. Keep every
     // caller safe (UI, logs, and previews) by redacting at this service boundary.
     const converted = convertNativeShareLinksToXrayJson(text);
