@@ -810,7 +810,7 @@ struct Index {
             .fontSize(FontSz.title)
             .fontWeight(FontWeight.Bold)
             .fontColor(this.isRunning() ? AppColor.brand : AppColor.textPrimary)
-          Text(this.isRunning() ? this.elapsedText : this.t('home.ready'))
+          Text(this.connectionSubtitle())
             .fontSize(FontSz.footnote)
             .fontColor(AppColor.textSecondary)
         }
@@ -2667,6 +2667,15 @@ struct Index {
         'home.proxyConnected' : 'home.tunConnected');
     }
     return this.t('status.' + this.status);
+  }
+
+  private connectionSubtitle(): string {
+    if (this.isRunning()) {
+      return this.elapsedText;
+    }
+    const mode = this.t(isProxyOnlyRuntimeMode(this.currentSettings.mode) ?
+      'settings.mode.proxyOnly' : 'settings.mode.vpn');
+    return `${this.t('home.ready')} · ${mode}`;
   }
 
   private t(key: string): string {
