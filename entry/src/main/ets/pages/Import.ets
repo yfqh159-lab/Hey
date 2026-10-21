@@ -3,7 +3,6 @@ import { router, promptAction } from '@kit.ArkUI';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { resolveImportedNodeName } from '../core/ImportedNodeNames';
 import { AppLanguage, XrayConfigType } from '../core/Profile';
-import { markRuntimeSettingsRestartNeeded } from '../core/SettingsChange';
 import { NODES_CONTROLLER } from '../features/nodes/NodesController';
 import { SETTINGS_CONTROLLER } from '../features/settings/SettingsController';
 import { AppRoute } from '../shell/AppRoute';
@@ -359,11 +358,14 @@ struct ImportPage {
         return;
       }
 
-      const saved = await NODES_CONTROLLER.saveProfile(context, value, this.language);
-      if (saved.profile === null) {
+      // 链接导入只做纯校验和节点入库，不提前改写当前 Profile。否则重复导入、解析失败或
+      // 批量内容中的中间条目会悄悄切换正在使用的节点，甚至触发无意的运行中重连。
+      const validation = NODES_CONTROLLER.validateConfig(value, this.language);
+      if (!validation.valid) {
         const nativeResult = convertNativeShareTextToOutbounds(value);
         if (!nativeResult.ok) {
-          this.lastError = nativeResult.message.length > 0 ? `${saved.lastError}\n${nativeResult.message}` : saved.lastError;
+          this.lastError = nativeResult.message.length > 0 ?
+            `${validation.message}\n${nativeResult.message}` : validation.message;
           return;
         }
 
@@ -372,16 +374,16 @@ struct ImportPage {
         let lastValidationError = '';
         for (let index = 0; index < nativeResult.outbounds.length; index++) {
           const outbound = nativeResult.outbounds[index];
-          const imported = await NODES_CONTROLLER.saveProfile(context, outbound.outboundJson, this.language, 'outbound');
-          if (imported.profile === null) {
-            lastValidationError = imported.lastError;
+          const imported = NODES_CONTROLLER.validateConfig(outbound.outboundJson, this.language, 'outbound');
+          if (!imported.valid) {
+            lastValidationError = imported.message;
             continue;
           }
           if (!await this.addManualNodeIfUnique(
             context,
-            resolveImportedNodeName(imported.profile.outboundJson, outbound.name),
-            imported.profile.outboundJson,
-            imported.profile.configType
+            resolveImportedNodeName(imported.normalizedJson, outbound.name),
+            imported.normalizedJson,
+            imported.configType
           )) {
             duplicateCount++;
             continue;
@@ -392,11 +394,10 @@ struct ImportPage {
         if (importedCount === 0) {
           this.lastError = duplicateCount > 0 ?
             this.f1('scanner.duplicateNodes', 'count', duplicateCount.toString()) :
-            (lastValidationError.length > 0 ? lastValidationError : saved.lastError);
+            (lastValidationError.length > 0 ? lastValidationError : validation.message);
           return;
         }
 
-        markRuntimeSettingsRestartNeeded();
         try {
           this.getUIContext().getPromptAction().showToast({
           message: importedCount === 1 ? this.t('import.nodeImported') : this.f1('import.nodesImported', 'count', importedCount.toString())
@@ -408,12 +409,16 @@ struct ImportPage {
         return;
       }
 
-      const nodeName = resolveImportedNodeName(saved.profile.outboundJson, this.t('import.linkNodeName'));
-      if (!await this.addManualNodeIfUnique(context, nodeName, saved.profile.outboundJson, saved.profile.configType)) {
+      const nodeName = resolveImportedNodeName(validation.normalizedJson, this.t('import.linkNodeName'));
+      if (!await this.addManualNodeIfUnique(
+        context,
+        nodeName,
+        validation.normalizedJson,
+        validation.configType
+      )) {
         this.lastError = this.f1('scanner.duplicateNode', 'name', nodeName);
         return;
       }
-      markRuntimeSettingsRestartNeeded();
       try {
         this.getUIContext().getPromptAction().showToast({ message: this.t('import.nodeImported') });
       } catch (err) {
@@ -444,7 +449,8 @@ struct ImportPage {
     if (await SubscriptionStore.findDuplicateNode(context, outboundJson, configType) !== null) {
       return false;
     }
-    await SubscriptionStore.addManualNode(context, name, outboundJson, configType);
+    // 导入只新增节点；不切换当前选择，也不改变正在运行的数据面。
+    await SubscriptionStore.addManualNode(context, name, outboundJson, configType, false);
     return true;
   }
 
