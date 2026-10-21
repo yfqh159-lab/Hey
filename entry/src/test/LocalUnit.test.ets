@@ -19,7 +19,7 @@ import { clearVisiblePerAppPackages, exportPerAppProxyList, importPerAppProxyLis
 import { shouldShowProxySharingStartWarning } from '../main/ets/core/ProxySharingWarning';
 import { shouldStartScannerImmediately } from '../main/ets/core/ScannerLaunch';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppSettings, ConnectionStatus, DEFAULT_DELAY_TEST_URL, DEFAULT_HEV_TUN_LOG_LEVEL, DEFAULT_HEV_TUN_RW_TIMEOUT, DEFAULT_IP_API_URL, DEFAULT_VPN_MTU, OUTBOUND_DOMAIN_RESOLVE_DNS_HOSTS, OUTBOUND_DOMAIN_RESOLVE_NONE, OUTBOUND_DOMAIN_RESOLVE_REPLACE, OutboundDomainResolveMethod, normalizeAppRuntimeMode, normalizeHevTunLogLevel, normalizeHevTunRwTimeout, normalizeRealPingConcurrency, normalizeRoutingDomainStrategy, normalizeUiModeNight, ProxyNode, resolveDelayTestUrl, RoutingRule, RuntimeStats, SubscriptionGroup } from '../main/ets/core/Profile';
-import { BUILTIN_GEO_DATA_FILE_NAMES, DEFAULT_GEO_RELEASE_API, DEFAULT_GEO_RELEASE_DOWNLOAD_PREFIX, GEOIP_FILE_NAME, GEOSITE_FILE_NAME, buildAssetDownloadUrl, encodeGeoTransactionState, isAllowedGeoAssetRedirect, isPlausibleGeoData, parseDefaultGeoRelease, parseGeoTransactionState, parseHttpRedirectLocation, parseSha256Checksum, resolveGeoRecoveryAction, resolveStandaloneAssetRecoveryAction } from '../main/ets/core/GeoAssets';
+import { BUILTIN_GEO_DATA_FILE_NAMES, DEFAULT_GEO_RELEASE_API, DEFAULT_GEO_RELEASE_DOWNLOAD_PREFIX, GEOIP_FILE_NAME, GEOSITE_FILE_NAME, buildAssetDownloadUrl, encodeGeoTransactionState, isAllowedGeoAssetRedirect, isPlausibleGeoData, parseDefaultGeoRelease, parseGeoTransactionState, parseHttpRedirectLocation, parseSha256Checksum, resolveGeoRecoveryAction, resolveGeoUpdateNotice, resolveStandaloneAssetRecoveryAction } from '../main/ets/core/GeoAssets';
 import { DELAY_TEST_SOCKS_PORT, LOCAL_HTTP_PROXY_LAN_HOST, LOCAL_HTTP_PROXY_PORT, LOCAL_SOCKS_PROXY_PORT, UNIDENTIFIED_PROCESS_PACKAGE, VPN_DATA_SOCKS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT, appReservedRuntimePorts, buildDelayTestConfig, buildRuntimeXrayConfig, buildXrayConfig, buildXrayConfigWithSettings, canUseProcessRouting, collectOutboundDomainPreResolveHosts, normalizeFullConfigRoutingProcesses, normalizeOutboundInput, normalizeRoutingRuleProcesses, validateFullConfigJson, validateOutboundJson, validatePolicyGroupConfigJson, validateProxyChainConfigJson, withOutboundDomainResolvedHosts, injectXrayLogFile, isReservedAppRuntimePort } from '../main/ets/core/XrayConfig';
 import { CONTROL_SHORTCUT_ACTION_PARAM, CONTROL_SHORTCUT_GUID_PARAM, CONTROL_SHORTCUT_NODE_ID_PARAM, CONTROL_SHORTCUT_URI_PARAM, TASKER_EXTRA_BUNDLE_GUID_PARAM, TASKER_EXTRA_BUNDLE_SWITCH_PARAM, controlUriFromShortcutParameters, deepLinkUriFromWant, parseDeepLink } from '../main/ets/core/DeepLink';
 import { HARMONY_SEND_DATA_ACTION, HARMONY_SHARE_ABSTRACT_KEY, HARMONY_SHARE_URL_KEY, HARMONY_TEXT_MIME_TYPE, SharedTextWantLike, extractSharedTextFromWant, isSharedTextWant } from '../main/ets/core/SharedTextImport';
@@ -2048,6 +2048,24 @@ export default function localUnitTest() {
       expect(BUILTIN_GEO_DATA_FILE_NAMES[1]).assertEqual(GEOIP_FILE_NAME);
       expect(buildAssetDownloadUrl('https://example.com/release/', 'geosite.dat')).assertEqual('https://example.com/release/geosite.dat');
       expect(buildAssetDownloadUrl('https://example.com/release', 'geoip.dat')).assertEqual('https://example.com/release/geoip.dat');
+    });
+
+    it('preserves geo update outcome and reconnect notice when metadata persistence fails', 0, () => {
+      const latest = resolveGeoUpdateNotice(false, false, true);
+      expect(latest.resultKey).assertEqual('assets.geo.latest');
+      expect(latest.appendMetadataWarning).assertFalse();
+
+      const latestWithoutMetadata = resolveGeoUpdateNotice(false, true, false);
+      expect(latestWithoutMetadata.resultKey).assertEqual('assets.geo.latest');
+      expect(latestWithoutMetadata.appendMetadataWarning).assertTrue();
+
+      const updated = resolveGeoUpdateNotice(true, false, false);
+      expect(updated.resultKey).assertEqual('assets.geo.updated');
+      expect(updated.appendMetadataWarning).assertTrue();
+
+      const updatedWhileRunning = resolveGeoUpdateNotice(true, true, false);
+      expect(updatedWhileRunning.resultKey).assertEqual('assets.geo.updatedReconnect');
+      expect(updatedWhileRunning.appendMetadataWarning).assertTrue();
     });
 
     it('parses the trusted default geo release and checksum files', 0, () => {

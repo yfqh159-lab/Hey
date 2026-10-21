@@ -20,8 +20,28 @@ export interface GeoTransactionState {
   originalMask: number;
 }
 
+export interface GeoUpdateNotice {
+  resultKey: string;
+  appendMetadataWarning: boolean;
+}
+
 export type GeoRecoveryAction = 'keep' | 'remove-target' | 'restore-backup' | 'discard-backup';
 export type StandaloneAssetRecoveryAction = 'keep' | 'restore-backup' | 'discard-backup';
+
+export function resolveGeoUpdateNotice(
+  changed: boolean,
+  runtimeRunning: boolean,
+  metadataSaved: boolean
+): GeoUpdateNotice {
+  let resultKey = 'assets.geo.latest';
+  if (changed) {
+    resultKey = runtimeRunning ? 'assets.geo.updatedReconnect' : 'assets.geo.updated';
+  }
+  return {
+    resultKey,
+    appendMetadataWarning: !metadataSaved
+  };
+}
 
 export function encodeGeoTransactionState(stagedMask: number, originalMask: number): ArrayBuffer {
   const validMask = geoTransactionValidMask();

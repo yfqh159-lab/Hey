@@ -4,7 +4,7 @@ import { picker } from '@kit.CoreFileKit';
 import fs from '@ohos.file.fs';
 import { hasDuplicateAssetName, isEditableCustomAssetUrl, isSafeCustomAssetName, normalizeScannedAssetUrl } from '../core/AssetUrls';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
-import { GEOIP_FILE_NAME, GEOSITE_FILE_NAME } from '../core/GeoAssets';
+import { GEOIP_FILE_NAME, GEOSITE_FILE_NAME, resolveGeoUpdateNotice } from '../core/GeoAssets';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { AppLanguage } from '../core/Profile';
 import { SETTINGS_CONTROLLER } from '../features/settings/SettingsController';
@@ -869,15 +869,16 @@ struct AssetsPage {
       const result = await ASSETS_CONTROLLER.checkAndUpdateBuiltinGeo(context);
       await this.loadGeoMetadata();
       this.updateFileStatus();
-      let message = '';
-      if (!result.metadataSaved) {
-        message = this.t('assets.geo.metadataWarning');
-      } else if (!result.changed) {
-        message = this.f1('assets.geo.latest', 'version', result.version);
-      } else if (SHARED_RUNTIME_CONTROLLER.isRunning()) {
-        message = this.f1('assets.geo.updatedReconnect', 'version', result.version);
-      } else {
-        message = this.f1('assets.geo.updated', 'version', result.version);
+      // 文件校验/替换结果与“校验记录是否成功落盘”是两件事；记录失败不能覆盖真实
+      // 更新结果，更不能漏掉运行中必须重连的提示。
+      const notice = resolveGeoUpdateNotice(
+        result.changed,
+        SHARED_RUNTIME_CONTROLLER.isRunning(),
+        result.metadataSaved
+      );
+      let message = this.f1(notice.resultKey, 'version', result.version);
+      if (notice.appendMetadataWarning) {
+        message += `\n${this.t('assets.geo.metadataWarning')}`;
       }
       SHARED_RUNTIME_CONTROLLER.appendLog(message);
       this.toast(message);
