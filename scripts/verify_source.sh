@@ -1376,6 +1376,23 @@ if (!config.includes('if (vpnMode) {\n    inbounds.push(tunInbound);') ||
 NODE
 printf 'optional TUN/runtime mode separation verification passed\n'
 
+node <<'NODE'
+const fs = require('fs');
+const catalog = fs.readFileSync('entry/src/main/ets/features/settings/SettingsCatalog.ets', 'utf8');
+const catalogStart = catalog.indexOf('export const SETTINGS_CATALOG');
+const filterStart = catalog.indexOf('\nexport function filterSettings(', catalogStart);
+if (catalogStart < 0 || filterStart < 0) {
+  throw new Error('settings catalog could not be inspected');
+}
+const visibleCatalog = catalog.slice(catalogStart, filterStart);
+if (visibleCatalog.includes("key: 'localDnsPort'") ||
+  !visibleCatalog.includes("key: 'localDns'") ||
+  !visibleCatalog.includes("key: 'vpnDns'")) {
+  throw new Error('settings UI exposes an unused local DNS port or hides active DNS controls');
+}
+NODE
+printf 'effective DNS settings surface verification passed\n'
+
 runtime_panel="entry/src/main/ets/features/runtime/RuntimePanel.ets"
 logs_page="entry/src/main/ets/pages/Logs.ets"
 if ! grep -Fq "@Prop dataPlaneLabel: string = 'TUN';" "${runtime_panel}" || \

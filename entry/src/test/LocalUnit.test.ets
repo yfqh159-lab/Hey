@@ -286,6 +286,15 @@ export default function localUnitTest() {
       expect(keys.includes('proxySharing')).assertTrue();
       expect(keys.includes('ipv6Enabled')).assertTrue();
     });
+
+    it('does not expose the legacy local DNS port that the runtime does not consume', 0, () => {
+      const vpnKeys = allKeys(filterSettings(SETTINGS_CATALOG, isEnabled, '', idText, APP_MODE_VPN));
+      const proxyKeys = allKeys(filterSettings(SETTINGS_CATALOG, isEnabled, '', idText, APP_MODE_PROXY_ONLY));
+      expect(vpnKeys.includes('localDns')).assertTrue();
+      expect(vpnKeys.includes('vpnDns')).assertTrue();
+      expect(vpnKeys.includes('localDnsPort')).assertFalse();
+      expect(proxyKeys.includes('localDnsPort')).assertFalse();
+    });
   });
 
   describe('settingsChange', () => {

@@ -68,7 +68,6 @@ export const SETTINGS_CATALOG: SettingGroup[] = [
       { key: 'perApp', titleKey: 'settings.perAppProxy', type: 'nav', route: AppRoute.PER_APP, vpnOnly: true },
       { key: 'localDns', titleKey: 'settings.localDns', type: 'toggle', descKey: 'settings.localDns.detail', vpnOnly: true },
       { key: 'fakeDns', titleKey: 'settings.fakeDns', type: 'toggle', dependsOn: 'localDns', descKey: 'settings.fakeDns.detail', vpnOnly: true },
-      { key: 'localDnsPort', titleKey: 'settings.localDnsPort', type: 'input', inputKind: 'number', vpnOnly: true },
       { key: 'proxySharing', titleKey: 'settings.proxySharing', type: 'toggle' },
       { key: 'appendHttpProxy', titleKey: 'settings.appendHttpProxy', type: 'toggle', vpnOnly: true },
       { key: 'localSocks', titleKey: 'settings.localSocks', type: 'toggle', vpnOnly: true },
