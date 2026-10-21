@@ -151,7 +151,8 @@ export class SettingsController {
     // 本地代理模式无条件创建 SOCKS/HTTP 入站；即使用户此前在 TUN 模式关闭了额外
     // SOCKS 开关，局域网共享选择也不能在保存时被这个隐藏的旧值静默清掉。
     const localProxyAvailable = localSocksEnabled || runtimeMode === APP_MODE_PROXY_ONLY;
-    const localDnsEnabled = draft.localDnsEnabled;
+    // DNS 接管属于 VPN/TUN 必需数据面，不再作为可关闭偏好；保留字段用于存储兼容。
+    const localDnsEnabled = true;
     const remoteDns = this.remoteDnsValue(draft.remoteDns);
     let localSocksPort = this.runtimePortValue(draft.localSocksPort, DEFAULT_APP_SETTINGS.localSocksPort);
     let localDnsPort = this.runtimePortValue(draft.localDnsPort, DEFAULT_APP_SETTINGS.localDnsPort);
@@ -177,7 +178,7 @@ export class SettingsController {
       perAppProxyList: draft.perAppProxyList,
       perAppProxyBypass: draft.perAppProxyBypass,
       localDnsEnabled,
-      fakeDnsEnabled: draft.fakeDnsEnabled && localDnsEnabled,
+      fakeDnsEnabled: draft.fakeDnsEnabled,
       appendHttpProxy: draft.appendHttpProxy && localSocksEnabled,
       localSocksEnabled,
       localSocksPort,

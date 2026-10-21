@@ -158,6 +158,33 @@ printf 'remote DNS local-mode leak guard passed\n'
 
 node <<'NODE'
 const fs = require('fs');
+const xray = fs.readFileSync('entry/src/main/ets/core/XrayConfig.ets', 'utf8');
+const store = fs.readFileSync('entry/src/main/ets/storage/SettingsStore.ets', 'utf8');
+const controller = fs.readFileSync('entry/src/main/ets/features/settings/SettingsController.ets', 'utf8');
+const catalog = fs.readFileSync('entry/src/main/ets/features/settings/SettingsCatalog.ets', 'utf8');
+const dnsRuleAt = xray.indexOf("const dnsOutbound: XrayOutbound = {");
+const dnsGuard = xray.slice(Math.max(0, dnsRuleAt - 500), dnsRuleAt);
+const defaultDnsAt = xray.indexOf('function buildDnsConfig(settings: AppSettings | undefined)');
+const configuredDnsAt = xray.indexOf('const remoteDnsValue = settings.remoteDns.trim();', defaultDnsAt);
+const defaultDns = xray.slice(defaultDnsAt, configuredDnsAt);
+if (dnsRuleAt < 0 || !dnsGuard.includes('if (vpnMode) {') || dnsGuard.includes('localDnsEnabled') ||
+  defaultDnsAt < 0 || configuredDnsAt < defaultDnsAt || !defaultDns.includes('servers: [DNS_PROXY]') ||
+  !defaultDns.includes('tag: DNS_TAG') || defaultDns.includes("servers: ['localhost']") ||
+  xray.includes('settings.localDnsEnabled && settings.fakeDnsEnabled') ||
+  !store.includes('const localDnsEnabled = true;') ||
+  !store.includes('fakeDnsEnabled: SettingsStore.boolValue(raw.fakeDnsEnabled, base.fakeDnsEnabled),') ||
+  !controller.includes('const localDnsEnabled = true;') ||
+  !controller.includes('fakeDnsEnabled: draft.fakeDnsEnabled,') ||
+  catalog.includes("{ key: 'localDns'") ||
+  catalog.includes("dependsOn: 'localDns'") ||
+  !catalog.includes("{ key: 'fakeDns', titleKey: 'settings.fakeDns', type: 'toggle', descKey:")) {
+  throw new Error('VPN DNS interception can be disabled while VpnConfig uses a synthetic TUN resolver');
+}
+NODE
+printf 'mandatory VPN DNS interception verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
 const health = fs.readFileSync('entry/src/main/ets/core/RuntimeHealth.ets', 'utf8');
 const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeController.ets', 'utf8');
 const routedDownloads = [
@@ -1512,7 +1539,8 @@ const observationEnd = runtime.indexOf('\n  // 真实底层承载变化时', obs
 const observation = runtime.slice(observationStart, observationEnd);
 const index = fs.readFileSync('entry/src/main/ets/pages/Index.ets', 'utf8');
 if (visibleCatalog.includes("key: 'localDnsPort'") ||
-  !visibleCatalog.includes("key: 'localDns'") ||
+  visibleCatalog.includes("key: 'localDns'") ||
+  !visibleCatalog.includes("key: 'fakeDns'") ||
   !visibleCatalog.includes("key: 'vpnDns'") ||
   signatureStart < 0 || markerStart < 0 || signature.includes('localDnsPort') ||
   signature.includes('delayTestUrl') || signature.includes('ipApiUrl') ||
@@ -1521,7 +1549,7 @@ if (visibleCatalog.includes("key: 'localDnsPort'") ||
   !observation.includes('this.activeSettings.ipApiUrl = settings.ipApiUrl;') ||
   !observation.includes('this.resetEgressIp();') ||
   !index.includes('SHARED_RUNTIME_CONTROLLER.updateObservationSettings(this.currentSettings);')) {
-  throw new Error('settings UI exposes an unused local DNS port or hides active DNS controls');
+  throw new Error('settings UI exposes a disabled DNS data plane or hides active DNS controls');
 }
 NODE
 printf 'effective DNS settings surface verification passed\n'

@@ -210,7 +210,7 @@ export default function localUnitTest() {
   });
 
   describe('settingsCatalog', () => {
-    const enabledKeys: Array<string> = ['localDns', 'localSocks', 'useHevTun', 'mux', 'fragment'];
+    const enabledKeys: Array<string> = ['localSocks', 'useHevTun', 'mux', 'fragment'];
     const isEnabled = (k: string): boolean => enabledKeys.indexOf(k) >= 0;
     const noneEnabled = (k: string): boolean => false;
     const idText = (k: string): string => k; // 用 key 充当文本：搜索走 key 英文别名
@@ -225,7 +225,7 @@ export default function localUnitTest() {
       expect(keys.includes('localSocksPort')).assertFalse();
       expect(keys.includes('proxySharing')).assertFalse();
       expect(keys.includes('appendHttpProxy')).assertFalse();
-      expect(keys.includes('fakeDns')).assertFalse();
+      expect(keys.includes('fakeDns')).assertTrue();
       expect(keys.includes('muxConcurrency')).assertFalse();
       expect(keys.includes('hevTunRwTimeout')).assertFalse();
       // 非依赖项仍在
@@ -253,14 +253,14 @@ export default function localUnitTest() {
 
       const mux = allKeys(filterSettings(SETTINGS_CATALOG, isEnabled, 'mux', idText));
       expect(mux.includes('muxXudpQuic')).assertTrue();
-      expect(mux.includes('localDns')).assertFalse();
+      expect(mux.includes('fakeDns')).assertFalse();
     });
 
     it('matches localized title text', 0, () => {
-      const textMap: Record<string, string> = { 'settings.localDns': '本地 DNS' };
+      const textMap: Record<string, string> = { 'settings.fakeDns': '虚拟 DNS' };
       const text = (k: string): string => textMap[k] ?? k;
-      const keys = allKeys(filterSettings(SETTINGS_CATALOG, isEnabled, '本地', text));
-      expect(keys.includes('localDns')).assertTrue();
+      const keys = allKeys(filterSettings(SETTINGS_CATALOG, isEnabled, '虚拟', text));
+      expect(keys.includes('fakeDns')).assertTrue();
     });
 
     it('returns empty when nothing matches', 0, () => {
@@ -296,7 +296,8 @@ export default function localUnitTest() {
     it('does not expose the legacy local DNS port that the runtime does not consume', 0, () => {
       const vpnKeys = allKeys(filterSettings(SETTINGS_CATALOG, isEnabled, '', idText, APP_MODE_VPN));
       const proxyKeys = allKeys(filterSettings(SETTINGS_CATALOG, isEnabled, '', idText, APP_MODE_PROXY_ONLY));
-      expect(vpnKeys.includes('localDns')).assertTrue();
+      expect(vpnKeys.includes('localDns')).assertFalse();
+      expect(vpnKeys.includes('fakeDns')).assertTrue();
       expect(vpnKeys.includes('vpnDns')).assertTrue();
       expect(vpnKeys.includes('localDnsPort')).assertFalse();
       expect(proxyKeys.includes('localDnsPort')).assertFalse();
@@ -648,6 +649,8 @@ export default function localUnitTest() {
       expect(result.configJson).assertContain('"tag": "vpn-http-in"');
       expect(result.configJson).assertContain(`"port": ${VPN_INTERNAL_HTTP_PROXY_PORT}`);
       expect(result.configJson).assertContain('"security": "reality"');
+      expect(result.configJson).assertContain('"https://1.1.1.1/dns-query"');
+      expect(result.configJson.indexOf('"localhost"')).assertEqual(-1);
     });
 
     it('forces the internal vpn http inbound through the selected xray node', 0, () => {
@@ -1430,9 +1433,9 @@ export default function localUnitTest() {
       settings.routingRules = [];
       result = buildXrayConfigWithSettings(VLESS_REALITY_OUTBOUND, settings);
       expect(result.configJson).assertContain('"sniffing": {\n        "enabled": true,\n        "destOverride": [\n          "fakedns"\n        ]\n      }');
-      expect(result.configJson.indexOf('"tag": "dns-out"')).assertEqual(-1);
-      expect(result.configJson.indexOf('"fakedns": [')).assertEqual(-1);
-      expect(result.configJson.indexOf('"address": "fakedns"')).assertEqual(-1);
+      expect(result.configJson).assertContain('"tag": "dns-out"');
+      expect(result.configJson).assertContain('"fakedns": [');
+      expect(result.configJson).assertContain('"address": "fakedns"');
     });
 
     it('adds dns domain servers and dns routing rules', 0, () => {
@@ -2809,7 +2812,8 @@ export default function localUnitTest() {
       expect(SETTINGS_CONTROLLER.buildSettings(draft).appendHttpProxy).assertFalse();
       draft.localDnsEnabled = false;
       draft.fakeDnsEnabled = true;
-      expect(SETTINGS_CONTROLLER.buildSettings(draft).fakeDnsEnabled).assertFalse();
+      expect(SETTINGS_CONTROLLER.buildSettings(draft).localDnsEnabled).assertTrue();
+      expect(SETTINGS_CONTROLLER.buildSettings(draft).fakeDnsEnabled).assertTrue();
       draft.localDnsEnabled = true;
       expect(SETTINGS_CONTROLLER.buildSettings(draft).fakeDnsEnabled).assertTrue();
       draft.useHevTun = false;

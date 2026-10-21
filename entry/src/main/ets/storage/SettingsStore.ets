@@ -226,7 +226,9 @@ export class SettingsStore {
     // 它不依赖、也不应擅自开启用户可见的本地 SOCKS 监听。
     const localSocksEnabled = SettingsStore.boolValue(raw.localSocksEnabled, base.localSocksEnabled);
     const localProxyAvailable = localSocksEnabled || runtimeMode === APP_MODE_PROXY_ONLY;
-    const localDnsEnabled = SettingsStore.boolValue(raw.localDnsEnabled, base.localDnsEnabled);
+    // VPN/TUN 的系统 DNS 指向 TUN 内虚拟 router，53 端口接管是数据面必需项，不能关闭。
+    // 字段继续保留并归一为 true，以兼容旧备份和上游设置结构。
+    const localDnsEnabled = true;
     let localSocksPort = SettingsStore.runtimePortValue(raw.localSocksPort, base.localSocksPort);
     let localDnsPort = SettingsStore.runtimePortValue(raw.localDnsPort, base.localDnsPort);
     if (localDnsPort === localSocksPort) {
@@ -251,7 +253,7 @@ export class SettingsStore {
       perAppProxyList: SettingsStore.arrayValue(raw.perAppProxyList, base.perAppProxyList),
       perAppProxyBypass: SettingsStore.boolValue(raw.perAppProxyBypass, base.perAppProxyBypass),
       localDnsEnabled,
-      fakeDnsEnabled: SettingsStore.boolValue(raw.fakeDnsEnabled, base.fakeDnsEnabled) && localDnsEnabled,
+      fakeDnsEnabled: SettingsStore.boolValue(raw.fakeDnsEnabled, base.fakeDnsEnabled),
       appendHttpProxy: SettingsStore.boolValue(raw.appendHttpProxy, base.appendHttpProxy) && localSocksEnabled,
       localSocksEnabled,
       localSocksPort,

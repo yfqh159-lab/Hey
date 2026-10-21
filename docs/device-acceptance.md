@@ -164,6 +164,7 @@
 | V111 | 在 VPN Extension 启动基线或后台承载轮询中，使 `NetworkProbe.readCurrentNetContext()` 的底层 NetworkKit Promise 永久 pending；等待多轮 5 秒定时器后再令原 Promise 结算 | 基线和轮询的外层等待分别按约 2/3 秒结束，不阻塞 VPN 数据面；同一 Extension 实例始终最多保留一个底层网络探针，不随轮询次数累积。原查询结算后闩锁释放，下一轮可读取新承载；手动停止期间的迟到结果不触发重载、断开或重连 | 未执行 |
 | V112 | 让系统 `VpnConnection.destroy()` 永久 pending，等待停止进入“清理未完成”后连续重试；随后分别令原 Promise 迟到成功和迟到失败 | 同一个连接最多存在一个底层销毁调用，重复停止只复用它并继续显示未完成，不叠加系统请求。迟到成功会自动移除旧连接归属、补完核心/TUN 状态并回到空闲且不重连；迟到失败释放闩锁并保留可重试的错误态，下一次明确停止才发起新销毁 | 未执行 |
 | V113 | 模拟系统向 VPN Extension 重投递一份升级前不含设置快照的启动 Want，并让 `SettingsStore.load()` 永久 pending；等待失败后再发送携带有效快照的新启动请求 | 旧兼容请求约 5 秒后明确失败并清理，不创建系统 VPN/TUN、Xray 或 tun2socks；反复旧请求复用同一个底层设置读取，不向 ArkData 队列累积。携带设置快照的新请求不依赖卡住的旧读取，可按用户明确操作正常启动；旧读取迟到结果不能改变新会话 | 未执行 |
+| V114 | 用一份旧设置将 `localDnsEnabled=false`、VPN DNS 留空，分别启动 Xray 与 sing-box 的 VPN/TUN；再在 Xray 下开启 FakeDNS 重试，并抓取 UDP/TCP 53、DoH 和物理网卡流量 | 旧开关被安全迁移为始终接管 DNS，系统虚拟 DNS 的查询都进入当前内核 `dns-out`；Xray 与 sing-box 的基础 DNS 行为一致，不把虚拟 TUN router 当作 VPS 远端 DNS，也不从物理网直出。Xray FakeDNS 仍可单独开关；设置页不再展示会破坏基础解析的“本地 DNS”关闭项 | 未执行 |
 | G1 | 首次点击“检查 Geo 更新”；再分别让两个默认 `.sha256sum` 返回正确文件名、错文件名、裸哈希及多行聚合内容 | 无需填写 URL；只有单行校验记录明确绑定对应 `geoip.dat` / `geosite.dat` 且两个文件都通过 SHA-256 后才替换，并显示版本、时间、大小/哈希；其余响应明确失败且保留旧文件 | 未执行 |
 | G2 | 再次检查同一版本 | 明确提示已是最新，不重复替换文件 | 未执行 |
 | G3 | 更新时断网、源不可达或空间不足 | 明确提示失败；原 `geoip.dat` 与 `geosite.dat` 仍可使用，没有只更新一个 | 未执行 |

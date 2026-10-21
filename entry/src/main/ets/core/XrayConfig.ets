@@ -1949,7 +1949,10 @@ function buildXrayConfigFromOutbounds(
   }
   appendDefaultProxyBalancerRule(routingRules, balancer?.tag, proxyInboundTags);
 
-  if (settings !== undefined && settings.localDnsEnabled && vpnMode) {
+  // HarmonyOS VpnConfig 的默认 DNS 是当前 TUN 网段内的虚拟 router 地址，并非真实
+  // 公共解析器；VPN 模式必须始终把 53 端口交给内置 DNS，否则关闭旧开关会把查询
+  // 原样代理到一个不存在的远端地址。sing-box 路径也始终使用 dns-out。
+  if (vpnMode) {
     const dnsOutbound: XrayOutbound = {
       tag: DNS_OUT_TAG,
       protocol: 'dns'
@@ -2015,7 +2018,7 @@ function buildXrayConfigFromOutbounds(
     };
     config.policy = policy;
   }
-  if (settings !== undefined && settings.localDnsEnabled && settings.fakeDnsEnabled) {
+  if (settings !== undefined && settings.fakeDnsEnabled) {
     config.fakedns = buildFakeDnsPools(settings);
   }
   if (balancer !== undefined) {
@@ -2300,7 +2303,8 @@ function ensureDelayTestOutboundTag(outbound: XrayOutbound, fallback: string): s
 function buildDnsConfig(settings: AppSettings | undefined): XrayDnsConfig {
   if (settings === undefined) {
     const defaultDns: XrayDnsConfig = {
-      servers: ['localhost'],
+      servers: [DNS_PROXY],
+      tag: DNS_TAG,
       queryStrategy: 'UseIPv4'
     };
     return defaultDns;
@@ -2330,7 +2334,7 @@ function buildDnsConfig(settings: AppSettings | undefined): XrayDnsConfig {
   if (remoteDns.length + domesticDns.length > 2) {
     dns.enableParallelQuery = true;
   }
-  if (settings.localDnsEnabled && settings.fakeDnsEnabled) {
+  if (settings.fakeDnsEnabled) {
     // 出厂无内置规则，域名列表可能为空。空的 domains 数组会被核心判为非法 fakedns
     // 配置而拒绝启动，因此为空时干脆不附 domains 字段（等于对全部域名生效）。
     const fakeDnsDomains = buildFakeDnsDomains(settings);
