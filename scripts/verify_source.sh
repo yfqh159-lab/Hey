@@ -221,6 +221,12 @@ if (xrayStart < 0 || singboxStart < 0) {
   throw new Error('ConnectionController Xray start method could not be inspected');
 }
 const startBody = controller.slice(xrayStart, singboxStart);
+const requestedModeAssignment = startBody.indexOf('this.runtimeMode = requestedMode;');
+const firstCoreSelectionAwait = startBody.indexOf('await CoreSelectionStore.load(context)');
+if (requestedModeAssignment < 0 || firstCoreSelectionAwait < 0 ||
+  requestedModeAssignment > firstCoreSelectionAwait) {
+  throw new Error('connection mode must be fixed before the first cancellable startup await');
+}
 const proxyBranch = startBody.indexOf('if (this.runtimeMode === APP_MODE_PROXY_ONLY) {');
 const proxyStart = startBody.indexOf('await this.startProxyOnly(context);', proxyBranch);
 const proxyReturn = startBody.indexOf('return this.getSnapshot();', proxyStart);

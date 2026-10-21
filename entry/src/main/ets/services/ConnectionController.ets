@@ -127,6 +127,11 @@ export class ConnectionController {
     this.clearProxyReloadState();
     this.startGeneration++;
     const startGeneration = this.startGeneration;
+    // 先于第一个异步边界记录本次目标模式。用户现在可以在 STARTING 阶段取消；若等到
+    // CoreSelectionStore.load() 返回后才赋值，本地代理启动的早期取消会沿用旧的 VPN 模式，
+    // 不必要地向 VPN Extension 下发停止命令。
+    const requestedMode = normalizeAppRuntimeMode(settings?.mode, APP_MODE_VPN);
+    this.runtimeMode = requestedMode;
 
     const validation = normalizeConfigInput(profile.outboundJson, profile.configType);
     if (!validation.valid) {
@@ -144,7 +149,6 @@ export class ConnectionController {
     if (!this.isCurrentStart(startGeneration)) {
       return this.getSnapshot();
     }
-    const requestedMode = normalizeAppRuntimeMode(settings?.mode, APP_MODE_VPN);
     this.effectiveCoreType = resolveRuntimeCoreType(
       coreType,
       validation.configType === 'outbound' ? validation.protocol : undefined,
