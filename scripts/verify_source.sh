@@ -1507,12 +1507,20 @@ node <<'NODE'
 const fs = require('fs');
 const vpn = fs.readFileSync('entry/src/main/ets/vpn/HeyVpnAbility.ets', 'utf8');
 const createAt = vpn.indexOf('const creatingConnection = vpnExtension.createVpnConnection(this.context);');
-const createAwait = vpn.indexOf('await creatingConnection.create(vpnConfig);', createAt);
+const observeAt = vpn.indexOf('this.observeVpnCreateCompletion(creatingConnection, createPromise, sessionGeneration);', createAt);
+const createAwait = vpn.indexOf('this.tunFd = await withTimeout(', observeAt);
 const reclaimAt = vpn.indexOf('if (this.stopRequested && this.vpnConnection === null)', createAwait);
 const startGuard = vpn.indexOf("this.ensureStartAllowed('VPN interface creation', sessionGeneration);", createAwait);
-if (createAt < 0 || createAwait < createAt || reclaimAt < createAwait || startGuard < reclaimAt ||
+const observerMethodAt = vpn.indexOf('  private observeVpnCreateCompletion(');
+const observerMethodEnd = vpn.indexOf('\n  private async resolveStartSettings', observerMethodAt);
+const observerMethod = vpn.slice(observerMethodAt, observerMethodEnd);
+if (createAt < 0 || observeAt < createAt || createAwait < observeAt || reclaimAt < createAwait || startGuard < reclaimAt ||
   !vpn.slice(reclaimAt, startGuard).includes('this.vpnConnection = creatingConnection;') ||
-  !vpn.slice(reclaimAt, startGuard).includes('this.cleanupAgainRequested = true;')) {
+  !vpn.slice(reclaimAt, startGuard).includes('this.cleanupAgainRequested = true;') ||
+  observerMethodAt < 0 || observerMethodEnd < observerMethodAt ||
+  !observerMethod.includes('this.tunFd = lateTunFd;') ||
+  !observerMethod.includes('this.cleanupAgainRequested = true;') ||
+  !observerMethod.includes('this.cleanup().catch(')) {
   throw new Error('late VPN create results are not reclaimed after startup cancellation');
 }
 const cleanupAt = vpn.indexOf('  private async cleanup(): Promise<void>');
@@ -1648,6 +1656,14 @@ if ! grep -q "const VPN_DESTROY_TIMEOUT_MS: number = 8000;" "$vpn_ability_file" 
   throw_error "VPN connection destroy must be bounded and remain distinguishable from successful cleanup"
 fi
 printf 'bounded VPN destroy verification passed\n'
+
+if ! grep -q "const VPN_CREATE_TIMEOUT_MS: number = 8000;" "$vpn_ability_file" || \
+  ! grep -q "observeVpnCreateCompletion(creatingConnection, createPromise, sessionGeneration);" "$vpn_ability_file" || \
+  ! grep -A5 "this.tunFd = await withTimeout(" "$vpn_ability_file" | grep -q "VPN_CREATE_TIMEOUT_MS" || \
+  ! grep -q "this.tunFd = lateTunFd;" "$vpn_ability_file"; then
+  throw_error "VPN interface creation must be bounded while retaining late-result cleanup"
+fi
+printf 'bounded VPN create verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');

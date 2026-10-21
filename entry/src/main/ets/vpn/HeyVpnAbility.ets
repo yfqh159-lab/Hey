@@ -63,6 +63,9 @@ const RUNTIME_STATE_INTERVAL_MS: number = 4000;
 // 连续两次采样都看不到核心或 TUN 才判定失效，避免单次桥查询抖动误拆连接。
 const UNHEALTHY_SAMPLE_LIMIT: number = 2;
 const PROTECT_PROCESS_TIMEOUT_MS: number = 10000;
+// Extension 的完整启动确认窗口为 25 秒；create() 留出后续 10 秒进程保护与 5 秒
+// SOCKS 就绪检查。超时只停止等待，底层 Promise 仍由 observeVpnCreateCompletion 跟踪。
+const VPN_CREATE_TIMEOUT_MS: number = 8000;
 // 主进程只等待 15 秒确认完整清理。系统 destroy() 若永久 pending，Extension 不能把
 // cleaningUp 永久锁死；8 秒后如实回写 cleanup incomplete，保留连接引用供用户重试停止。
 const VPN_DESTROY_TIMEOUT_MS: number = 8000;
@@ -283,11 +286,13 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       );
       const dnsAddresses = vpnConfig.dnsAddresses ?? [];
       this.vpnCreateInFlight = true;
-      try {
-        this.tunFd = await creatingConnection.create(vpnConfig);
-      } finally {
-        this.vpnCreateInFlight = false;
-      }
+      const createPromise = creatingConnection.create(vpnConfig);
+      this.observeVpnCreateCompletion(creatingConnection, createPromise, sessionGeneration);
+      this.tunFd = await withTimeout(
+        createPromise,
+        VPN_CREATE_TIMEOUT_MS,
+        'VPN interface creation timed out.'
+      );
       if (this.stopRequested && this.vpnConnection === null) {
         // cleanup 可能已在 create() 返回前成功 destroy 并清空成员引用。若系统随后仍返回
         // 一个迟到的 TUN fd，重新登记原连接，让启动 catch 的下一轮幂等清理能够再次
@@ -380,6 +385,38 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       this.emitError('VPN start failed.', `session=${this.sessionId}; error=${this.errorMessage(error)}`);
       await this.cleanup();
     }
+  }
+
+  private observeVpnCreateCompletion(
+    connection: vpnExtension.VpnConnection,
+    createPromise: Promise<number>,
+    sessionGeneration: number
+  ): void {
+    createPromise.then((lateTunFd: number) => {
+      this.vpnCreateInFlight = false;
+      if (sessionGeneration !== this.sessionGeneration || this.stopRequested || this.destroying) {
+        // withTimeout 只结束 ArkTS 的启动等待，不能取消系统 create()。若它在停止或
+        // 销毁之后才返回，重新登记原 connection/fd 并立刻补一轮幂等清理，禁止迟到
+        // 的系统 TUN 脱离生命周期追踪。
+        if (this.vpnConnection === null) {
+          this.vpnConnection = connection;
+        }
+        this.tunFd = lateTunFd;
+        this.cleanupAgainRequested = true;
+        this.cleanup().catch((error: Object) => {
+          this.emitError('Late VPN create cleanup failed.', this.errorMessage(error));
+        });
+      }
+    }, (error: Object) => {
+      this.vpnCreateInFlight = false;
+      if (sessionGeneration !== this.sessionGeneration || this.stopRequested || this.destroying) {
+        this.cleanupAgainRequested = true;
+        this.cleanup().catch((cleanupError: Object) => {
+          this.emitError('Rejected VPN create cleanup failed.',
+            `${this.errorMessage(error)}; cleanup=${this.errorMessage(cleanupError)}`);
+        });
+      }
+    });
   }
 
   private async resolveStartSettings(want: Want): Promise<AppSettings> {
