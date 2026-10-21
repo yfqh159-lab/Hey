@@ -140,10 +140,10 @@ struct Index {
   @StorageLink('pendingDeepLink') @Watch('onPendingExternalIntentChanged') private pendingDeepLinkSignal: string = '';
   @StorageLink('pendingSharedTextImport') @Watch('onPendingExternalIntentChanged') private pendingSharedTextImportSignal: string = '';
   @StorageLink('pendingAutoStartupLaunch') @Watch('onPendingExternalIntentChanged') private pendingAutoStartupSignal: boolean = false;
-  private initialStateLoading: boolean = false;
-  // 首屏和启停控件依赖此值重绘；普通字段不会触发 ArkUI 更新，冷启动时会误显示空节点
-  // 与“已断开”，并允许用户在设置、Profile 和后台 VPN 状态恢复前点击连接。
+  // 首屏、重试按钮和启停控件依赖这两个值重绘；普通字段不会触发 ArkUI 更新。
+  @State private initialStateLoading: boolean = false;
   @State private initialStateReady: boolean = false;
+  @State private initialStateFailed: boolean = false;
 
   aboutToAppear(): void {
     if (!this.initialStateLoading && !this.initialStateReady) {
@@ -1240,7 +1240,9 @@ struct Index {
   @Builder
   private NodesTab() {
     Column() {
-      if (!this.initialStateReady) {
+      if (this.initialStateFailed) {
+        this.InitialRecoveryFailedState()
+      } else if (!this.initialStateReady) {
         this.InitialLoadingState()
       } else {
         // 标题栏 / 搜索栏（就地切换）
@@ -1294,6 +1296,33 @@ struct Index {
       Text(this.t('home.loading'))
         .fontSize(FontSz.callout)
         .fontColor(AppColor.textSecondary)
+    }
+    .layoutWeight(1)
+    .width('100%')
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+  }
+
+  @Builder
+  private InitialRecoveryFailedState() {
+    Column({ space: Space.lg }) {
+      Text(this.lastError)
+        .fontSize(FontSz.footnote)
+        .fontColor(AppColor.danger)
+        .maxLines(3)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .textAlign(TextAlign.Center)
+        .padding({ left: Space.xxl, right: Space.xxl })
+      Button(this.t('action.retry'))
+        .height(44)
+        .padding({ left: Space.xxl, right: Space.xxl })
+        .backgroundColor(AppColor.brand)
+        .fontColor(AppColor.onBrand)
+        .borderRadius(Radius.pill)
+        .enabled(!this.initialStateLoading)
+        .onClick(() => {
+          this.retryInitialState();
+        })
     }
     .layoutWeight(1)
     .width('100%')
@@ -1822,12 +1851,14 @@ struct Index {
   }
 
   private async loadInitialState(): Promise<void> {
-    await this.loadSettings();
-    await this.loadNodes();
+    // 首次恢复必须严格：任一关键读取失败都不能继续使用字段初始值启动数据面。
+    // 普通前台刷新仍沿用各自的可观察错误处理，不会因一次瞬时读取失败拆除健康连接。
+    await this.loadSettings(true);
+    await this.loadNodes(true);
     // 累计流量基线必须早于首次 refreshRuntime；运行态恢复又必须早于任何可能启停 VPN
     // 的自动启动或外部动作。
     await this.loadTrafficTotals();
-    await this.refreshRuntime();
+    await this.refreshRuntime(true);
     await this.handlePendingAutoStartupLaunch();
     await this.handlePendingSharedTextImport();
     await this.handlePendingDeepLink();
@@ -1838,17 +1869,30 @@ struct Index {
   private async initializePageState(): Promise<void> {
     try {
       await this.loadInitialState();
+      this.initialStateFailed = false;
+      this.initialStateReady = true;
     } catch (error) {
       this.lastError = redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error));
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
+      this.initialStateReady = false;
+      this.initialStateFailed = true;
     } finally {
       this.initialStateLoading = false;
-      this.initialStateReady = true;
       // Watch 可能在初始化期间到达；此时刻再消费，确保先完成运行态接管。
-      if (this.hasPendingExternalIntent()) {
+      if (this.initialStateReady && this.hasPendingExternalIntent()) {
         this.consumePendingExternalIntentSoon();
       }
     }
+  }
+
+  private retryInitialState(): void {
+    if (this.initialStateLoading || this.initialStateReady) {
+      return;
+    }
+    this.initialStateLoading = true;
+    this.initialStateFailed = false;
+    this.lastError = '';
+    this.initializePageState();
   }
 
   // 读出持久化的累计总量与上次会话基线。必须在第一次 refreshRuntime（会触发累加）之前完成，
@@ -1871,7 +1915,7 @@ struct Index {
     }
   }
 
-  private async loadSettings(): Promise<void> {
+  private async loadSettings(strict: boolean = false): Promise<void> {
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
       this.currentSettings = await SETTINGS_CONTROLLER.load(context);
@@ -1885,16 +1929,22 @@ struct Index {
     } catch (error) {
       this.lastError = this.f1('error.loadSettings', 'error', redactDiagnosticText(JSON.stringify(error)));
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
+      if (strict) {
+        throw new Error(this.lastError);
+      }
     }
   }
 
-  private async loadNodes(): Promise<void> {
+  private async loadNodes(strict: boolean = false): Promise<void> {
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
       this.applyNodesState(await NODES_CONTROLLER.load(context, this.language));
     } catch (error) {
       this.lastError = this.f1('error.loadSubscription', 'error', redactDiagnosticText(JSON.stringify(error)));
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
+      if (strict) {
+        throw new Error(this.lastError);
+      }
     }
   }
 
@@ -2567,7 +2617,7 @@ struct Index {
     return found ? next : nodes;
   }
 
-  private async refreshRuntime(): Promise<void> {
+  private async refreshRuntime(strict: boolean = false): Promise<void> {
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
       let state = await SHARED_RUNTIME_CONTROLLER.refresh(context, this.language);
@@ -2584,6 +2634,9 @@ struct Index {
       this.scheduleHomeAutoDelayTest();
     } catch (error) {
       this.lastError = redactDiagnosticText(JSON.stringify(error));
+      if (strict) {
+        throw new Error(this.lastError);
+      }
     }
   }
 

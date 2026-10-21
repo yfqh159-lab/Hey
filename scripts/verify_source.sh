@@ -736,7 +736,11 @@ const connectAt = indexSource.indexOf('  private ConnectTab()');
 const connectEnd = indexSource.indexOf('\n  @Builder\n  private ConnectRing()', connectAt);
 const connect = indexSource.slice(connectAt, connectEnd);
 if (firstNodes < 0 || laterConnect < 0 || firstNodes > laterConnect ||
+  !indexSource.includes('@State private initialStateLoading: boolean = false;') ||
   !indexSource.includes('@State private initialStateReady: boolean = false;') ||
+  !indexSource.includes('@State private initialStateFailed: boolean = false;') ||
+  !nodes.includes('if (this.initialStateFailed) {') ||
+  !nodes.includes('this.InitialRecoveryFailedState()') ||
   !nodes.includes('if (!this.initialStateReady) {') ||
   !nodes.includes('this.InitialLoadingState()') ||
   !nodes.includes('this.NodeListConnectionBar()') ||
@@ -750,8 +754,42 @@ if (firstNodes < 0 || laterConnect < 0 || firstNodes > laterConnect ||
   !ring.includes('.enabled(this.initialStateReady &&') ||
   !indexSource.includes('private handleConnectionButton(): void') ||
   !indexSource.includes("Text(this.t('home.loading'))") ||
+  !indexSource.includes("Button(this.t('action.retry'))") ||
   !indexSource.includes('private HomeErrorBanner()')) {
   throw new Error('home must open on the node list with one shared connection action');
+}
+
+const initialLoadAt = indexSource.indexOf('  private async loadInitialState(): Promise<void>');
+const initializeAt = indexSource.indexOf('  private async initializePageState(): Promise<void>', initialLoadAt);
+const retryAt = indexSource.indexOf('  private retryInitialState(): void', initializeAt);
+const totalsAt = indexSource.indexOf('  private async loadTrafficTotals(): Promise<void>', retryAt);
+const settingsAt = indexSource.indexOf('  private async loadSettings(strict: boolean = false)');
+const nodesLoadAt = indexSource.indexOf('  private async loadNodes(strict: boolean = false)');
+const runtimeRefreshAt = indexSource.indexOf('  private async refreshRuntime(strict: boolean = false)');
+if (initialLoadAt < 0 || initializeAt < 0 || retryAt < 0 || totalsAt < 0 ||
+  settingsAt < 0 || nodesLoadAt < 0 || runtimeRefreshAt < 0) {
+  throw new Error('strict initial state recovery could not be inspected');
+}
+const initialLoad = indexSource.slice(initialLoadAt, initializeAt);
+const initialize = indexSource.slice(initializeAt, retryAt);
+const retry = indexSource.slice(retryAt, totalsAt);
+if (!initialLoad.includes('await this.loadSettings(true);') ||
+  !initialLoad.includes('await this.loadNodes(true);') ||
+  !initialLoad.includes('await this.refreshRuntime(true);') ||
+  !initialize.includes('this.initialStateReady = true;') ||
+  !initialize.includes('this.initialStateFailed = true;') ||
+  !initialize.includes('if (this.initialStateReady && this.hasPendingExternalIntent())') ||
+  initialize.includes('this.initialStateReady = true;\n      // Watch') ||
+  !retry.includes('this.initialStateFailed = false;') ||
+  !retry.includes('this.initializePageState();')) {
+  throw new Error('failed initial reads can still enable controls or consume pending actions');
+}
+for (const start of [settingsAt, nodesLoadAt, runtimeRefreshAt]) {
+  const nextMethod = indexSource.indexOf('\n  private ', start + 1);
+  const body = indexSource.slice(start, nextMethod);
+  if (!body.includes('if (strict) {') || !body.includes('throw new Error(this.lastError);')) {
+    throw new Error('a critical initial read still hides its failure');
+  }
 }
 NODE
 printf 'simplified add surface verification passed\n'
