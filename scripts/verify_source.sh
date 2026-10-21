@@ -195,6 +195,16 @@ if (loadAt < 0 || loadEnd < 0 ||
   !load.includes('return false;') || !load.includes('return true;')) {
   throw new Error('Assets page can display stale Geo verification metadata');
 }
+const pageStateAt = page.indexOf('  private async loadState(pageGeneration: number): Promise<void>');
+const pageStateEnd = page.indexOf('\n  private async loadGeoMetadata(', pageStateAt);
+const pageState = page.slice(pageStateAt, pageStateEnd);
+if (pageStateAt < 0 || pageStateEnd < 0 ||
+  page.includes("from '../features/settings/SettingsController'") ||
+  pageState.includes('SETTINGS_CONTROLLER.load(') ||
+  !pageState.includes('await this.loadGeoMetadata(pageGeneration);') ||
+  !pageState.includes('this.isStateLoaded = true;')) {
+  throw new Error('Geo one-tap update page can still be blocked by unrelated full settings reads');
+}
 const updateAt = page.indexOf('  private async checkGeoUpdate(): Promise<void>');
 const updateEnd = page.indexOf('\n  private deleteAsset(', updateAt);
 const update = page.slice(updateAt, updateEnd);

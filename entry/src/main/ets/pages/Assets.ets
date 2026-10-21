@@ -7,7 +7,6 @@ import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { GEOIP_FILE_NAME, GEOSITE_FILE_NAME, normalizeGeoAssetDownloadUrl, resolveGeoUpdateNotice } from '../core/GeoAssets';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { AppLanguage } from '../core/Profile';
-import { SETTINGS_CONTROLLER } from '../features/settings/SettingsController';
 import { SHARED_RUNTIME_CONTROLLER } from '../features/runtime/RuntimeController';
 import { PageHeader } from '../shell/PageHeader';
 import { AssetStore, CustomAssetUrl, GeoUpdateMetadata } from '../storage/AssetStore';
@@ -1309,12 +1308,6 @@ struct AssetsPage {
     this.isStateLoaded = false;
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
-      const settings = await SETTINGS_CONTROLLER.load(context);
-      if (!this.isCurrentPage(pageGeneration)) {
-        return;
-      }
-      this.language = settings.language;
-
       // 一次性迁移：清掉旧版本写入的内置下载源地址。
       try {
         const assetStore = await preferences.getPreferences(context, 'hey_vpn_assets');
