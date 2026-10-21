@@ -2550,7 +2550,14 @@ struct Index {
 
   private syncControlCard(): void {
     const context = this.getUIContext().getHostContext() as common.Context;
-    CONTROL_CARD_MANAGER.sync(context, this.status, this.elapsedText, this.language, this.lastError)
+    CONTROL_CARD_MANAGER.sync(
+      context,
+      this.status,
+      this.elapsedText,
+      this.language,
+      this.lastError,
+      SHARED_RUNTIME_CONTROLLER.isVpnRunning()
+    )
       .catch((error: Error) => {
         SHARED_RUNTIME_CONTROLLER.appendLog(JSON.stringify(error));
       });

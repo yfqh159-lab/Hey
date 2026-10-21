@@ -4169,11 +4169,12 @@ export default function localUnitTest() {
       expect(parseDeepLink(data.stopUri).action).assertEqual('stop');
       expect(parseDeepLink(data.scanUri).action).assertEqual('scan');
 
-      const running = buildControlCardFormData('en', ConnectionStatus.RUNNING, '00:03', '');
+      const running = buildControlCardFormData('en', ConnectionStatus.RUNNING, '00:03', '', true);
       expect(running.statusLabel).assertEqual('Running');
       expect(running.statusDetail).assertEqual('Duration 00:03');
       expect(running.primaryActionUri).assertEqual(CONTROL_CARD_STOP_URI);
       expect(running.primaryActionLabel).assertEqual('Stop');
+      expect(running.vpnBacked).assertTrue();
 
       const errored = buildControlCardFormData('en', ConnectionStatus.ERROR, '', 'bad config');
       expect(errored.statusLabel).assertEqual('Error');

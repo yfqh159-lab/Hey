@@ -1,4 +1,4 @@
-import { DEFAULT_LANGUAGE, translate } from './I18n';
+import { DEFAULT_LANGUAGE, normalizeLanguage, translate } from './I18n';
 import { AppLanguage, ConnectionStatus } from './Profile';
 
 export const CONTROL_CARD_FORM_NAME: string = 'HeyControlCard';
@@ -8,6 +8,9 @@ export const CONTROL_CARD_STOP_URI: string = 'hey://stop';
 export const CONTROL_CARD_SCAN_URI: string = 'hey://scan';
 
 export interface ControlCardFormData {
+  language: AppLanguage;
+  // 仅用于系统刷新卡片时核对跨进程 VPN 心跳，不在卡片上展示。
+  vpnBacked: boolean;
   appName: string;
   subtitle: string;
   toggleUri: string;
@@ -28,12 +31,15 @@ export function buildControlCardFormData(
   language: AppLanguage = DEFAULT_LANGUAGE,
   status: ConnectionStatus = ConnectionStatus.IDLE,
   elapsedText: string = '',
-  lastError: string = ''
+  lastError: string = '',
+  vpnBacked: boolean = false
 ): ControlCardFormData {
   const running = status === ConnectionStatus.RUNNING;
   const busy = status === ConnectionStatus.STARTING || status === ConnectionStatus.STOPPING;
   const error = status === ConnectionStatus.ERROR;
   return {
+    language,
+    vpnBacked: running && vpnBacked,
     appName: 'Hey',
     subtitle: translate(language, 'control.card.subtitle'),
     toggleUri: CONTROL_CARD_TOGGLE_URI,
@@ -56,7 +62,14 @@ export function normalizeControlCardFormData(data: ControlCardFormData | null | 
     return buildControlCardFormData();
   }
   const fallback = buildControlCardFormData();
+  const primaryActionUri = nonEmpty(data.primaryActionUri, fallback.primaryActionUri);
   return {
+    language: normalizeLanguage(data.language),
+    // 旧版本没有该字段；若旧卡片的主动作是“停止”，按 VPN 会话处理并要求心跳复核，
+    // 宁可纠正为未连接，也不能长期保留一个无法证明的运行状态。
+    vpnBacked: typeof data.vpnBacked === 'boolean'
+      ? data.vpnBacked
+      : primaryActionUri === CONTROL_CARD_STOP_URI,
     appName: nonEmpty(data.appName, fallback.appName),
     subtitle: nonEmpty(data.subtitle, fallback.subtitle),
     toggleUri: nonEmpty(data.toggleUri, fallback.toggleUri),
@@ -66,7 +79,7 @@ export function normalizeControlCardFormData(data: ControlCardFormData | null | 
     statusLabel: nonEmpty(data.statusLabel, fallback.statusLabel),
     statusDetail: nonEmpty(data.statusDetail, fallback.statusDetail),
     primaryActionLabel: nonEmpty(data.primaryActionLabel, fallback.primaryActionLabel),
-    primaryActionUri: nonEmpty(data.primaryActionUri, fallback.primaryActionUri),
+    primaryActionUri,
     statusColor: nonEmpty(data.statusColor, fallback.statusColor),
     statusBackground: nonEmpty(data.statusBackground, fallback.statusBackground),
     primaryColor: nonEmpty(data.primaryColor, fallback.primaryColor),
