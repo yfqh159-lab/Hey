@@ -8,6 +8,7 @@ import { subscriptionNameFromDeepLink } from '../core/DeepLink';
 import { resolveImportedNodeName } from '../core/ImportedNodeNames';
 import { AppLanguage, XrayConfigType } from '../core/Profile';
 import { NODES_CONTROLLER } from '../features/nodes/NodesController';
+import { extractNodeEndpoint, formatEndpointDescription } from '../features/nodes/NodeOperations';
 import { SETTINGS_CONTROLLER } from '../features/settings/SettingsController';
 import { SHARED_RUNTIME_CONTROLLER } from '../features/runtime/RuntimeController';
 import { SUBSCRIPTIONS_CONTROLLER } from '../features/subscriptions/SubscriptionsController';
@@ -677,8 +678,13 @@ struct ScannerPage {
     const validation = NODES_CONTROLLER.validateConfig(input, this.language);
     if (validation.valid) {
       const name = resolveImportedNodeName(validation.normalizedJson, this.t('scanner.defaultNodeName'));
+      const endpoint = extractNodeEndpoint(validation.normalizedJson);
+      const endpointText = formatEndpointDescription(endpoint.address, endpoint.port);
       this.previewTitle = this.f1('scanner.previewNode', 'name', name);
       this.previewDetail = this.f1('scanner.previewProtocol', 'protocol', validation.protocol.toUpperCase());
+      if (endpointText.length > 0) {
+        this.previewDetail += `\n${this.f1('scanner.previewEndpoint', 'endpoint', endpointText)}`;
+      }
       this.previewValid = true;
       return;
     }
