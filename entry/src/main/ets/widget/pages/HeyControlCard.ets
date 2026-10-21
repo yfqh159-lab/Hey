@@ -21,6 +21,7 @@ struct HeyControlCard {
   @LocalStorageProp('statusDetail') statusDetail: string = '';
   @LocalStorageProp('primaryActionLabel') primaryActionLabel: string = '';
   @LocalStorageProp('primaryActionUri') primaryActionUri: string = CONTROL_CARD_START_URI;
+  @LocalStorageProp('cleanupRequired') cleanupRequired: boolean = false;
   @LocalStorageProp('statusColor') statusColor: string = '#9A3412';
   @LocalStorageProp('statusBackground') statusBackground: string = '#FED7AA';
   @LocalStorageProp('primaryColor') primaryColor: string = '#F97316';
@@ -68,7 +69,9 @@ struct HeyControlCard {
       .width('100%')
 
       Row({ space: 8 }) {
-        this.smallAction(this.startUri, $r('app.string.control_card_start'))
+        if (this.primaryActionUri !== CONTROL_CARD_STOP_URI && !this.cleanupRequired) {
+          this.smallAction(this.startUri, $r('app.string.control_card_start'))
+        }
         this.smallAction(this.stopUri, $r('app.string.control_card_stop'))
       }
       .width('100%')

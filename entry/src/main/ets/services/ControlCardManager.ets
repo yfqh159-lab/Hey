@@ -10,7 +10,7 @@ import {
 import { LOCAL_HTTP_PROXY_PORT } from '../core/XrayConfig';
 import { ControlCardStore } from '../storage/ControlCardStore';
 import { DiagnosticLog } from './DiagnosticLog';
-import { isPersistedVpnRuntimeHealthy, VpnRuntimeStateStore } from './VpnRuntimeStateStore';
+import { isPersistedVpnCleanupIncomplete, isPersistedVpnRuntimeHealthy, VpnRuntimeStateStore } from './VpnRuntimeStateStore';
 import { translate } from '../core/I18n';
 import { probeRuntimeTcpHealth } from './RuntimeHealthProbe';
 
@@ -49,16 +49,18 @@ export class ControlCardManager {
     language: AppLanguage,
     lastError: string,
     vpnBacked: boolean,
-    runtimeMode: AppRuntimeMode
+    runtimeMode: AppRuntimeMode,
+    cleanupRequired: boolean = false
   ): Promise<void> {
     const now = Date.now();
-    const immediateKey = `${language}|${status}|${lastError}|${vpnBacked}|${runtimeMode}`;
+    const immediateKey = `${language}|${status}|${lastError}|${vpnBacked}|${runtimeMode}|${cleanupRequired}`;
     if (this.shouldSkipSync(now, immediateKey)) {
       return;
     }
     const state = await ControlCardStore.saveState(
       context,
-      buildControlCardFormData(language, status, elapsedText, lastError, vpnBacked, runtimeMode)
+      buildControlCardFormData(
+        language, status, elapsedText, lastError, vpnBacked, runtimeMode, cleanupRequired)
     );
     const formIds = await ControlCardStore.loadFormIds(context);
     for (let index = 0; index < formIds.length; index++) {
@@ -79,6 +81,11 @@ export class ControlCardManager {
   // 扩展进程心跳；本地代理需探测固定回环 HTTP 入口，不能原样复用过期的“运行中”。
   private async loadReconciledState(context: common.Context): Promise<ControlCardFormData> {
     const state = await ControlCardStore.loadState(context);
+    // “仍需清理”是 fail-closed 状态。没有同一控制流程明确写回成功前，卡片继续只
+    // 提供停止动作；不能因状态文件暂时缺失或仍是旧记录而重新暴露启动。
+    if (state.cleanupRequired) {
+      return state;
+    }
     if (isControlCardLocalProxyRunning(state)) {
       const probe = await probeRuntimeTcpHealth(LOCAL_HTTP_PROXY_PORT);
       if (probe.ok) {
@@ -102,6 +109,20 @@ export class ControlCardManager {
     const persisted = VpnRuntimeStateStore.read(context);
     if (persisted !== null && isPersistedVpnRuntimeHealthy(persisted, Date.now())) {
       return state;
+    }
+    if (persisted !== null && isPersistedVpnCleanupIncomplete(persisted)) {
+      return ControlCardStore.saveState(
+        context,
+        buildControlCardFormData(
+          state.language,
+          ConnectionStatus.ERROR,
+          '',
+          translate(state.language, 'runtime.vpnCleanupRequired'),
+          false,
+          APP_MODE_VPN,
+          true
+        )
+      );
     }
     const status = persisted !== null && !persisted.active ? ConnectionStatus.IDLE : ConnectionStatus.ERROR;
     const error = status === ConnectionStatus.ERROR ? translate(state.language, 'runtime.vpnHealthLost') : '';

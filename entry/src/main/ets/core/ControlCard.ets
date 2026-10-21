@@ -22,6 +22,8 @@ export interface ControlCardFormData {
   // 供系统单独拉起卡片或后台任务时恢复真实模式/过渡态，不在卡片上展示。
   runtimeStatus: ConnectionStatus;
   runtimeMode: AppRuntimeMode;
+  // 停止/回滚未确认完成时只允许继续清理，不得把错误态呈现为可启动。
+  cleanupRequired: boolean;
   appName: string;
   subtitle: string;
   toggleUri: string;
@@ -44,16 +46,19 @@ export function buildControlCardFormData(
   elapsedText: string = '',
   lastError: string = '',
   vpnBacked: boolean = false,
-  runtimeMode: AppRuntimeMode = APP_MODE_VPN
+  runtimeMode: AppRuntimeMode = APP_MODE_VPN,
+  cleanupRequired: boolean = false
 ): ControlCardFormData {
   const running = status === ConnectionStatus.RUNNING;
   const busy = status === ConnectionStatus.STARTING || status === ConnectionStatus.STOPPING;
   const error = status === ConnectionStatus.ERROR;
+  const stopAction = running || busy || cleanupRequired;
   return {
     language,
     vpnBacked: running && vpnBacked,
     runtimeStatus: status,
     runtimeMode: normalizeAppRuntimeMode(runtimeMode, APP_MODE_VPN),
+    cleanupRequired,
     appName: 'Hey',
     subtitle: translate(language, 'control.card.subtitle'),
     toggleUri: CONTROL_CARD_TOGGLE_URI,
@@ -62,11 +67,11 @@ export function buildControlCardFormData(
     scanUri: CONTROL_CARD_SCAN_URI,
     statusLabel: statusLabel(language, status),
     statusDetail: statusDetail(language, status, elapsedText, lastError),
-    primaryActionLabel: running ? translate(language, 'action.stop') : translate(language, 'action.start'),
-    primaryActionUri: running ? CONTROL_CARD_STOP_URI : CONTROL_CARD_START_URI,
+    primaryActionLabel: stopAction ? translate(language, 'action.stop') : translate(language, 'action.start'),
+    primaryActionUri: stopAction ? CONTROL_CARD_STOP_URI : CONTROL_CARD_START_URI,
     statusColor: statusColor(running, busy, error),
     statusBackground: statusBackground(running, busy, error),
-    primaryColor: running ? '#EF4444' : '#F97316',
+    primaryColor: stopAction ? '#EF4444' : '#F97316',
     primaryTextColor: '#FFFFFF'
   };
 }
@@ -76,19 +81,25 @@ export function normalizeControlCardFormData(data: ControlCardFormData | null | 
     return buildControlCardFormData();
   }
   const fallback = buildControlCardFormData();
-  const primaryActionUri = nonEmpty(data.primaryActionUri, fallback.primaryActionUri);
+  const storedPrimaryActionUri = nonEmpty(data.primaryActionUri, fallback.primaryActionUri);
+  const runtimeStatus = normalizeRuntimeStatus(data.runtimeStatus, storedPrimaryActionUri);
+  const cleanupRequired = typeof data.cleanupRequired === 'boolean' ? data.cleanupRequired : false;
+  const mustStop = cleanupRequired || runtimeStatus === ConnectionStatus.STARTING ||
+    runtimeStatus === ConnectionStatus.RUNNING || runtimeStatus === ConnectionStatus.STOPPING;
+  const primaryActionUri = mustStop ? CONTROL_CARD_STOP_URI : storedPrimaryActionUri;
   const vpnBacked = typeof data.vpnBacked === 'boolean'
     ? data.vpnBacked
-    : primaryActionUri === CONTROL_CARD_STOP_URI;
-  const fallbackMode = primaryActionUri === CONTROL_CARD_STOP_URI && !vpnBacked
+    : storedPrimaryActionUri === CONTROL_CARD_STOP_URI;
+  const fallbackMode = storedPrimaryActionUri === CONTROL_CARD_STOP_URI && !vpnBacked
     ? APP_MODE_PROXY_ONLY : APP_MODE_VPN;
   return {
     language: normalizeLanguage(data.language),
     // 旧版本没有该字段；若旧卡片的主动作是“停止”，按 VPN 会话处理并要求心跳复核，
     // 宁可纠正为未连接，也不能长期保留一个无法证明的运行状态。
     vpnBacked,
-    runtimeStatus: normalizeRuntimeStatus(data.runtimeStatus, primaryActionUri),
+    runtimeStatus,
     runtimeMode: normalizeAppRuntimeMode(data.runtimeMode, fallbackMode),
+    cleanupRequired,
     appName: nonEmpty(data.appName, fallback.appName),
     subtitle: nonEmpty(data.subtitle, fallback.subtitle),
     toggleUri: nonEmpty(data.toggleUri, fallback.toggleUri),
@@ -97,11 +108,13 @@ export function normalizeControlCardFormData(data: ControlCardFormData | null | 
     scanUri: nonEmpty(data.scanUri, fallback.scanUri),
     statusLabel: nonEmpty(data.statusLabel, fallback.statusLabel),
     statusDetail: nonEmpty(data.statusDetail, fallback.statusDetail),
-    primaryActionLabel: nonEmpty(data.primaryActionLabel, fallback.primaryActionLabel),
+    primaryActionLabel: mustStop
+      ? translate(normalizeLanguage(data.language), 'action.stop')
+      : nonEmpty(data.primaryActionLabel, fallback.primaryActionLabel),
     primaryActionUri,
     statusColor: nonEmpty(data.statusColor, fallback.statusColor),
     statusBackground: nonEmpty(data.statusBackground, fallback.statusBackground),
-    primaryColor: nonEmpty(data.primaryColor, fallback.primaryColor),
+    primaryColor: mustStop ? '#EF4444' : nonEmpty(data.primaryColor, fallback.primaryColor),
     primaryTextColor: nonEmpty(data.primaryTextColor, fallback.primaryTextColor)
   };
 }

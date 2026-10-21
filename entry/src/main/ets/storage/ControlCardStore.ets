@@ -188,7 +188,8 @@ export class ControlCardStore {
 
   private static sameRuntimeRoutingState(left: ControlCardFormData, right: ControlCardFormData): boolean {
     return left.runtimeStatus === right.runtimeStatus && left.runtimeMode === right.runtimeMode &&
-      left.vpnBacked === right.vpnBacked && left.primaryActionUri === right.primaryActionUri;
+      left.vpnBacked === right.vpnBacked && left.cleanupRequired === right.cleanupRequired &&
+      left.primaryActionUri === right.primaryActionUri;
   }
 
   private static uniqueIds(ids: Array<string>): Array<string> {

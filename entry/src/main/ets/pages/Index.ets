@@ -2671,7 +2671,8 @@ struct Index {
       this.language,
       this.lastError,
       SHARED_RUNTIME_CONTROLLER.isVpnRunning(),
-      this.runtimeMode
+      this.runtimeMode,
+      SHARED_RUNTIME_CONTROLLER.requiresCleanup()
     )
       .catch((error: Error) => {
         SHARED_RUNTIME_CONTROLLER.appendLog(redactDiagnosticText(JSON.stringify(error)));

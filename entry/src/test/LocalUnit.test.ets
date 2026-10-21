@@ -4778,7 +4778,14 @@ export default function localUnitTest() {
         'en', ConnectionStatus.STARTING, '', '', false, APP_MODE_PROXY_ONLY);
       expect(proxyStarting.runtimeStatus).assertEqual(ConnectionStatus.STARTING);
       expect(proxyStarting.runtimeMode).assertEqual(APP_MODE_PROXY_ONLY);
+      expect(proxyStarting.primaryActionUri).assertEqual(CONTROL_CARD_STOP_URI);
       expect(isControlCardLocalProxyRunning(proxyStarting)).assertFalse();
+
+      const legacyStarting = normalizeControlCardFormData(
+        JSON.parse('{"runtimeStatus":"starting","primaryActionUri":"hey://start"}') as ControlCardFormData
+      );
+      expect(legacyStarting.primaryActionUri).assertEqual(CONTROL_CARD_STOP_URI);
+      expect(legacyStarting.runtimeMode).assertEqual(APP_MODE_VPN);
 
       const proxyRunning = buildControlCardFormData(
         'en', ConnectionStatus.RUNNING, '00:03', '', false, APP_MODE_PROXY_ONLY);
@@ -4801,6 +4808,21 @@ export default function localUnitTest() {
       const errored = buildControlCardFormData('en', ConnectionStatus.ERROR, '', 'bad config');
       expect(errored.statusLabel).assertEqual('Error');
       expect(errored.statusDetail).assertEqual('bad config');
+      expect(errored.primaryActionUri).assertEqual(CONTROL_CARD_START_URI);
+      expect(errored.cleanupRequired).assertFalse();
+
+      const cleanupRequired = buildControlCardFormData(
+        'en', ConnectionStatus.ERROR, '', 'cleanup required', false, APP_MODE_VPN, true);
+      expect(cleanupRequired.primaryActionUri).assertEqual(CONTROL_CARD_STOP_URI);
+      expect(cleanupRequired.primaryActionLabel).assertEqual('Stop');
+      expect(cleanupRequired.primaryColor).assertEqual('#EF4444');
+      expect(cleanupRequired.cleanupRequired).assertTrue();
+
+      const normalizedCleanup = normalizeControlCardFormData(
+        JSON.parse(JSON.stringify(cleanupRequired)) as ControlCardFormData
+      );
+      expect(normalizedCleanup.cleanupRequired).assertTrue();
+      expect(normalizedCleanup.primaryActionUri).assertEqual(CONTROL_CARD_STOP_URI);
     });
 
     it('builds per-subscription background auto update schedule plans', 0, () => {
