@@ -314,7 +314,7 @@ printf 'installed Geo metadata verification passed\n'
 
 geo_controller="entry/src/main/ets/features/assets/AssetsController.ets"
 if ! grep -Fq "const GEO_METADATA_STORE_DEADLINE_MS: number = 5000;" "${geo_controller}" || \
-  ! grep -Fq "function withGeoMetadataStoreTimeout<T>(promise: Promise<T>): Promise<T>" "${geo_controller}" || \
+  ! grep -Fq "function withAssetStoreTimeout<T>(promise: Promise<T>): Promise<T>" "${geo_controller}" || \
   ! grep -Fq "private geoMetadataStoreInFlight: Promise<void> | null = null;" "${geo_controller}" || \
   ! grep -Fq "private geoMetadataLoadInFlight: Promise<GeoUpdateMetadata> | null = null;" "${geo_controller}" || \
   ! grep -Fq "async loadGeoUpdateMetadata(context: common.Context): Promise<GeoUpdateMetadata>" "${geo_controller}" || \
@@ -327,6 +327,22 @@ if ! grep -Fq "const GEO_METADATA_STORE_DEADLINE_MS: number = 5000;" "${geo_cont
   throw_error "Geo metadata writes must be bounded and single-flight"
 fi
 printf 'bounded Geo metadata storage verification passed\n'
+
+if ! grep -Fq "private customAssetsLoadInFlight: Promise<Array<CustomAssetUrl>> | null = null;" \
+  "${geo_controller}" || \
+  ! grep -Fq "async loadCustomAssets(context: common.Context): Promise<Array<CustomAssetUrl>>" \
+  "${geo_controller}" || \
+  ! grep -Fq "this.releaseCustomAssetsLoad(promise)" "${geo_controller}" || \
+  ! grep -Fq "await ASSETS_CONTROLLER.loadCustomAssets(context)" "entry/src/main/ets/pages/Assets.ets" || \
+  ! grep -Fq "private obsoleteGeoSourceCleanupInFlight: Promise<void> | null = null;" \
+  "${geo_controller}" || \
+  ! grep -Fq "ASSETS_CONTROLLER.scheduleObsoleteGeoSourceCleanup(context);" \
+  "entry/src/main/ets/pages/Assets.ets" || \
+  grep -Fq "await preferences.getPreferences(context, 'hey_vpn_assets')" \
+  "entry/src/main/ets/pages/Assets.ets"; then
+  throw_error "custom Geo source reads must be bounded and single-flight"
+fi
+printf 'bounded custom Geo source loading verification passed\n'
 
 if ! grep -q 'maxLimit: MAX_GEO_TEXT_BYTES' "${geo_controller}" ||
   ! grep -q 'maxLimit: MAX_GEO_HTTP_DATA_BYTES' "${geo_controller}" ||

@@ -1,5 +1,4 @@
 import { common } from '@kit.AbilityKit';
-import { preferences } from '@kit.ArkData';
 import { picker } from '@kit.CoreFileKit';
 import fs from '@ohos.file.fs';
 import { hasDuplicateAssetName, isEditableCustomAssetUrl, isSafeCustomAssetName, normalizeScannedAssetUrl } from '../core/AssetUrls';
@@ -1292,7 +1291,7 @@ struct AssetsPage {
   private async loadCustomAssets(pageGeneration: number): Promise<void> {
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
-      const customAssets = await AssetStore.load(context);
+      const customAssets = await ASSETS_CONTROLLER.loadCustomAssets(context);
       if (this.isCurrentPage(pageGeneration)) {
         this.customAssets = customAssets;
         this.refreshCustomStatuses();
@@ -1311,17 +1310,9 @@ struct AssetsPage {
     this.isStateLoaded = false;
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
-      // 一次性迁移：清掉旧版本写入的内置下载源地址。
-      try {
-        const assetStore = await preferences.getPreferences(context, 'hey_vpn_assets');
-        if (await assetStore.has('geo_source_url')) {
-          await assetStore.delete('geo_source_url');
-          await assetStore.flush();
-        }
-      } catch (err) {
-        // ignore obsolete-key cleanup failure
-      }
       await this.loadGeoMetadata(pageGeneration);
+      // 旧版内置下载源键不影响当前可信默认源，迁移清理不得阻塞页面或一键检查。
+      ASSETS_CONTROLLER.scheduleObsoleteGeoSourceCleanup(context);
     } catch (error) {
       if (this.isCurrentPage(pageGeneration)) {
         this.toast(this.f1('assets.loadFailed', 'error', redactDiagnosticText(JSON.stringify(error))));

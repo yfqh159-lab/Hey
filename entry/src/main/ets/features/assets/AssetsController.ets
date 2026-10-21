@@ -2,6 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { util } from '@kit.ArkTS';
+import { preferences } from '@kit.ArkData';
 import { http } from '@kit.NetworkKit';
 import fs from '@ohos.file.fs';
 import {
@@ -98,9 +99,9 @@ function withAssetRequestTimeout<T>(promise: Promise<T>, timeoutMs: number): Pro
   });
 }
 
-function withGeoMetadataStoreTimeout<T>(promise: Promise<T>): Promise<T> {
+function withAssetStoreTimeout<T>(promise: Promise<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timerId = setTimeout(() => reject(new Error('Geo metadata storage timed out')),
+    const timerId = setTimeout(() => reject(new Error('Asset storage timed out')),
       GEO_METADATA_STORE_DEADLINE_MS);
     promise.then((value: T) => {
       clearTimeout(timerId);
@@ -124,6 +125,8 @@ export class AssetsController {
   // 直到真正结算，期间不再向同一串行存储队列叠加失败/成功元数据任务。
   private geoMetadataStoreInFlight: Promise<void> | null = null;
   private geoMetadataLoadInFlight: Promise<GeoUpdateMetadata> | null = null;
+  private customAssetsLoadInFlight: Promise<Array<CustomAssetUrl>> | null = null;
+  private obsoleteGeoSourceCleanupInFlight: Promise<void> | null = null;
 
   isGeoMetadataStorePending(): boolean {
     return this.geoMetadataStoreInFlight !== null;
@@ -142,12 +145,65 @@ export class AssetsController {
     if (pending === null) {
       throw new Error('Geo metadata read did not start');
     }
-    return await withGeoMetadataStoreTimeout(pending);
+    return await withAssetStoreTimeout(pending);
   }
 
   private releaseGeoMetadataLoad(promise: Promise<GeoUpdateMetadata>): void {
     if (this.geoMetadataLoadInFlight === promise) {
       this.geoMetadataLoadInFlight = null;
+    }
+  }
+
+  async loadCustomAssets(context: common.Context): Promise<Array<CustomAssetUrl>> {
+    if (this.customAssetsLoadInFlight === null) {
+      const promise = AssetStore.load(context);
+      this.customAssetsLoadInFlight = promise;
+      promise.then(
+        (_assets: Array<CustomAssetUrl>): void => this.releaseCustomAssetsLoad(promise),
+        (_error: Object): void => this.releaseCustomAssetsLoad(promise)
+      );
+    }
+    const pending = this.customAssetsLoadInFlight;
+    if (pending === null) {
+      throw new Error('Custom Geo source read did not start');
+    }
+    const assets = await withAssetStoreTimeout(pending);
+    return assets.map((item: CustomAssetUrl): CustomAssetUrl => ({
+      id: item.id,
+      name: item.name,
+      url: item.url
+    }));
+  }
+
+  private releaseCustomAssetsLoad(promise: Promise<Array<CustomAssetUrl>>): void {
+    if (this.customAssetsLoadInFlight === promise) {
+      this.customAssetsLoadInFlight = null;
+    }
+  }
+
+  scheduleObsoleteGeoSourceCleanup(context: common.Context): void {
+    if (this.obsoleteGeoSourceCleanupInFlight !== null) {
+      return;
+    }
+    const promise = this.cleanupObsoleteGeoSource(context);
+    this.obsoleteGeoSourceCleanupInFlight = promise;
+    promise.then(
+      (): void => this.releaseObsoleteGeoSourceCleanup(promise),
+      (_error: Object): void => this.releaseObsoleteGeoSourceCleanup(promise)
+    );
+  }
+
+  private async cleanupObsoleteGeoSource(context: common.Context): Promise<void> {
+    const store = await preferences.getPreferences(context, 'hey_vpn_assets');
+    if (await store.has('geo_source_url')) {
+      await store.delete('geo_source_url');
+      await store.flush();
+    }
+  }
+
+  private releaseObsoleteGeoSourceCleanup(promise: Promise<void>): void {
+    if (this.obsoleteGeoSourceCleanupInFlight === promise) {
+      this.obsoleteGeoSourceCleanupInFlight = null;
     }
   }
   
@@ -388,7 +444,7 @@ export class AssetsController {
       (): void => this.releaseGeoMetadataStoreOperation(promise),
       (_error: Object): void => this.releaseGeoMetadataStoreOperation(promise)
     );
-    await withGeoMetadataStoreTimeout(promise);
+    await withAssetStoreTimeout(promise);
   }
 
   private releaseGeoMetadataStoreOperation(promise: Promise<void>): void {
