@@ -65,6 +65,7 @@ const PROTECT_PROCESS_TIMEOUT_MS: number = 10000;
 const NOTIFICATION_CANCEL_TIMEOUT_MS: number = 2000;
 const CONTROL_CARD_RESET_TIMEOUT_MS: number = 2000;
 const NET_SCENE_BASELINE_TIMEOUT_MS: number = 2000;
+const NET_SCENE_POLL_STEP_TIMEOUT_MS: number = 3000;
 // 网络场景轮询间隔：VPN 扩展进程后台存活，自驱动定时器可跑（区别于后台收不到的 connection.on 事件）。
 const NET_SCENE_POLL_MS: number = 5000;
 
@@ -440,11 +441,19 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     }
     this.netScenePollInFlight = true;
     try {
-      const settings = await SETTINGS_CONTROLLER.load(this.context);
+      const settings = await withTimeout(
+        SETTINGS_CONTROLLER.load(this.context),
+        NET_SCENE_POLL_STEP_TIMEOUT_MS,
+        'Network scene settings load timed out.'
+      );
       if (sessionGeneration !== this.sessionGeneration || this.cleaningUp || this.stopRequested) {
         return;
       }
-      const ctx = await NetworkProbe.readCurrentNetContext();
+      const ctx = await withTimeout(
+        NetworkProbe.readCurrentNetContext(),
+        NET_SCENE_POLL_STEP_TIMEOUT_MS,
+        'Underlying network poll timed out.'
+      );
       if (sessionGeneration !== this.sessionGeneration || this.cleaningUp || this.stopRequested) {
         return;
       }

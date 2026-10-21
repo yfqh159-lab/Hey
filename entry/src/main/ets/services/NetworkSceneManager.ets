@@ -27,6 +27,20 @@ const TAG: string = 'NetScene';
 const DEBOUNCE_MS: number = 2500;
 const REGISTER_RETRY_DELAY_MS: number = 1500;
 const MAX_REGISTER_RETRIES: number = 3;
+const EVALUATION_STEP_TIMEOUT_MS: number = 5000;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timerId = setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then((value: T) => {
+      clearTimeout(timerId);
+      resolve(value);
+    }, (error: Object) => {
+      clearTimeout(timerId);
+      reject(error);
+    });
+  });
+}
 
 export class NetworkSceneManager {
   private static instance: NetworkSceneManager | null = null;
@@ -251,7 +265,11 @@ export class NetworkSceneManager {
     }
     this.evaluating = true;
     try {
-      const settings = await SettingsStore.load(context);
+      const settings = await withTimeout(
+        SettingsStore.load(context),
+        EVALUATION_STEP_TIMEOUT_MS,
+        'Network evaluation settings load timed out.'
+      );
       if (!this.isCurrentEvaluation(context, generation)) {
         return;
       }
@@ -261,7 +279,11 @@ export class NetworkSceneManager {
         this.pendingForce = this.pendingForce || force;
         return;
       }
-      const ctx = await NetworkProbe.readCurrentNetContext();
+      const ctx = await withTimeout(
+        NetworkProbe.readCurrentNetContext(),
+        EVALUATION_STEP_TIMEOUT_MS,
+        'Network evaluation probe timed out.'
+      );
       if (!this.isCurrentEvaluation(context, generation)) {
         return;
       }

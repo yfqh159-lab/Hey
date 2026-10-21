@@ -1085,6 +1085,19 @@ if (!networkScene.includes('const MAX_REGISTER_RETRIES: number = 3;') ||
 NODE
 printf 'egress handover and listener lifecycle verification passed\n'
 
+vpn_ability="entry/src/main/ets/vpn/HeyVpnAbility.ets"
+net_scene_manager="entry/src/main/ets/services/NetworkSceneManager.ets"
+if ! grep -q 'NET_SCENE_POLL_STEP_TIMEOUT_MS' "${vpn_ability}" ||
+  ! grep -q 'withTimeout(.*' "${vpn_ability}" ||
+  ! grep -q 'Underlying network poll timed out' "${vpn_ability}" ||
+  ! grep -q 'EVALUATION_STEP_TIMEOUT_MS' "${net_scene_manager}" ||
+  ! grep -q 'Network evaluation settings load timed out' "${net_scene_manager}" ||
+  ! grep -q 'Network evaluation probe timed out' "${net_scene_manager}"; then
+  echo 'network observation promises are not bounded for retry' >&2
+  exit 1
+fi
+printf 'bounded network observation verification passed\n'
+
 node <<'NODE'
 const fs = require('fs');
 
