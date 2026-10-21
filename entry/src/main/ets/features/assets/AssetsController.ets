@@ -16,6 +16,7 @@ import {
   MAX_GEO_DATA_BYTES,
   MAX_GEO_HTTP_DATA_BYTES,
   MAX_GEO_TEXT_BYTES,
+  areAllowedGeoAssetRedirects,
   buildGeoChecksumUrl,
   encodeGeoTransactionState,
   isAllowedGeoAssetRedirect,
@@ -599,7 +600,17 @@ export class AssetsController {
       throw new Error('HTTP redirect limit reached');
     }
     const request = http.createHttp();
+    const observedRedirects = new Array<string>();
+    let lastObservedRedirect = '';
+    const redirectHeaderListener = (headers: Object): void => {
+      const redirectUrl = parseHttpRedirectLocation(JSON.stringify(headers));
+      if (redirectUrl.length > 0 && redirectUrl !== lastObservedRedirect) {
+        observedRedirects.push(redirectUrl);
+        lastObservedRedirect = redirectUrl;
+      }
+    };
     try {
+      request.on('headersReceive', redirectHeaderListener);
       const options: http.HttpRequestOptions = {
         method: http.RequestMethod.GET,
         expectDataType: http.HttpDataType.STRING,
@@ -626,6 +637,11 @@ export class AssetsController {
       // 负责最终释放 assetMutationRunning；超时只失败并保留旧文件，不会改走直连。
       const response = await withAssetRequestTimeout(
         request.request(url, options), GEO_TEXT_HTTP_DEADLINE_MS);
+      redirectHeaderListener(response.header);
+      if (!areAllowedGeoAssetRedirects(originalUrl, observedRedirects,
+        MAX_ASSET_REDIRECTS - redirectCount)) {
+        throw new Error('HTTP redirect target is not allowed');
+      }
       const responseCode = Number(response.responseCode);
       if (this.isRedirectCode(responseCode)) {
         const redirectUrl = parseHttpRedirectLocation(JSON.stringify(response.header));
@@ -659,6 +675,11 @@ export class AssetsController {
       }
       return objectText;
     } finally {
+      try {
+        request.off('headersReceive', redirectHeaderListener);
+      } catch (_error) {
+        // destroy() is the authoritative cleanup even if a device rejects late listener removal.
+      }
       request.destroy();
     }
   }
@@ -673,7 +694,17 @@ export class AssetsController {
       throw new Error('HTTP redirect limit reached');
     }
     const request = http.createHttp();
+    const observedRedirects = new Array<string>();
+    let lastObservedRedirect = '';
+    const redirectHeaderListener = (headers: Object): void => {
+      const redirectUrl = parseHttpRedirectLocation(JSON.stringify(headers));
+      if (redirectUrl.length > 0 && redirectUrl !== lastObservedRedirect) {
+        observedRedirects.push(redirectUrl);
+        lastObservedRedirect = redirectUrl;
+      }
+    };
     try {
+      request.on('headersReceive', redirectHeaderListener);
       const options: http.HttpRequestOptions = {
         method: http.RequestMethod.GET,
         expectDataType: http.HttpDataType.ARRAY_BUFFER,
@@ -698,6 +729,11 @@ export class AssetsController {
       }
       const response = await withAssetRequestTimeout(
         request.request(url, options), GEO_DATA_HTTP_DEADLINE_MS);
+      redirectHeaderListener(response.header);
+      if (!areAllowedGeoAssetRedirects(originalUrl, observedRedirects,
+        MAX_ASSET_REDIRECTS - redirectCount)) {
+        throw new Error('HTTP redirect target is not allowed');
+      }
       const responseCode = Number(response.responseCode);
       if (this.isRedirectCode(responseCode)) {
         const redirectUrl = parseHttpRedirectLocation(JSON.stringify(response.header));
@@ -717,6 +753,11 @@ export class AssetsController {
       }
       return response.result;
     } finally {
+      try {
+        request.off('headersReceive', redirectHeaderListener);
+      } catch (_error) {
+        // destroy() is the authoritative cleanup even if a device rejects late listener removal.
+      }
       request.destroy();
     }
   }

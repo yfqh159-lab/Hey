@@ -303,6 +303,27 @@ export function isAllowedGeoAssetRedirect(originalUrl: string, redirectUrl: stri
   return redirectUrl.startsWith('https://') || redirectUrl.startsWith('http://');
 }
 
+/**
+ * Network Kit currently follows redirects inside request() before returning the final response.
+ * Validate every redirect target surfaced by headersReceive instead of relying only on a 3xx
+ * responseCode, which normally represents the final response after automatic redirects.
+ */
+export function areAllowedGeoAssetRedirects(
+  originalUrl: string,
+  redirectUrls: Array<string>,
+  maxRedirects: number
+): boolean {
+  if (redirectUrls.length > maxRedirects) {
+    return false;
+  }
+  for (let index = 0; index < redirectUrls.length; index++) {
+    if (!isAllowedGeoAssetRedirect(originalUrl, redirectUrls[index])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function findReleaseAsset(assets: Array<ReleaseAssetPayload>, name: string): ReleaseAssetPayload | null {
   for (let index = 0; index < assets.length; index++) {
     if (assets[index].name === name) {

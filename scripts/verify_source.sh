@@ -349,6 +349,14 @@ if ! grep -Fq "function withAssetRequestTimeout<T>(promise: Promise<T>, timeoutM
 fi
 printf 'bounded Geo and egress HTTP promise verification passed\n'
 
+if [ "$(grep -c "request.on('headersReceive', redirectHeaderListener)" "${geo_controller}")" -ne 2 ] || \
+  [ "$(grep -c 'areAllowedGeoAssetRedirects(originalUrl, observedRedirects' "${geo_controller}")" -ne 2 ] || \
+  ! grep -Fq 'export function areAllowedGeoAssetRedirects(' "entry/src/main/ets/core/GeoAssets.ets" || \
+  ! grep -Fq 'redirectUrls.length > maxRedirects' "entry/src/main/ets/core/GeoAssets.ets"; then
+  throw_error "Geo downloads do not validate Network Kit's automatically followed redirect chain"
+fi
+printf 'Geo automatic redirect-chain verification passed\n'
+
 subscription_manager="entry/src/main/ets/services/SubscriptionManager.ets"
 if ! grep -Fq "const MAX_SUBSCRIPTION_RESPONSE_BYTES: number = 16 * 1024 * 1024;" "${subscription_manager}" || \
   ! grep -Fq "const SUBSCRIPTION_HTTP_DEADLINE_MS: number = 45000;" "${subscription_manager}" || \

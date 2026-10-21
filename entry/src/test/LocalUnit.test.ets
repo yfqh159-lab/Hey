@@ -20,7 +20,7 @@ import { shouldShowProxySharingStartWarning } from '../main/ets/core/ProxySharin
 import { canCancelStartingConnection, shouldDeferBusyControlAction, shouldOfferConnectionStop } from '../main/ets/core/ConnectionInteraction';
 import { shouldStartScannerImmediately } from '../main/ets/core/ScannerLaunch';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppSettings, ConnectionStatus, DEFAULT_DELAY_TEST_URL, DEFAULT_HEV_TUN_LOG_LEVEL, DEFAULT_HEV_TUN_RW_TIMEOUT, DEFAULT_IP_API_URL, DEFAULT_VPN_MTU, DELAY_STATUS_CORE_UNAVAILABLE, DELAY_STATUS_UDP_ONLY, DELAY_STATUS_UNAVAILABLE, OUTBOUND_DOMAIN_RESOLVE_DNS_HOSTS, OUTBOUND_DOMAIN_RESOLVE_NONE, OUTBOUND_DOMAIN_RESOLVE_REPLACE, OutboundDomainResolveMethod, normalizeAppRuntimeMode, normalizeHevTunLogLevel, normalizeHevTunRwTimeout, normalizeRealPingConcurrency, normalizeRoutingDomainStrategy, normalizeUiModeNight, ProxyNode, resolveDelayTestUrl, RoutingRule, RuntimeStats, SubscriptionGroup } from '../main/ets/core/Profile';
-import { BUILTIN_GEO_DATA_FILE_NAMES, DEFAULT_GEO_RELEASE_API, DEFAULT_GEO_RELEASE_DOWNLOAD_PREFIX, GEOIP_FILE_NAME, GEOSITE_FILE_NAME, buildAssetDownloadUrl, buildGeoChecksumUrl, encodeGeoTransactionState, hasPendingGeoReplacementArtifacts, isAllowedGeoAssetRedirect, isPlausibleGeoData, isValidGeoCommitMarker, normalizeGeoAssetDownloadUrl, parseDefaultGeoRelease, parseGeoTransactionState, parseHttpRedirectLocation, parseSha256Checksum, resolveGeoRecoveryAction, resolveGeoUpdateNotice, resolveStandaloneAssetRecoveryAction } from '../main/ets/core/GeoAssets';
+import { BUILTIN_GEO_DATA_FILE_NAMES, DEFAULT_GEO_RELEASE_API, DEFAULT_GEO_RELEASE_DOWNLOAD_PREFIX, GEOIP_FILE_NAME, GEOSITE_FILE_NAME, areAllowedGeoAssetRedirects, buildAssetDownloadUrl, buildGeoChecksumUrl, encodeGeoTransactionState, hasPendingGeoReplacementArtifacts, isAllowedGeoAssetRedirect, isPlausibleGeoData, isValidGeoCommitMarker, normalizeGeoAssetDownloadUrl, parseDefaultGeoRelease, parseGeoTransactionState, parseHttpRedirectLocation, parseSha256Checksum, resolveGeoRecoveryAction, resolveGeoUpdateNotice, resolveStandaloneAssetRecoveryAction } from '../main/ets/core/GeoAssets';
 import { DELAY_TEST_SOCKS_PORT, LOCAL_HTTP_PROXY_LAN_HOST, LOCAL_HTTP_PROXY_PORT, LOCAL_SOCKS_PROXY_PORT, UNIDENTIFIED_PROCESS_PACKAGE, VPN_DATA_SOCKS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT, appReservedRuntimePorts, buildDelayTestConfig, buildRuntimeXrayConfig, buildXrayConfig, buildXrayConfigWithSettings, canUseProcessRouting, collectOutboundDomainPreResolveHosts, normalizeFullConfigRoutingProcesses, normalizeOutboundInput, normalizeRoutingRuleProcesses, validateFullConfigJson, validateOutboundJson, validatePolicyGroupConfigJson, validateProxyChainConfigJson, withOutboundDomainResolvedHosts, injectXrayLogFile, isReservedAppRuntimePort } from '../main/ets/core/XrayConfig';
 import { CONTROL_SHORTCUT_ACTION_PARAM, CONTROL_SHORTCUT_GUID_PARAM, CONTROL_SHORTCUT_NODE_ID_PARAM, CONTROL_SHORTCUT_URI_PARAM, TASKER_EXTRA_BUNDLE_GUID_PARAM, TASKER_EXTRA_BUNDLE_SWITCH_PARAM, controlUriFromShortcutParameters, deepLinkUriFromWant, parseDeepLink, subscriptionNameFromDeepLink } from '../main/ets/core/DeepLink';
 import { HARMONY_SEND_DATA_ACTION, HARMONY_SHARE_ABSTRACT_KEY, HARMONY_SHARE_URL_KEY, HARMONY_TEXT_MIME_TYPE, SharedTextWantLike, extractSharedTextFromWant, isSharedTextWant } from '../main/ets/core/SharedTextImport';
@@ -2396,6 +2396,19 @@ export default function localUnitTest() {
       expect(isAllowedGeoAssetRedirect(DEFAULT_GEO_RELEASE_API, 'https://api.github.com/repositories/1/releases/2')).assertTrue();
       expect(isAllowedGeoAssetRedirect('https://example.com/file', 'http://example.com/file')).assertFalse();
       expect(isAllowedGeoAssetRedirect('https://example.com/file', 'https://cdn.example.com/file')).assertTrue();
+      expect(areAllowedGeoAssetRedirects(
+        `${DEFAULT_GEO_RELEASE_DOWNLOAD_PREFIX}v1/geoip.dat`, [assetRedirect], 5)).assertTrue();
+      expect(areAllowedGeoAssetRedirects(
+        `${DEFAULT_GEO_RELEASE_DOWNLOAD_PREFIX}v1/geoip.dat`, [assetRedirect, 'https://example.com/file'], 5))
+        .assertFalse();
+      expect(areAllowedGeoAssetRedirects('https://example.com/file', [
+        'https://cdn-1.example.com/file',
+        'http://cdn-2.example.com/file'
+      ], 5)).assertFalse();
+      expect(areAllowedGeoAssetRedirects('https://example.com/file', [
+        'https://1.example.com/file',
+        'https://2.example.com/file'
+      ], 1)).assertFalse();
     });
 
     it('persists and validates geo update transaction state', 0, () => {
