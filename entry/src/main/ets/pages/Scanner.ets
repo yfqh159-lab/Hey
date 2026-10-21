@@ -61,6 +61,9 @@ struct ScannerPage {
     } catch (error) {
       this.routeStartScanImmediate = false;
     }
+    // 首页“扫码添加”是本次明确用户动作，不能被仅用于语言/默认偏好的设置读取阻塞。
+    // onPageShow 可立即消费路由意图；设置迟到后只会补充全局的自动扫码偏好。
+    this.startScanImmediate = this.routeStartScanImmediate;
     this.loadState(pageGeneration);
   }
 

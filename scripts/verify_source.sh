@@ -485,6 +485,17 @@ for (const [file, marker] of [
 }
 const scanner = fs.readFileSync('entry/src/main/ets/pages/Scanner.ets', 'utf8');
 const manualImport = fs.readFileSync('entry/src/main/ets/pages/Import.ets', 'utf8');
+const scannerAppearAt = scanner.indexOf('  aboutToAppear(): void');
+const scannerShowAt = scanner.indexOf('\n  onPageShow(): void', scannerAppearAt);
+const scannerAppear = scanner.slice(scannerAppearAt, scannerShowAt);
+const routeImmediateAt = scannerAppear.indexOf('this.startScanImmediate = this.routeStartScanImmediate;');
+const settingsLoadAt = scannerAppear.indexOf('this.loadState(pageGeneration);');
+if (scannerAppearAt < 0 || scannerShowAt < 0 || routeImmediateAt < 0 ||
+  settingsLoadAt < routeImmediateAt ||
+  !scanner.includes('if (!this.startScanImmediate || this.hasAutoScanned) {') ||
+  !scanner.includes('this.startScanImmediate = this.routeStartScanImmediate || settings.startScanImmediate;')) {
+  throw new Error('explicit home scanner launches can still be blocked by settings or repeat after a late read');
+}
 const disappearAt = scanner.indexOf('  aboutToDisappear(): void');
 const buildAt = scanner.indexOf('\n  build()', disappearAt);
 const disappear = scanner.slice(disappearAt, buildAt);
