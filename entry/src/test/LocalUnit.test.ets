@@ -2,7 +2,7 @@ import { describe, it, expect } from '@ohos/hypium';
 import { buildPolicyGroupConfigFromNodes, buildPolicyGroupConfigFromSubscription, buildProxyChainConfigFromNodes, isAdvancedOutboundBuildableNode, normalizePolicyGroupBuilderStrategy, parseAdvancedOutboundEditState, resolveDynamicPolicyGroupConfigJson } from '../main/ets/core/AdvancedOutboundBuilder';
 import { CONTROL_CARD_FORM_NAME, CONTROL_CARD_SCAN_URI, CONTROL_CARD_START_URI, CONTROL_CARD_STOP_URI, CONTROL_CARD_TOGGLE_URI, buildControlCardFormData } from '../main/ets/core/ControlCard';
 import { DNS_DIRECT, DNS_PROXY, isCoreDnsAddress, isPureIpAddress, normalizeDnsServers } from '../main/ets/core/DnsAddresses';
-import { AssetNameEntry, hasDuplicateAssetName, isEditableCustomAssetUrl, normalizeScannedAssetUrl } from '../main/ets/core/AssetUrls';
+import { AssetNameEntry, hasDuplicateAssetName, isEditableCustomAssetUrl, isSafeCustomAssetName, normalizeScannedAssetUrl } from '../main/ets/core/AssetUrls';
 import { decodeBase64ToUtf8 } from '../main/ets/core/Encoding';
 import { isIpv4InCidr, isLoopbackOrPrivateHttpUrl, isLoopbackOrPrivateIpv4Host, PRIVATE_IP_LIST } from '../main/ets/core/PrivateNetwork';
 import { buildH2HttpSettings, splitH2Hosts } from '../main/ets/core/H2Transport';
@@ -2057,6 +2057,17 @@ export default function localUnitTest() {
       expect(hasDuplicateAssetName(assets, 'geosite', 'asset-a')).assertFalse();
       expect(hasDuplicateAssetName(assets, 'geoip', 'asset-a')).assertTrue();
       expect(hasDuplicateAssetName(assets, '')).assertFalse();
+    });
+
+    it('keeps custom asset file names inside the asset directory and away from core names', 0, () => {
+      expect(isSafeCustomAssetName('custom_geo')).assertTrue();
+      expect(isSafeCustomAssetName('自定义规则')).assertTrue();
+      expect(isSafeCustomAssetName('../geoip')).assertFalse();
+      expect(isSafeCustomAssetName('folder\\geosite')).assertFalse();
+      expect(isSafeCustomAssetName('geoip')).assertFalse();
+      expect(isSafeCustomAssetName('GEOSITE')).assertFalse();
+      expect(isSafeCustomAssetName('')).assertFalse();
+      expect(normalizeScannedAssetUrl('https://example.com/geoip.dat').name).assertEqual('custom_geoip');
     });
 
     it('hides local file asset editing', 0, () => {

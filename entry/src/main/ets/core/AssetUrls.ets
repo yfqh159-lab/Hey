@@ -60,7 +60,33 @@ export function deriveAssetNameFromUrl(url: string): string {
   if (name.toLowerCase().endsWith('.dat')) {
     name = name.substring(0, name.length - 4);
   }
-  return sanitizeAssetName(name.length > 0 ? name : 'asset');
+  let candidate = sanitizeAssetName(name.length > 0 ? name : 'asset');
+  if (!isSafeCustomAssetName(candidate)) {
+    candidate = `custom_${candidate}`;
+  }
+  if (candidate.length > 64) {
+    candidate = candidate.substring(0, 64);
+  }
+  return isSafeCustomAssetName(candidate) ? candidate : 'asset';
+}
+
+/** 自定义名称会直接映射为 filesDir/{name}.dat，必须阻止路径字符和核心文件冲突。 */
+export function isSafeCustomAssetName(name: string): boolean {
+  const trimmed = name.trim();
+  if (trimmed.length === 0 || trimmed.length > 64 || trimmed === '.' || trimmed === '..') {
+    return false;
+  }
+  const lower = trimmed.toLowerCase();
+  if (lower === 'geoip' || lower === 'geosite') {
+    return false;
+  }
+  for (let index = 0; index < trimmed.length; index++) {
+    const char = trimmed.substring(index, index + 1);
+    if (isInvalidAssetNameChar(char) || trimmed.charCodeAt(index) < 32) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function isHttpAssetUrl(url: string): boolean {
@@ -72,7 +98,7 @@ function sanitizeAssetName(name: string): string {
   let result = '';
   for (let index = 0; index < name.length; index++) {
     const char = name.substring(index, index + 1);
-    if (isInvalidAssetNameChar(char)) {
+    if (isInvalidAssetNameChar(char) || name.charCodeAt(index) < 32) {
       result = `${result}_`;
     } else {
       result = `${result}${char}`;

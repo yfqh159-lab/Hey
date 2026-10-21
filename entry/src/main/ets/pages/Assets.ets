@@ -2,7 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { picker } from '@kit.CoreFileKit';
 import fs from '@ohos.file.fs';
-import { hasDuplicateAssetName, isEditableCustomAssetUrl, normalizeScannedAssetUrl } from '../core/AssetUrls';
+import { hasDuplicateAssetName, isEditableCustomAssetUrl, isSafeCustomAssetName, normalizeScannedAssetUrl } from '../core/AssetUrls';
 import { GEOIP_FILE_NAME, GEOSITE_FILE_NAME } from '../core/GeoAssets';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { AppLanguage } from '../core/Profile';
@@ -1046,6 +1046,10 @@ struct AssetsPage {
 
     if (trimmedName.length === 0) {
       this.toast(this.t('assets.urlNameEmpty'));
+      return;
+    }
+    if (!isSafeCustomAssetName(trimmedName)) {
+      this.toast(this.t('assets.urlNameInvalid'));
       return;
     }
     if (hasDuplicateAssetName(this.customAssets, trimmedName, this.editId)) {

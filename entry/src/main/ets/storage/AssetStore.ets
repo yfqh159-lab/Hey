@@ -1,5 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
+import { isSafeCustomAssetName } from '../core/AssetUrls';
 
 export interface CustomAssetUrl {
   id: string;
@@ -45,7 +46,7 @@ export class AssetStore {
       if (raw.length === 0) {
         return [];
       }
-      return JSON.parse(raw) as Array<CustomAssetUrl>;
+      return AssetStore.normalizeCustomAssets(JSON.parse(raw) as Object);
     } catch (error) {
       return [];
     }
@@ -54,7 +55,7 @@ export class AssetStore {
   static async save(context: common.Context, assets: Array<CustomAssetUrl>): Promise<void> {
     try {
       const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-      await store.put(CUSTOM_ASSETS_KEY, JSON.stringify(assets));
+      await store.put(CUSTOM_ASSETS_KEY, JSON.stringify(AssetStore.normalizeCustomAssets(assets)));
       await store.flush();
     } catch (error) {
       // ignore
@@ -92,5 +93,25 @@ export class AssetStore {
     const store = await preferences.getPreferences(context, PREFERENCES_NAME);
     await store.delete(GEO_UPDATE_METADATA_KEY);
     await store.flush();
+  }
+
+  private static normalizeCustomAssets(assets: Object): Array<CustomAssetUrl> {
+    if (!Array.isArray(assets)) {
+      return [];
+    }
+    const normalized = new Array<CustomAssetUrl>();
+    for (let index = 0; index < assets.length; index++) {
+      const raw = assets[index];
+      if (raw === undefined || raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+        continue;
+      }
+      const item = raw as CustomAssetUrl;
+      if (typeof item.id !== 'string' || typeof item.name !== 'string' ||
+        typeof item.url !== 'string' || !isSafeCustomAssetName(item.name)) {
+        continue;
+      }
+      normalized.push({ id: item.id, name: item.name.trim(), url: item.url.trim() });
+    }
+    return normalized;
   }
 }
