@@ -226,7 +226,9 @@ Run the unit tests:
 ./scripts/device_vpn_smoke_test.sh test
 ```
 
-The `build` command first verifies all repository-native artifacts, then checks
+The `build` command runs the module-level `assembleHap` task for the `default`
+product and `entry@default` target in debug mode. It first verifies all
+repository-native artifacts, then checks
 that `libheyvpn.so`, Xray, sing-box, and both TUN adapters are present in the
 signed HAP. It fails with the expected output path if local signing produced a
 different artifact; set `HAP=/absolute/path/to/file.hap` in that case.

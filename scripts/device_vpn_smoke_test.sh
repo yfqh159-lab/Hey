@@ -57,7 +57,9 @@ case "${1:-}" in
     require_hvigor
     "${ROOT_DIR}/scripts/verify_prebuilt_native.sh"
     DEVECO_SDK_HOME="${DEVECO_SDK_HOME}" "${HVIGOR}" clean --no-daemon --stacktrace
-    DEVECO_SDK_HOME="${DEVECO_SDK_HOME}" "${HVIGOR}" assembleApp --no-daemon --stacktrace
+    DEVECO_SDK_HOME="${DEVECO_SDK_HOME}" "${HVIGOR}" --mode module \
+      -p product=default -p module=entry@default -p buildMode=debug \
+      assembleHap --no-daemon --stacktrace
     verify_hap_native_libs
     ;;
   test)
