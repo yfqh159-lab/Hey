@@ -143,8 +143,20 @@
   - 所有 Shell 脚本语法
   - ArkTS HTTP 请求调用点白名单（Geo、订阅、出口 IP）
   - 中英文系统资源键与有效值一致性
-  - 中英文翻译键完整性检查（1136 个键）
+  - 中英文翻译键完整性检查（1138 个键）
 ```
+
+2026-10-22 运行 `./scripts/device_vpn_smoke_test.sh doctor`，脚本一次完成环境探测并准确报告：
+
+```text
+MISSING: hvigorw
+MISSING: build-profile.json5（需由 build-profile.example.json5 配置本地签名）
+MISSING: hdc
+INFO: 当前尚无 signed HAP
+```
+
+因此本环境只能提供源码与原生预编译库静态证据，不能把 ArkTS LocalUnit、HAP 构建、安装或
+VPN 真机行为写成已通过。
 
 2026-10-21 还直接核对了
 [`Loyalsoldier/v2ray-rules-dat` 最新 Release API](https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest)：
