@@ -52,7 +52,8 @@ expected_http_request_files="$(printf '%s\n' \
   entry/src/main/ets/services/RemoteIpInfo.ets \
   entry/src/main/ets/services/SubscriptionManager.ets)"
 actual_http_request_files="$(
-  grep -RlE 'http[.]createHttp[[:space:]]*[(]' entry/src/main/ets --include='*.ets' 2>/dev/null | sort || true
+  find entry/src/main/ets -type f -name '*.ets' \
+    -exec grep -lE 'http[.]createHttp[[:space:]]*[(]' {} + 2>/dev/null | sort || true
 )"
 if [[ "${actual_http_request_files}" != "${expected_http_request_files}" ]]; then
   printf 'unexpected ArkTS HTTP request call sites:\n' >&2
