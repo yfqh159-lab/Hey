@@ -1,6 +1,6 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { buildPolicyGroupConfigFromNodes, buildPolicyGroupConfigFromSubscription, buildProxyChainConfigFromNodes, isAdvancedOutboundBuildableNode, normalizePolicyGroupBuilderStrategy, parseAdvancedOutboundEditState, resolveDynamicPolicyGroupConfigJson } from '../main/ets/core/AdvancedOutboundBuilder';
-import { CONTROL_CARD_FORM_NAME, CONTROL_CARD_SCAN_URI, CONTROL_CARD_START_URI, CONTROL_CARD_STOP_URI, CONTROL_CARD_TOGGLE_URI, ControlCardFormData, buildControlCardFormData, normalizeControlCardFormData } from '../main/ets/core/ControlCard';
+import { CONTROL_CARD_FORM_NAME, CONTROL_CARD_SCAN_URI, CONTROL_CARD_START_URI, CONTROL_CARD_STOP_URI, CONTROL_CARD_TOGGLE_URI, ControlCardFormData, buildControlCardFormData, isControlCardLocalProxyRunning, normalizeControlCardFormData } from '../main/ets/core/ControlCard';
 import { DNS_DIRECT, DNS_PROXY, isCoreDnsAddress, isPureIpAddress, normalizeDnsServers } from '../main/ets/core/DnsAddresses';
 import { redactDiagnosticText } from '../main/ets/core/DiagnosticRedaction';
 import { AssetNameEntry, hasDuplicateAssetName, isEditableCustomAssetUrl, isSafeCustomAssetName, normalizeScannedAssetUrl } from '../main/ets/core/AssetUrls';
@@ -4444,6 +4444,11 @@ export default function localUnitTest() {
         'en', ConnectionStatus.STARTING, '', '', false, APP_MODE_PROXY_ONLY);
       expect(proxyStarting.runtimeStatus).assertEqual(ConnectionStatus.STARTING);
       expect(proxyStarting.runtimeMode).assertEqual(APP_MODE_PROXY_ONLY);
+      expect(isControlCardLocalProxyRunning(proxyStarting)).assertFalse();
+
+      const proxyRunning = buildControlCardFormData(
+        'en', ConnectionStatus.RUNNING, '00:03', '', false, APP_MODE_PROXY_ONLY);
+      expect(isControlCardLocalProxyRunning(proxyRunning)).assertTrue();
 
       const legacyRunning = normalizeControlCardFormData(
         JSON.parse('{"primaryActionUri":"hey://stop"}') as ControlCardFormData
@@ -4457,6 +4462,7 @@ export default function localUnitTest() {
       );
       expect(previousProxyRunning.runtimeStatus).assertEqual(ConnectionStatus.RUNNING);
       expect(previousProxyRunning.runtimeMode).assertEqual(APP_MODE_PROXY_ONLY);
+      expect(isControlCardLocalProxyRunning(previousProxyRunning)).assertTrue();
 
       const errored = buildControlCardFormData('en', ConnectionStatus.ERROR, '', 'bad config');
       expect(errored.statusLabel).assertEqual('Error');

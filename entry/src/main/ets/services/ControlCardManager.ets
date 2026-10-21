@@ -1,11 +1,18 @@
 import { common } from '@kit.AbilityKit';
 import { formBindingData, formProvider } from '@kit.FormKit';
 import { APP_MODE_VPN, AppLanguage, AppRuntimeMode, ConnectionStatus } from '../core/Profile';
-import { CONTROL_CARD_STOP_URI, ControlCardFormData, buildControlCardFormData } from '../core/ControlCard';
+import {
+  CONTROL_CARD_STOP_URI,
+  ControlCardFormData,
+  buildControlCardFormData,
+  isControlCardLocalProxyRunning
+} from '../core/ControlCard';
+import { LOCAL_HTTP_PROXY_PORT } from '../core/XrayConfig';
 import { ControlCardStore } from '../storage/ControlCardStore';
 import { DiagnosticLog } from './DiagnosticLog';
 import { isPersistedVpnRuntimeHealthy, VpnRuntimeStateStore } from './VpnRuntimeStateStore';
 import { translate } from '../core/I18n';
+import { probeRuntimeTcpHealth } from './RuntimeHealthProbe';
 
 const CONTROL_CARD_REFRESH_INTERVAL_MS: number = 3000;
 
@@ -68,10 +75,27 @@ export class ControlCardManager {
     return now - this.lastSyncAt < CONTROL_CARD_REFRESH_INTERVAL_MS;
   }
 
-  // FormExtensionAbility 可能在主界面进程已被回收后由系统单独唤起。若卡片上次记录的是
-  // VPN/TUN 运行态，必须重新读取扩展进程心跳；不能原样复用过期的“运行中”。
+  // FormExtensionAbility 可能在主界面进程已被回收后由系统单独唤起。VPN/TUN 需读取
+  // 扩展进程心跳；本地代理需探测固定回环 HTTP 入口，不能原样复用过期的“运行中”。
   private async loadReconciledState(context: common.Context): Promise<ControlCardFormData> {
     const state = await ControlCardStore.loadState(context);
+    if (isControlCardLocalProxyRunning(state)) {
+      const probe = await probeRuntimeTcpHealth(LOCAL_HTTP_PROXY_PORT);
+      if (probe.ok) {
+        return state;
+      }
+      return ControlCardStore.saveState(
+        context,
+        buildControlCardFormData(
+          state.language,
+          ConnectionStatus.ERROR,
+          '',
+          translate(state.language, 'runtime.proxyHealthLost'),
+          false,
+          state.runtimeMode
+        )
+      );
+    }
     if (!state.vpnBacked || state.primaryActionUri !== CONTROL_CARD_STOP_URI) {
       return state;
     }

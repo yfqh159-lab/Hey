@@ -5,6 +5,7 @@ import {
   AppLanguage,
   AppRuntimeMode,
   ConnectionStatus,
+  isProxyOnlyRuntimeMode,
   normalizeAppRuntimeMode
 } from './Profile';
 
@@ -103,6 +104,12 @@ export function normalizeControlCardFormData(data: ControlCardFormData | null | 
     primaryColor: nonEmpty(data.primaryColor, fallback.primaryColor),
     primaryTextColor: nonEmpty(data.primaryTextColor, fallback.primaryTextColor)
   };
+}
+
+export function isControlCardLocalProxyRunning(data: ControlCardFormData): boolean {
+  return data.runtimeStatus === ConnectionStatus.RUNNING &&
+    isProxyOnlyRuntimeMode(data.runtimeMode) &&
+    data.primaryActionUri === CONTROL_CARD_STOP_URI;
 }
 
 function normalizeRuntimeStatus(value: ConnectionStatus | undefined, primaryActionUri: string): ConnectionStatus {

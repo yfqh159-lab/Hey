@@ -13,6 +13,14 @@ export async function probeRuntimeSocksHealth(
   port: number,
   timeoutMs: number = 1500
 ): Promise<RuntimeHealthProbeResult> {
+  return probeRuntimeTcpHealth(port, timeoutMs);
+}
+
+/** Probe a loopback runtime listener without treating it as internet reachability. */
+export async function probeRuntimeTcpHealth(
+  port: number,
+  timeoutMs: number = 1500
+): Promise<RuntimeHealthProbeResult> {
   if (!isRuntimeHealthPort(port)) {
     return { ok: false, status: 'invalid-endpoint' };
   }
