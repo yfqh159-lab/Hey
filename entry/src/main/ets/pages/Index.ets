@@ -2533,6 +2533,14 @@ struct Index {
   }
 
   private statusLabel(): string {
+    if (this.status === ConnectionStatus.RUNNING) {
+      if (this.egressIpChecking) {
+        return this.t('home.connectionVerifying');
+      }
+      if (this.egressIp.length === 0) {
+        return this.t('home.connectionUnverified');
+      }
+    }
     return this.t('status.' + this.status);
   }
 

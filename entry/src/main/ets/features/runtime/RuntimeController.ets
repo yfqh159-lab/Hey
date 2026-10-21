@@ -352,12 +352,12 @@ export class RuntimeController {
     language: AppLanguage,
     startedAt: number
   ): Promise<void> {
-    const delayResult = await this.measureConnectionDelayInternal(context, profile, settings, language, startedAt);
-    if (delayResult === null) {
-      return;
-    }
-    // 出口 IP 请求本身就是经代理的 HTTPS 连通性验证，不依赖 TCP 延迟探测是否成功。
-    await this.appendRemoteIpInfo(profile, settings, language, startedAt);
+    // 两项互不依赖：出口 IP 是经代理的 HTTPS 连通性验证，节点延迟是另一条诊断信号。
+    // 并行执行可避免 TCP 探测超时后才开始出口验证，缩短首页“正在验证”时间。
+    await Promise.all([
+      this.measureConnectionDelayInternal(context, profile, settings, language, startedAt),
+      this.appendRemoteIpInfo(profile, settings, language, startedAt)
+    ]);
   }
 
   // 点按复测「当前连接」延迟（连接页胶囊触发）。复用启动时自动测速的同一条链路与日志格式，
