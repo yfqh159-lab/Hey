@@ -80,6 +80,21 @@ interface StagedGeoAsset {
 
 const GEO_METADATA_INVALID_FILE: string = '.geo-metadata.invalid';
 const MAX_ASSET_REDIRECTS: number = 5;
+const GEO_TEXT_HTTP_DEADLINE_MS: number = 45000;
+const GEO_DATA_HTTP_DEADLINE_MS: number = 75000;
+
+function withAssetRequestTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timerId = setTimeout(() => reject(new Error('Geo HTTP request timed out')), timeoutMs);
+    promise.then((value: T) => {
+      clearTimeout(timerId);
+      resolve(value);
+    }, (error: Object) => {
+      clearTimeout(timerId);
+      reject(error);
+    });
+  });
+}
 
 function isValidAssetDownloadProxyPort(proxyPort: number): boolean {
   return typeof proxyPort === 'number' && Math.floor(proxyPort) === proxyPort && proxyPort > 0 && proxyPort <= 65535;
@@ -535,7 +550,10 @@ export class AssetsController {
           exclusionList: []
         };
       }
-      const response = await request.request(url, options);
+      // NetworkKit 参数超时在部分设备实现上不足以保证 Promise 结算。外层截止时间
+      // 负责最终释放 assetMutationRunning；超时只失败并保留旧文件，不会改走直连。
+      const response = await withAssetRequestTimeout(
+        request.request(url, options), GEO_TEXT_HTTP_DEADLINE_MS);
       const responseCode = Number(response.responseCode);
       if (this.isRedirectCode(responseCode)) {
         const redirectUrl = parseHttpRedirectLocation(JSON.stringify(response.header));
@@ -606,7 +624,8 @@ export class AssetsController {
           exclusionList: []
         };
       }
-      const response = await request.request(url, options);
+      const response = await withAssetRequestTimeout(
+        request.request(url, options), GEO_DATA_HTTP_DEADLINE_MS);
       const responseCode = Number(response.responseCode);
       if (this.isRedirectCode(responseCode)) {
         const redirectUrl = parseHttpRedirectLocation(JSON.stringify(response.header));

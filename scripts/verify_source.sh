@@ -311,6 +311,17 @@ if ! grep -q 'maxLimit: MAX_GEO_TEXT_BYTES' "${geo_controller}" ||
 fi
 printf 'bounded Geo HTTP response verification passed\n'
 
+if ! grep -Fq "function withAssetRequestTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T>" \
+  "entry/src/main/ets/features/assets/AssetsController.ets" || \
+  ! grep -Fq "GEO_TEXT_HTTP_DEADLINE_MS" "entry/src/main/ets/features/assets/AssetsController.ets" || \
+  ! grep -Fq "GEO_DATA_HTTP_DEADLINE_MS" "entry/src/main/ets/features/assets/AssetsController.ets" || \
+  ! grep -Fq "function withRequestTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T>" \
+  "entry/src/main/ets/services/RemoteIpInfo.ets" || \
+  ! grep -Fq "timeoutMs + 1000" "entry/src/main/ets/services/RemoteIpInfo.ets"; then
+  throw_error "Geo and egress HTTP promises must have outer deadlines"
+fi
+printf 'bounded Geo and egress HTTP promise verification passed\n'
+
 geo_page="entry/src/main/ets/pages/Assets.ets"
 geo_urls="entry/src/main/ets/core/AssetUrls.ets"
 if ! grep -q 'const normalizedUrl = normalizeGeoAssetDownloadUrl(url)' "${geo_controller}" ||

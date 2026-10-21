@@ -15,6 +15,19 @@ export interface RemoteIpInfoResult {
   status: string;
 }
 
+function withRequestTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timerId = setTimeout(() => reject(new Error('remote IP request timed out')), timeoutMs);
+    promise.then((value: T) => {
+      clearTimeout(timerId);
+      resolve(value);
+    }, (error: Object) => {
+      clearTimeout(timerId);
+      reject(error);
+    });
+  });
+}
+
 export async function fetchRemoteIpInfo(ipApiUrl: string, proxyPort: number, timeoutMs: number = 5000): Promise<RemoteIpInfoResult> {
   const target = normalizeIpApiUrl(ipApiUrl);
   if (target.length === 0) {
@@ -22,6 +35,9 @@ export async function fetchRemoteIpInfo(ipApiUrl: string, proxyPort: number, tim
   }
   if (!shouldUseHttpProxy(proxyPort)) {
     return failedRemoteIpInfo('proxy-unavailable');
+  }
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return failedRemoteIpInfo('invalid-timeout');
   }
 
   const request = http.createHttp();
@@ -43,7 +59,9 @@ export async function fetchRemoteIpInfo(ipApiUrl: string, proxyPort: number, tim
         exclusionList: []
       }
     };
-    const response = await request.request(target, options);
+    // 部分设备的 NetworkKit Promise 可能越过 connect/read timeout 仍不结算；外层
+    // 截止时间保证出口检测和网络变化评估不会永久保持 in-flight。
+    const response = await withRequestTimeout(request.request(target, options), timeoutMs + 1000);
     const responseCode = Number(response.responseCode);
     if (responseCode < 200 || responseCode >= 300) {
       return failedRemoteIpInfo(`HTTP ${response.responseCode}`);
