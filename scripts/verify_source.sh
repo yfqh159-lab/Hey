@@ -978,18 +978,26 @@ if (!importBuild.includes('this.LinkImportSection()') ||
 
 const nodesHeaderAt = indexSource.indexOf('  private NodesHeader()');
 const nodesHeaderEnd = indexSource.indexOf('\n  @Builder\n  private NodesMenu()', nodesHeaderAt);
+const emptyStateAt = indexSource.indexOf('  private EmptyStateUI()');
+const emptyStateEnd = indexSource.indexOf('\n  @Builder\n  private EmptyGroupNodesUI()', emptyStateAt);
 const scannerAt = indexSource.indexOf('  private openScannerImmediately(): void');
 const scannerEnd = indexSource.indexOf('\n  private ', scannerAt + 1);
-if (nodesHeaderAt < 0 || nodesHeaderEnd < 0 || scannerAt < 0 || scannerEnd < 0) {
+if (nodesHeaderAt < 0 || nodesHeaderEnd < 0 || emptyStateAt < 0 || emptyStateEnd < 0 ||
+  scannerAt < 0 || scannerEnd < 0) {
   throw new Error('home scanner entry could not be inspected');
 }
 const nodesHeader = indexSource.slice(nodesHeaderAt, nodesHeaderEnd);
+const emptyState = indexSource.slice(emptyStateAt, emptyStateEnd);
 const scanner = indexSource.slice(scannerAt, scannerEnd);
 if (!nodesHeader.includes("$r('app.media.ic_qr_code')") ||
   !nodesHeader.includes('this.openScannerImmediately();') ||
+  !emptyState.includes("Button(this.t('import.scanButton'))") ||
+  !emptyState.includes("$r('app.media.ic_qr_code')") ||
+  !emptyState.includes('this.openScannerImmediately();') ||
+  emptyState.includes('this.openRoute(AppRoute.SUBSCRIPTIONS);') ||
   !scanner.includes('url: AppRoute.SCANNER') ||
   !scanner.includes('startImmediately: true')) {
-  throw new Error('node-list header no longer provides one-tap immediate QR scanning');
+  throw new Error('node-list header or empty state no longer prioritizes one-tap immediate QR scanning');
 }
 
 if (!detailSource.includes("configType === 'proxy-chain' || configType === 'policy-group'") ||

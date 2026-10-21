@@ -1732,7 +1732,7 @@ struct Index {
   private EmptyStateUI() {
     Column({ space: Space.xxl }) {
       Column({ space: Space.md }) {
-        Image($r('app.media.ic_subscriptions'))
+        Image($r('app.media.ic_qr_code'))
           .width(72)
           .height(72)
           .fillColor(AppColor.textTertiary)
@@ -1755,7 +1755,7 @@ struct Index {
       .width('100%')
 
       Column({ space: Space.md }) {
-        Button(this.t('home.empty.addSubscription'))
+        Button(this.t('import.scanButton'))
           .width(200)
           .height(44)
           .backgroundColor(AppColor.brand)
@@ -1763,7 +1763,7 @@ struct Index {
           .fontWeight(FontWeight.Medium)
           .borderRadius(Radius.pill)
           .onClick(() => {
-            this.openRoute(AppRoute.SUBSCRIPTIONS);
+            this.openScannerImmediately();
           })
 
         Button(this.t('screen.import.title'))
