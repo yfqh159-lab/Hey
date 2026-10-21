@@ -2264,7 +2264,9 @@ function buildDnsConfig(settings: AppSettings | undefined): XrayDnsConfig {
   // localhost 模式不受 dns tag 路由控制，会直接使用系统解析器。空设置必须回退到经代理
   // 的 DoH，避免“应用 DNS 已进 TUN、Xray 又从物理网络查询”的二次泄漏。
   const remoteDnsValue = settings.remoteDns.trim();
-  const remoteDns = normalizeDnsServers(remoteDnsValue.length > 0 ? remoteDnsValue : undefined, DNS_PROXY, true);
+  // 远程解析必须进入 Xray 路由并走代理；localhost / *+local 会直接使用物理网络。
+  const remoteDns = normalizeDnsServers(
+    remoteDnsValue.length > 0 ? remoteDnsValue : undefined, DNS_PROXY, true, false);
   const domesticDns = normalizeDnsServers(settings.domesticDns, '', true);
   const servers: Array<string | XrayDnsServerConfig> = [];
   addDnsServerValues(servers, remoteDns);

@@ -21,21 +21,53 @@ export function isPureIpAddress(value: string): boolean {
 
 export function isCoreDnsAddress(value: string): boolean {
   const address = value.trim();
-  return address.startsWith('https') || address.startsWith('tcp') || address.startsWith('quic') || address === 'localhost';
+  if (address === 'localhost') {
+    return true;
+  }
+  const lower = address.toLowerCase();
+  const schemes: Array<string> = [
+    'https://',
+    'https+local://',
+    'h2c://',
+    'tcp://',
+    'tcp+local://',
+    'quic://',
+    'quic+local://'
+  ];
+  for (let index = 0; index < schemes.length; index++) {
+    const scheme = schemes[index];
+    if (lower.startsWith(scheme)) {
+      return hasCoreDnsTarget(address.substring(scheme.length));
+    }
+  }
+  return false;
+}
+
+// Xray 的 local DNS 模式和 localhost 不进入路由系统，会直接使用本机网络。
+// 可用于用户明确配置的直连域名，但不得混入“远程 DNS”后造成物理出口泄漏。
+export function isLocalCoreDnsAddress(value: string): boolean {
+  const lower = value.trim().toLowerCase();
+  return lower === 'localhost' || lower.startsWith('https+local://') ||
+    lower.startsWith('tcp+local://') || lower.startsWith('quic+local://');
 }
 
 // 只返回用户填写的 DNS 地址。未填写时返回空列表——不回落到任何内置服务商，
 // 由调用方决定省略该组 server（核心随即使用系统 DNS）。
-export function normalizeDnsServers(value: string | undefined, fallback: string, allowCoreDns: boolean = true): Array<string> {
+export function normalizeDnsServers(
+  value: string | undefined,
+  fallback: string,
+  allowCoreDns: boolean = true,
+  allowLocalCoreDns: boolean = true
+): Array<string> {
   const source = value === undefined ? fallback : value;
-  return filterDnsServers(source, allowCoreDns);
+  return filterDnsServers(source, allowCoreDns, allowLocalCoreDns);
 }
 
 export function normalizeVpnDnsServers(value?: string, fallback: string = DNS_VPN): Array<string> {
   if (value === undefined || value.trim().length === 0) {
     return [stripIpAddressBrackets(fallback.trim())];
   }
-  const filtered = filterDnsServers(value, false);
+  const filtered = filterDnsServers(value, false, false);
   const result = new Array<string>();
   for (let index = 0; index < filtered.length; index++) {
     // 方括号只属于 URL authority 语法；VpnConfig.dnsAddresses 接收的是裸网络地址。
@@ -47,7 +79,7 @@ export function normalizeVpnDnsServers(value?: string, fallback: string = DNS_VP
   return result.length > 0 ? result : [stripIpAddressBrackets(fallback.trim())];
 }
 
-function filterDnsServers(value: string, allowCoreDns: boolean): Array<string> {
+function filterDnsServers(value: string, allowCoreDns: boolean, allowLocalCoreDns: boolean): Array<string> {
   const result = new Array<string>();
   const parts = value.split(',');
   for (let index = 0; index < parts.length; index++) {
@@ -55,11 +87,47 @@ function filterDnsServers(value: string, allowCoreDns: boolean): Array<string> {
     if (address.length === 0 || result.indexOf(address) >= 0) {
       continue;
     }
-    if (isPureIpAddress(address) || (allowCoreDns && isCoreDnsAddress(address))) {
+    const coreDnsAllowed = allowCoreDns &&
+      (isDnsIpWithPort(address) || (isCoreDnsAddress(address) &&
+        (allowLocalCoreDns || !isLocalCoreDnsAddress(address))));
+    if (isPureIpAddress(address) || coreDnsAllowed) {
       result.push(address);
     }
   }
   return result;
+}
+
+function isDnsIpWithPort(value: string): boolean {
+  const address = value.trim();
+  if (address.startsWith('[')) {
+    const close = address.indexOf(']');
+    if (close <= 1 || close + 2 >= address.length || address.charAt(close + 1) !== ':') {
+      return false;
+    }
+    return isPureIpAddress(address.substring(0, close + 1)) && isValidPort(address.substring(close + 2));
+  }
+  const colon = address.lastIndexOf(':');
+  if (colon <= 0 || address.indexOf(':') !== colon) {
+    return false;
+  }
+  return IPV4_REGEX.test(address.substring(0, colon)) && isValidPort(address.substring(colon + 1));
+}
+
+function isValidPort(value: string): boolean {
+  if (!/^\d{1,5}$/.test(value)) {
+    return false;
+  }
+  const port = Number(value);
+  return port > 0 && port <= 65535;
+}
+
+function hasCoreDnsTarget(value: string): boolean {
+  if (value.length === 0 || /\s/.test(value)) {
+    return false;
+  }
+  const slash = value.indexOf('/');
+  const authority = slash < 0 ? value : value.substring(0, slash);
+  return authority.length > 0 && authority !== ':' && !authority.startsWith(':');
 }
 
 function stripIpAddressBrackets(value: string): string {

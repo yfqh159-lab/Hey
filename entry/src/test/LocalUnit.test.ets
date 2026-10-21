@@ -1465,6 +1465,8 @@ export default function localUnitTest() {
       expect(isCoreDnsAddress('quic://dns.adguard.com')).assertTrue();
       expect(isCoreDnsAddress('localhost')).assertTrue();
       expect(isCoreDnsAddress('dns.google')).assertFalse();
+      expect(isCoreDnsAddress('httpsBAD')).assertFalse();
+      expect(isCoreDnsAddress('tcp://')).assertFalse();
 
       const remote = normalizeDnsServers('bad.example, 9.9.9.9, https://dns.google/dns-query,9.9.9.9', DNS_PROXY);
       expect(remote.length).assertEqual(2);
@@ -1478,6 +1480,17 @@ export default function localUnitTest() {
       const vpn = normalizeDnsServers('https://dns.google/dns-query, 1.1.1.1', DNS_PROXY, false);
       expect(vpn.length).assertEqual(1);
       expect(vpn[0]).assertEqual('1.1.1.1');
+
+      const routed = normalizeDnsServers(
+        'localhost,https+local://dns.google/dns-query,tcp+local://1.1.1.1,8.8.8.8:5353,[2606:4700:4700::1111]:53,https://dns.google/dns-query',
+        DNS_PROXY,
+        true,
+        false
+      );
+      expect(routed.length).assertEqual(3);
+      expect(routed[0]).assertEqual('8.8.8.8:5353');
+      expect(routed[1]).assertEqual('[2606:4700:4700::1111]:53');
+      expect(routed[2]).assertEqual('https://dns.google/dns-query');
     });
 
     it('adds the protocol spec default dns hosts before user hosts', 0, () => {
@@ -1798,6 +1811,13 @@ export default function localUnitTest() {
       // 未填上游 DNS 时使用经代理访问的 IP 形式 DoH，避免 localhost 直接调用系统 DNS 泄漏。
       expect(result.configJson).assertContain('"https://1.1.1.1/dns-query"');
       expect(result.configJson.indexOf('"localhost"')).assertEqual(-1);
+
+      // 用户误填本地模式时不能让“远程 DNS”绕过代理；过滤后回退到安全默认 DoH。
+      settings.remoteDns = 'localhost,https+local://dns.google/dns-query,tcp+local://1.1.1.1';
+      const localModeResult = buildXrayConfigWithSettings(VLESS_REALITY_OUTBOUND, settings);
+      expect(localModeResult.configJson).assertContain('"https://1.1.1.1/dns-query"');
+      expect(localModeResult.configJson.indexOf('"localhost"')).assertEqual(-1);
+      expect(localModeResult.configJson.indexOf('+local://')).assertEqual(-1);
     });
 
     it('builds proxy only runtime without tun and with local socks inbound', 0, () => {

@@ -96,6 +96,28 @@ if (normalizeAt < 0 || normalizeEnd < 0 ||
 NODE
 printf 'HTTPS-only proxied exit-IP verification passed\n'
 
+# The remote resolver is part of the anti-leak boundary. Xray's localhost and
+# *+local DNS modes intentionally bypass routing, so they are valid only for an
+# explicitly direct resolver and must be filtered from the remote resolver list.
+node <<'NODE'
+const fs = require('fs');
+const addresses = fs.readFileSync('entry/src/main/ets/core/DnsAddresses.ets', 'utf8');
+const xray = fs.readFileSync('entry/src/main/ets/core/XrayConfig.ets', 'utf8');
+if (!addresses.includes('export function isLocalCoreDnsAddress(value: string): boolean') ||
+  !addresses.includes("lower === 'localhost'") ||
+  !addresses.includes("lower.startsWith('https+local://')") ||
+  !addresses.includes("lower.startsWith('tcp+local://')") ||
+  !addresses.includes("lower.startsWith('quic+local://')") ||
+  !addresses.includes('allowLocalCoreDns: boolean = true') ||
+  !addresses.includes('allowLocalCoreDns || !isLocalCoreDnsAddress(address)')) {
+  throw new Error('DNS normalization does not distinguish routed and physical-network local modes');
+}
+if (!xray.includes('DNS_PROXY, true, false);')) {
+  throw new Error('remote DNS can bypass Xray routing through localhost or a +local mode');
+}
+NODE
+printf 'remote DNS local-mode leak guard passed\n'
+
 node <<'NODE'
 const fs = require('fs');
 const health = fs.readFileSync('entry/src/main/ets/core/RuntimeHealth.ets', 'utf8');
