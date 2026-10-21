@@ -17,7 +17,8 @@ import {
   parseHttpRedirectLocation,
   parseDefaultGeoRelease,
   parseSha256Checksum,
-  resolveGeoRecoveryAction
+  resolveGeoRecoveryAction,
+  resolveStandaloneAssetRecoveryAction
 } from '../../core/GeoAssets';
 import { redactDiagnosticText } from '../../core/DiagnosticRedaction';
 import { APP_HTTP_USER_AGENT } from '../../core/HttpDefaults';
@@ -737,9 +738,13 @@ export class AssetsController {
       }
       const targetPath = `${context.filesDir}/${targetName}`;
       const backupPath = `${context.filesDir}/${backupName}`;
-      if (this.fileExists(targetPath)) {
+      const action = resolveStandaloneAssetRecoveryAction(
+        this.fileExists(targetPath),
+        this.fileExists(backupPath)
+      );
+      if (action === 'discard-backup') {
         this.removeFileStrictIfExists(backupPath);
-      } else {
+      } else if (action === 'restore-backup') {
         fs.renameSync(backupPath, targetPath);
       }
       this.removeFileStrictIfExists(`${targetPath}.tmp`);

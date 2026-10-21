@@ -21,6 +21,7 @@ export interface GeoTransactionState {
 }
 
 export type GeoRecoveryAction = 'keep' | 'remove-target' | 'restore-backup' | 'discard-backup';
+export type StandaloneAssetRecoveryAction = 'keep' | 'restore-backup' | 'discard-backup';
 
 export function encodeGeoTransactionState(stagedMask: number, originalMask: number): ArrayBuffer {
   const validMask = geoTransactionValidMask();
@@ -64,6 +65,16 @@ export function resolveGeoRecoveryAction(
   }
   // 兼容尚未写入事务状态文件的旧版本：发现遗留备份时仍恢复旧文件。
   return backupExists ? 'restore-backup' : 'keep';
+}
+
+export function resolveStandaloneAssetRecoveryAction(
+  targetExists: boolean,
+  backupExists: boolean
+): StandaloneAssetRecoveryAction {
+  if (!backupExists) {
+    return 'keep';
+  }
+  return targetExists ? 'discard-backup' : 'restore-backup';
 }
 
 export function buildAssetDownloadUrl(sourceUrl: string, fileName: string): string {
