@@ -117,15 +117,22 @@ export class NodesController {
   async selectNode(context: common.Context, node: ProxyNode, language: AppLanguage): Promise<NodesControllerState> {
     try {
       const subscription = await SubscriptionStore.selectNode(context, node.id);
-      const configType = node.configType ?? 'outbound';
-      const profile = await ProfileStore.save(context, node.outboundJson, configType);
-      const validation = this.validateConfig(node.outboundJson, language, configType);
-      return this.buildState(subscription, node.outboundJson, this.resolveConfigType(validation, configType), validation, profile.updatedAt, language, '');
+      const selected = this.findNodeInGroups(subscription.groups, subscription.selectedNodeId);
+      if (selected === null || selected.id !== node.id) {
+        throw new Error('The selected node is no longer available.');
+      }
+      const configType = selected.configType ?? 'outbound';
+      const profile = await ProfileStore.save(context, selected.outboundJson, configType);
+      const validation = this.validateConfig(selected.outboundJson, language, configType);
+      return this.buildState(subscription, selected.outboundJson, this.resolveConfigType(validation, configType), validation, profile.updatedAt, language, '');
     } catch (error) {
       const subscription = await SubscriptionStore.load(context);
-      const configType = node.configType ?? 'outbound';
-      const validation = this.validateConfig(node.outboundJson, language, configType);
-      return this.buildState(subscription, node.outboundJson, this.resolveConfigType(validation, configType), validation, 0, language, formatOne(language, 'error.selectNode', 'error', redactDiagnosticText(JSON.stringify(error))));
+      return this.stateFromSubscription(
+        context,
+        subscription,
+        language,
+        formatOne(language, 'error.selectNode', 'error', redactDiagnosticText(JSON.stringify(error)))
+      );
     }
   }
 

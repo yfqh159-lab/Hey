@@ -438,6 +438,26 @@ if (!source.includes('private operationTail: Promise<void> = Promise.resolve();'
 NODE
 printf 'subscription controller operation ordering verification passed\n'
 
+# A node object passed by a page can become stale while a subscription refresh replaces that
+# group. Only persist the node that the serialized store transaction confirms is still selected;
+# on mismatch rebuild UI state from the authoritative subscription instead of the stale object.
+node <<'NODE'
+const fs = require('fs');
+const source = fs.readFileSync('entry/src/main/ets/features/nodes/NodesController.ets', 'utf8');
+const selectAt = source.indexOf('  async selectNode(');
+const removeAt = source.indexOf('\n  async removeNode(', selectAt);
+const body = source.slice(selectAt, removeAt);
+if (selectAt < 0 || removeAt < 0 ||
+  !body.includes('this.findNodeInGroups(subscription.groups, subscription.selectedNodeId)') ||
+  !body.includes('selected === null || selected.id !== node.id') ||
+  !body.includes('ProfileStore.save(context, selected.outboundJson, configType)') ||
+  body.includes('ProfileStore.save(context, node.outboundJson, configType)') ||
+  !body.includes('return this.stateFromSubscription(')) {
+  throw new Error('node selection can persist or display a stale page node after subscription replacement');
+}
+NODE
+printf 'authoritative node selection verification passed\n'
+
 # Throttled and forced traffic-total saves are fire-and-forget and may overlap. Preserve call
 # order, snapshot each sample before queueing, and let write failures reach the existing caller log.
 node <<'NODE'
