@@ -1218,6 +1218,14 @@ if ! grep -F "'scanner.supportedPayloads':" entry/src/main/ets/core/I18n.ets | g
 fi
 printf 'primary scanner protocol guidance verification passed\n'
 
+if ! grep -Fq '(!this.hasPendingSensitiveImport || this.previewValid)' \
+  "entry/src/main/ets/pages/Scanner.ets" || \
+  ! grep -Fq 'this.updateImportPreview(this.pendingSensitiveImport, true);' \
+  "entry/src/main/ets/pages/Scanner.ets"; then
+  throw_error "invalid camera/photo/clipboard payloads can still enter scanner persistence"
+fi
+printf 'scanner invalid-payload confirmation guard passed\n'
+
 node <<'NODE'
 const fs = require('fs');
 const source = fs.readFileSync('entry/src/main/cpp/napi_init.cpp', 'utf8');

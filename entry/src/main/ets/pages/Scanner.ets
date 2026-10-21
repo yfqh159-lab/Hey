@@ -370,7 +370,10 @@ struct ScannerPage {
   }
 
   private isImportEnabled(): boolean {
-    return this.hasImportValue() && !this.isBusy;
+    // 相机、相册和剪贴板结果已经运行过完整兼容预览；无效摘要不得继续进入保存。
+    // 手动输入仍允许点击后执行一次 native 兼容解析，避免按键期间反复调用 N-API。
+    return this.hasImportValue() && !this.isBusy &&
+      (!this.hasPendingSensitiveImport || this.previewValid);
   }
 
   private hasImportValue(): boolean {
