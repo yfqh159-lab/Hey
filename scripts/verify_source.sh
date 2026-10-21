@@ -109,6 +109,35 @@ fi
 
 node <<'NODE'
 const fs = require('fs');
+const source = fs.readFileSync('entry/src/main/cpp/napi_init.cpp', 'utf8');
+
+function functionBody(name) {
+  const start = source.indexOf(`napi_value ${name}(`);
+  if (start < 0) throw new Error(`${name} not found`);
+  const bodyStart = source.indexOf('{', start);
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index++) {
+    if (source[index] === '{') depth++;
+    if (source[index] === '}') depth--;
+    if (depth === 0) return source.slice(bodyStart, index + 1);
+  }
+  throw new Error(`${name} body is incomplete`);
+}
+
+for (const name of ['StopXray', 'SingboxStop']) {
+  const body = functionBody(name);
+  if (!body.includes('ClearCoreOwnedTunState()') || body.includes('g_tunRunning.store(false)')) {
+    throw new Error(`${name} must preserve a separately owned tun2socks data plane`);
+  }
+}
+if (!source.includes('if (g_tunEngine.load() == TUN_ENGINE_NONE)')) {
+  throw new Error('legacy core-owned TUN cleanup guard is missing');
+}
+NODE
+printf 'core/TUN lifecycle separation verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
 const path = require('path');
 
 function etsFiles(dir) {

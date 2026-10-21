@@ -110,6 +110,16 @@ constexpr int TUN_STOP_WAIT_MS = 3000;
 constexpr int TUN_STOP_POLL_MS = 20;
 std::atomic<int> g_tunEngine(TUN_ENGINE_NONE);
 
+// 旧版 setTunFd/SingboxSetTunFd 路径由核心直接持有 TUN，此时停止核心也会停止
+// 数据面。当前 VPN 主链则使用独立的 gvisor/hev tun2socks；网络切换只重载核心时
+// 必须保留它的运行状态，否则健康检查会把仍在工作的 TUN 误判为已停止。
+void ClearCoreOwnedTunState()
+{
+    if (g_tunEngine.load() == TUN_ENGINE_NONE) {
+        g_tunRunning.store(false);
+    }
+}
+
 const char* BASE64_TABLE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 void LogInfo(const std::string& message)
@@ -1129,7 +1139,7 @@ napi_value StopXray(napi_env env, napi_callback_info info)
 {
     (void)info;
     if (!g_xrayRunning.load()) {
-        g_tunRunning.store(false);
+        ClearCoreOwnedTunState();
         return CreateResult(env, true, "Xray already stopped.");
     }
 
@@ -1147,7 +1157,7 @@ napi_value StopXray(napi_env env, napi_callback_info info)
     }
 
     g_xrayRunning.store(false);
-    g_tunRunning.store(false);
+    ClearCoreOwnedTunState();
     return CreateResult(env, true, "Xray core stopped.");
 }
 
@@ -1549,7 +1559,7 @@ napi_value SingboxStop(napi_env env, napi_callback_info info)
 {
     (void)info;
     if (!g_singboxRunning.load()) {
-        g_tunRunning.store(false);
+        ClearCoreOwnedTunState();
         return CreateResult(env, true, "sing-box already stopped.");
     }
 
@@ -1569,7 +1579,7 @@ napi_value SingboxStop(napi_env env, napi_callback_info info)
     }
 
     g_singboxRunning.store(false);
-    g_tunRunning.store(false);
+    ClearCoreOwnedTunState();
     return CreateResult(env, true, "sing-box core stopped.");
 }
 // =================== [end sing-box second core] ===================

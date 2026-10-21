@@ -85,3 +85,13 @@ export function decideNetAutomationAction(
   }
   return NET_ACTION_NOOP;
 }
+
+/**
+ * 已运行 VPN 的底层承载发生真实变化后，是否应重载核心连接。
+ * - 可信网络自动断开优先，不能先重载后再拆隧道。
+ * - `none` 是切网中的瞬时断网，等待下一个可用承载，避免在无网络时把核心重载失败。
+ * - 这里只决定已有会话的内部恢复，绝不创建 VPN，也不改变用户手动停止意图。
+ */
+export function shouldReloadVpnCoreAfterNetworkChange(ctx: NetContext, action: AutoAction): boolean {
+  return action !== NET_ACTION_DISCONNECT && ctx.kind !== NET_KIND_NONE;
+}

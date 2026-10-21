@@ -7,7 +7,8 @@ import {
   NetAutomationConfig,
   NET_ACTION_DISCONNECT,
   decideNetAutomationAction,
-  networkContextSignature
+  networkContextSignature,
+  shouldReloadVpnCoreAfterNetworkChange
 } from '../core/NetworkAutomation';
 import { NetSceneStopFlag } from '../services/NetSceneStopFlag';
 import { APP_MODE_VPN, AppLanguage, ConnectionStatus, resolveVpnInterfaceAddressConfig, RuntimeStats } from '../core/Profile';
@@ -103,6 +104,8 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   private unhealthySampleCount: number = 0;
   private healthProbeInFlight: boolean = false;
   private runtimeHealthProbePort: number = 0;
+  private activeConfigJson: string = '';
+  private coreReloading: boolean = false;
   // 网络场景自动化（后台断开）：VPN 扩展进程内轮询网络，切到可信网络即拆隧道。
   private netScenePollTimerId: number = -1;
   private netSceneSignature: string = '';
@@ -166,6 +169,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
 
   private async startVpn(want: Want): Promise<void> {
     const configJson = this.getStringParameter(want, 'xrayConfigJson', '');
+    this.activeConfigJson = configJson;
     const useSingbox = isSingboxCore(this.getStringParameter(want, 'coreType', 'xray'));
     this.activeCoreType = useSingbox ? 'singbox' : 'xray';
     // TUN 数据面固定把流量交给主进程传入的回环 SOCKS 入口；完整配置若没有
@@ -335,11 +339,6 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       this.netSceneSignature = signature;
       this.emitInfo('Underlying network changed.',
         `kind=${ctx.kind}; ssid=${ctx.ssid === undefined ? '<none>' : '<redacted>'}; automation=${settings.netAutomationEnabled}`);
-      // TUN 与核心保持运行，让新建出站自然使用系统的新默认承载。自动化关闭时只记录变化，
-      // 不重启、不自动连接/断开，避免一次 Wi-Fi/蜂窝切换被放大成完整 VPN 中断。
-      if (!settings.netAutomationEnabled) {
-        return;
-      }
       const cfg: NetAutomationConfig = {
         enabled: settings.netAutomationEnabled,
         // 固定为「仅可信网络自动断开」——不做自动连接（已移除方向选项）。
@@ -358,6 +357,13 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
           this.emitInfo('Net scene stop flag write failed.', this.errorMessage(error));
         }
         this.requestCleanup('Network scene auto-disconnect.', `session=${this.sessionId}`);
+        return;
+      }
+      if (shouldReloadVpnCoreAfterNetworkChange(ctx, action)) {
+        // 蜂窝→Wi-Fi 常是 make-before-break：旧核心连接可能仍挂在即将消失的承载上。
+        // 只重载当前核心并保留 VPN/TUN，迫使域名解析和新出站使用当前默认网络；一次网络
+        // 签名变化最多执行一次。失败时清理整个会话，等待用户手动重连。
+        await this.reloadCoreAfterNetworkChange();
       }
     } catch (error) {
       if (!this.cleaningUp && !this.stopRequested) {
@@ -365,6 +371,48 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       }
     } finally {
       this.netScenePollInFlight = false;
+    }
+  }
+
+  private async reloadCoreAfterNetworkChange(): Promise<void> {
+    if (this.coreReloading || this.cleaningUp || this.stopRequested || this.activeConfigJson.length === 0) {
+      return;
+    }
+    this.coreReloading = true;
+    try {
+      this.ensureStartAllowed('network handover core reload');
+      const stopResult = this.activeCoreType === 'singbox' ? stopNativeSingbox() : stopNativeXray();
+      if (!stopResult.ok) {
+        throw new Error(stopResult.message);
+      }
+      this.ensureStartAllowed('network handover core stop');
+      const startResult = this.activeCoreType === 'singbox'
+        ? startNativeSingbox(this.activeConfigJson, this.context.filesDir)
+        : startNativeXray(this.activeConfigJson, this.context.filesDir);
+      if (!startResult.ok) {
+        throw new Error(startResult.message);
+      }
+      this.ensureStartAllowed('network handover core start');
+      if (this.runtimeHealthProbePort <= 0) {
+        throw new Error('VPN data-plane SOCKS health port is missing after network handover.');
+      }
+      const ready = await waitForRuntimeSocksHealth(this.runtimeHealthProbePort);
+      this.ensureStartAllowed('network handover SOCKS readiness');
+      if (!ready.ok) {
+        throw new Error(`Core SOCKS data entry did not recover after network handover: ${ready.status}`);
+      }
+      this.unhealthySampleCount = 0;
+      this.lastRuntimeStateAt = 0;
+      this.emitInfo('Core reloaded after underlying network change.',
+        `core=${this.activeCoreType}; session=${this.sessionId}`);
+    } catch (error) {
+      if (!this.stopRequested && !this.cleaningUp) {
+        this.emitError('Core reload after underlying network change failed.', this.errorMessage(error));
+        this.requestCleanup('Network handover recovery failed; cleaning up without reconnecting.',
+          `session=${this.sessionId}`);
+      }
+    } finally {
+      this.coreReloading = false;
     }
   }
 
@@ -528,7 +576,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   }
 
   private async recordStatsSafely(): Promise<void> {
-    if (this.cleaningUp || this.healthProbeInFlight) {
+    if (this.cleaningUp || this.coreReloading || this.healthProbeInFlight) {
       return;
     }
     this.healthProbeInFlight = true;

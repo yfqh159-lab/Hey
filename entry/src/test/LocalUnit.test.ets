@@ -10,7 +10,7 @@ import { buildH2HttpSettings, splitH2Hosts } from '../main/ets/core/H2Transport'
 import { toIdnDomain, toIdnUrl } from '../main/ets/core/IdnUrl';
 import { formatTranslation, missingTranslationKeys, normalizeLanguage, resolveLanguage, resolveSystemLanguage, translate } from '../main/ets/core/I18n';
 import { resolveImportedNodeName } from '../main/ets/core/ImportedNodeNames';
-import { AutoAction, NetAutomationConfig, NetContext, decideNetAutomationAction, isTrustedNetwork, networkContextSignature } from '../main/ets/core/NetworkAutomation';
+import { AutoAction, NetAutomationConfig, NetContext, decideNetAutomationAction, isTrustedNetwork, networkContextSignature, shouldReloadVpnCoreAfterNetworkChange } from '../main/ets/core/NetworkAutomation';
 import { defaultJsonConfigNodeName, resolveJsonConfigNodeName } from '../main/ets/core/JsonConfigNames';
 import { selectRuntimeLocalSocksPort, shouldExposeLocalHttpProxy, shouldUseDynamicLocalSocksPort, withRuntimeLocalSocksPort } from '../main/ets/core/LocalProxy';
 import { parseManualOutboundEditState } from '../main/ets/core/ManualOutboundEditState';
@@ -4958,6 +4958,14 @@ export default function localUnitTest() {
       const c = cfg(['home'], false);
       expect(decide({ kind: 'wifi', ssid: 'home', networkId: 12 }, c, true)).assertEqual('disconnect');
       expect(decide({ kind: 'wifi', networkId: 12 }, c, true)).assertEqual('noop');
+    });
+
+    it('reloads an existing vpn core only for a usable non-disconnecting handover', 0, () => {
+      expect(shouldReloadVpnCoreAfterNetworkChange({ kind: 'wifi', networkId: 12 }, 'noop')).assertTrue();
+      expect(shouldReloadVpnCoreAfterNetworkChange({ kind: 'cellular', networkId: 18 }, 'noop')).assertTrue();
+      expect(shouldReloadVpnCoreAfterNetworkChange({ kind: 'other', networkId: 20 }, 'noop')).assertTrue();
+      expect(shouldReloadVpnCoreAfterNetworkChange({ kind: 'none' }, 'noop')).assertFalse();
+      expect(shouldReloadVpnCoreAfterNetworkChange({ kind: 'wifi', ssid: 'home' }, 'disconnect')).assertFalse();
     });
   });
 }
