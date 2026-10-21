@@ -4,6 +4,7 @@ import { shouldExposeLocalHttpProxy } from '../../core/LocalProxy';
 import {
   isMissingVpnRuntimeStateUnhealthy,
   isProxyOnlyRuntimeUnhealthy,
+  runtimeMayOwnNetwork,
   shouldApplyVpnDiagnosticError,
   shouldCleanupUnhealthyVpnRuntimeState
 } from '../../core/RuntimeHealth';
@@ -483,6 +484,10 @@ export class RuntimeController {
   isBusy(): boolean {
     return this.networkRecoveryInFlight ||
       this.status === ConnectionStatus.STARTING || this.status === ConnectionStatus.STOPPING;
+  }
+
+  mayOwnNetwork(): boolean {
+    return runtimeMayOwnNetwork(this.status, this.controller.requiresCleanup());
   }
 
   // 核心日志、诊断日志、应用日志各自最新在前，合并后按时间倒序统一排列（最新在顶），上限 120 条。

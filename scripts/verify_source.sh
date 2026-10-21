@@ -69,6 +69,30 @@ if [[ "${actual_http_request_files}" != "${expected_http_request_files}" ]]; the
 fi
 printf 'ArkTS HTTP request allowlist verification passed\n'
 
+node <<'NODE'
+const fs = require('fs');
+const health = fs.readFileSync('entry/src/main/ets/core/RuntimeHealth.ets', 'utf8');
+const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeController.ets', 'utf8');
+const routedDownloads = [
+  'entry/src/main/ets/features/assets/AssetsController.ets',
+  'entry/src/main/ets/pages/SubscriptionDetail.ets',
+  'entry/src/main/ets/pages/Subscriptions.ets'
+];
+if (!health.includes('export function runtimeMayOwnNetwork(status: ConnectionStatus, cleanupRequired: boolean)') ||
+  !health.includes('status === ConnectionStatus.ERROR && cleanupRequired') ||
+  !runtime.includes('return runtimeMayOwnNetwork(this.status, this.controller.requiresCleanup());')) {
+  throw new Error('runtime network ownership does not distinguish ordinary errors from incomplete cleanup');
+}
+for (const file of routedDownloads) {
+  const source = fs.readFileSync(file, 'utf8');
+  if (!source.includes('SHARED_RUNTIME_CONTROLLER.mayOwnNetwork()') ||
+    source.includes('runtime.status !== ConnectionStatus.IDLE')) {
+    throw new Error(`${file}: downloads do not use cleanup-aware runtime proxy routing`);
+  }
+}
+NODE
+printf 'cleanup-aware download routing verification passed\n'
+
 # These legacy resources described removed automatic-connect/fastest-node features.
 # Their return would contradict the single-node, user-controlled runtime model even if
 # no current page referenced them, so keep their identifiers out of the translation map.

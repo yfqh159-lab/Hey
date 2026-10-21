@@ -8,6 +8,15 @@ import {
 
 export const VPN_RUNTIME_UNHEALTHY_CONFIRM_MS: number = 12000;
 
+/**
+ * 判断当前控制态是否仍可能持有核心、TUN 或本地监听器。普通配置/授权前错误没有
+ * 创建数据面，允许应用网络请求直连；清理未确认的错误必须继续 fail-closed。
+ */
+export function runtimeMayOwnNetwork(status: ConnectionStatus, cleanupRequired: boolean): boolean {
+  return status === ConnectionStatus.RUNNING || status === ConnectionStatus.STARTING ||
+    status === ConnectionStatus.STOPPING || (status === ConnectionStatus.ERROR && cleanupRequired);
+}
+
 export function isVpnCleanupComplete(
   tunStopped: boolean,
   xrayStopped: boolean,

@@ -23,7 +23,7 @@ import {
 } from '../../core/GeoAssets';
 import { redactDiagnosticText } from '../../core/DiagnosticRedaction';
 import { APP_HTTP_USER_AGENT } from '../../core/HttpDefaults';
-import { AppLanguage, ConnectionStatus, isProxyOnlyRuntimeMode } from '../../core/Profile';
+import { AppLanguage, isProxyOnlyRuntimeMode } from '../../core/Profile';
 import { LOCAL_HTTP_PROXY_HOST, LOCAL_HTTP_PROXY_PORT, VPN_INTERNAL_HTTP_PROXY_PORT } from '../../core/XrayConfig';
 import { translate } from '../../core/I18n';
 import { formatTwo } from '../../utils/LocalizationPresenter';
@@ -387,8 +387,9 @@ export class AssetsController {
     const runtime = SHARED_RUNTIME_CONTROLLER.snapshot();
     // 必须使用当前会话的实际模式，而不是可能已保存、尚待重启才生效的新设置。
     // 已连接时代理入口失败就保留旧文件并报错，不能让被排除在 TUN 外的 Hey 静默直连泄漏。
-    // STARTING/STOPPING/ERROR 也按可能仍持有底层网络处理，只有明确 IDLE 才允许直连。
-    return resolveAssetDownloadProxyPlan(runtime.runtimeMode, runtime.status !== ConnectionStatus.IDLE);
+    // STARTING/STOPPING 均按可能仍持有底层网络处理；ERROR 只有在清理尚未确认时才
+    // fail-closed。配置校验等发生在创建数据面之前的普通错误允许直连更新。
+    return resolveAssetDownloadProxyPlan(runtime.runtimeMode, SHARED_RUNTIME_CONTROLLER.mayOwnNetwork());
   }
 
   private async downloadVerifiedGeo(

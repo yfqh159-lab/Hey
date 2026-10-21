@@ -1,7 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
-import { AppLanguage, ConnectionStatus, ProxyNode, SubscriptionGroup } from '../core/Profile';
+import { AppLanguage, ProxyNode, SubscriptionGroup } from '../core/Profile';
 import { NODES_CONTROLLER, NodesControllerState } from '../features/nodes/NodesController';
 import { SubscriptionNodeListRow } from '../features/subscriptions/SubscriptionRows';
 import { SUBSCRIPTIONS_CONTROLLER, SubscriptionsControllerState } from '../features/subscriptions/SubscriptionsController';
@@ -295,7 +295,7 @@ struct SubscriptionDetailPage {
       const runtime = SHARED_RUNTIME_CONTROLLER.snapshot();
       const proxyPort = SubscriptionManager.resolveSubscriptionProxyPort(
         runtime.runtimeMode,
-        runtime.status !== ConnectionStatus.IDLE
+        SHARED_RUNTIME_CONTROLLER.mayOwnNetwork()
       );
       const state = await SUBSCRIPTIONS_CONTROLLER.update(
         context, this.groupId, this.subscriptionUrl, this.selectedNodeId, this.language, proxyPort);

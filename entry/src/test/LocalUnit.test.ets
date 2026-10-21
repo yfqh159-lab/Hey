@@ -40,6 +40,7 @@ import {
   isMissingVpnRuntimeStateUnhealthy,
   isProxyOnlyRuntimeUnhealthy,
   isVpnCleanupComplete,
+  runtimeMayOwnNetwork,
   shouldApplyVpnDiagnosticError,
   shouldCleanupUnhealthyVpnRuntimeState
 } from '../main/ets/core/RuntimeHealth';
@@ -2930,6 +2931,17 @@ export default function localUnitTest() {
         lastMessage: 'running'
       };
       expect(isProxyOnlyRuntimeUnhealthy(APP_MODE_PROXY_ONLY, ConnectionStatus.RUNNING, runningStats)).assertFalse();
+    });
+
+    it('routes app downloads through runtime only while a data plane may still exist', 0, () => {
+      expect(runtimeMayOwnNetwork(ConnectionStatus.IDLE, false)).assertFalse();
+      expect(runtimeMayOwnNetwork(ConnectionStatus.STARTING, false)).assertTrue();
+      expect(runtimeMayOwnNetwork(ConnectionStatus.RUNNING, false)).assertTrue();
+      expect(runtimeMayOwnNetwork(ConnectionStatus.STOPPING, false)).assertTrue();
+      // A validation/permission error before data-plane creation may use the physical network.
+      expect(runtimeMayOwnNetwork(ConnectionStatus.ERROR, false)).assertFalse();
+      // An unconfirmed cleanup must stay fail-closed and never silently fall back to direct.
+      expect(runtimeMayOwnNetwork(ConnectionStatus.ERROR, true)).assertTrue();
     });
 
     it('requires consecutive missing VPN state samples before cleanup', 0, () => {

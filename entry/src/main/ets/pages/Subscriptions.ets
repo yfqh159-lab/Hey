@@ -2,7 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { IconButton } from '../components/IconButton';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
-import { AppLanguage, ConnectionStatus, SubscriptionGroup } from '../core/Profile';
+import { AppLanguage, SubscriptionGroup } from '../core/Profile';
 import { SUBSCRIPTIONS_CONTROLLER, SubscriptionsControllerState } from '../features/subscriptions/SubscriptionsController';
 import { avatarColor, monogram } from '../features/subscriptions/SubscriptionVisuals';
 import { SETTINGS_CONTROLLER } from '../features/settings/SettingsController';
@@ -376,7 +376,7 @@ struct SubscriptionsPage {
       const runtime = SHARED_RUNTIME_CONTROLLER.snapshot();
       const proxyPort = SubscriptionManager.resolveSubscriptionProxyPort(
         runtime.runtimeMode,
-        runtime.status !== ConnectionStatus.IDLE
+        SHARED_RUNTIME_CONTROLLER.mayOwnNetwork()
       );
       const state = await SUBSCRIPTIONS_CONTROLLER.updateAll(context, this.language, proxyPort);
       this.applySubscriptionsState(state);
