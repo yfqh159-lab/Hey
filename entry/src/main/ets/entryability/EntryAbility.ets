@@ -16,8 +16,8 @@ const DOMAIN = 0x0000;
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
-    // Geo 双文件替换可能因上次进程被杀而中断。必须先同步恢复事务，再初始化
-    // XRAY_LOCATION_ASSET/加载 Go runtime，避免核心观察到半新半旧的数据文件。
+    // Geo 双文件事务或高级单文件替换可能因上次进程被杀而中断。必须先同步恢复，
+    // 再初始化 XRAY_LOCATION_ASSET/加载 Go runtime，避免核心观察到半新半旧或缺失的数据文件。
     try {
       ASSETS_CONTROLLER.recoverInterruptedBuiltinGeoUpdate(this.context);
     } catch (error) {
