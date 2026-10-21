@@ -1,12 +1,14 @@
 import { common } from '@kit.AbilityKit';
 import { AppLanguage } from '../core/Profile';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { SETTINGS_CONTROLLER, SettingsDraft } from '../features/settings/SettingsController';
 import { NETWORK_SCENE_MANAGER } from '../services/NetworkSceneManager';
 import { NetworkProbe, WifiScanEntry } from '../services/NetworkProbe';
 import { PageHeader } from '../shell/PageHeader';
 import { BOTTOM_SAFE_HEIGHT_KEY } from '../core/Immersive';
 import { AppColor, FontSz, Radius, Space } from '../theme/Theme';
+import { formatOne } from '../utils/LocalizationPresenter';
 
 @Entry
 @Component
@@ -20,6 +22,8 @@ struct NetworkScenarioPage {
   @State private scanEntries: WifiScanEntry[] = [];
   @State private showScanResults: boolean = false;
   private draft: SettingsDraft | null = null;
+  private settingsSaveInFlight: boolean = false;
+  private settingsSavePending: boolean = false;
 
   aboutToAppear(): void {
     this.loadState();
@@ -334,18 +338,52 @@ struct NetworkScenarioPage {
     this.saveSettings();
   }
 
-  private async saveSettings(): Promise<void> {
-    if (this.draft === null) {
+  private saveSettings(): void {
+    this.settingsSavePending = true;
+    if (this.settingsSaveInFlight) {
       return;
     }
-    this.draft.netAutomationTrustedSsids = this.trustedSsids;
-    this.draft.netAutomationCellularTrusted = this.cellularTrusted;
-    const context = this.getUIContext().getHostContext() as common.Context;
-    this.draft = SETTINGS_CONTROLLER.toDraft(await SETTINGS_CONTROLLER.save(context, this.draft));
-    // 可信集合只影响之后的自动断开决策，不进入核心、TUN 或监听配置，因此不能
-    // 请求数据面重启。按新配置立即补判当前网络即可。
-    NETWORK_SCENE_MANAGER.ensureStarted(context);
-    NETWORK_SCENE_MANAGER.refreshNow(true);
+    this.drainSettingsSaves();
+  }
+
+  private async drainSettingsSaves(): Promise<void> {
+    if (this.draft === null) {
+      this.settingsSavePending = false;
+      return;
+    }
+    this.settingsSaveInFlight = true;
+    try {
+      const context = this.getUIContext().getHostContext() as common.Context;
+      // 多次快速切换/增删只允许一个 Preferences 写入在途。写入完成后若期间又有编辑，
+      // 用页面最新状态再写一次，避免较慢的旧请求最后覆盖新列表。
+      while (this.settingsSavePending) {
+        this.settingsSavePending = false;
+        const draft = this.draft;
+        if (draft === null) {
+          break;
+        }
+        draft.netAutomationTrustedSsids = this.trustedSsids.slice();
+        draft.netAutomationCellularTrusted = this.cellularTrusted;
+        this.draft = SETTINGS_CONTROLLER.toDraft(await SETTINGS_CONTROLLER.save(context, draft));
+      }
+      // 可信集合只影响之后的自动断开决策，不进入核心、TUN 或监听配置，因此不能
+      // 请求数据面重启。整批最新状态落盘后只补判一次当前网络。
+      NETWORK_SCENE_MANAGER.ensureStarted(context);
+      NETWORK_SCENE_MANAGER.refreshNow(true);
+    } catch (error) {
+      this.toast(formatOne(
+        this.language,
+        'error.saveSettings',
+        'error',
+        redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error))
+      ));
+    } finally {
+      this.settingsSaveInFlight = false;
+      // catch 执行期间仍可能收到新的用户编辑；交给一轮新的单飞写入，不递归并发。
+      if (this.settingsSavePending) {
+        this.saveSettings();
+      }
+    }
   }
 
   private toast(message: string): void {

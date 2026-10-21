@@ -145,7 +145,10 @@ printf 'manual connection policy translation verification passed\n'
 # re-evaluated immediately without scheduling a core/TUN restart.
 network_scenario_source='entry/src/main/ets/pages/NetworkScenario.ets'
 if grep -Fq 'markRuntimeSettingsRestartNeeded' "${network_scenario_source}" ||
-  ! grep -Fq 'NETWORK_SCENE_MANAGER.refreshNow(true);' "${network_scenario_source}"; then
+  ! grep -Fq 'NETWORK_SCENE_MANAGER.refreshNow(true);' "${network_scenario_source}" ||
+  ! grep -Fq 'private settingsSaveInFlight: boolean = false;' "${network_scenario_source}" ||
+  ! grep -Fq 'while (this.settingsSavePending)' "${network_scenario_source}" ||
+  ! grep -Fq 'draft.netAutomationTrustedSsids = this.trustedSsids.slice();' "${network_scenario_source}"; then
   printf 'trusted-network settings can still restart the active data plane\n' >&2
   exit 1
 fi
