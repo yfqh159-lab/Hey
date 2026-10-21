@@ -157,7 +157,7 @@ export class AssetsController {
       for (let index = 0; index < manifest.files.length; index++) {
         const releaseFile = manifest.files[index];
         const checksumText = await this.requestText(releaseFile.checksumUrl, proxyPlan);
-        const expectedSha256 = parseSha256Checksum(checksumText);
+        const expectedSha256 = parseSha256Checksum(checksumText, releaseFile.fileName);
         if (expectedSha256.length !== 64) {
           throw new Error(`${releaseFile.fileName}: invalid SHA-256 checksum`);
         }

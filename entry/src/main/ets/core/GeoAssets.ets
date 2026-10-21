@@ -190,9 +190,23 @@ export function parseDefaultGeoRelease(content: string): GeoManifestParseResult 
   }
 }
 
-export function parseSha256Checksum(content: string): string {
-  const match = content.trim().toLowerCase().match(/^[0-9a-f]{64}(?=\s|$)/);
-  return match === null ? '' : match[0];
+export function parseSha256Checksum(content: string, expectedFileName: string = ''): string {
+  // `.sha256sum` 应是单条校验记录。不能只截取开头 64 位后忽略其余行，否则一个
+  // 聚合/错误响应也可能被误当成目标文件的校验信息。自定义源允许只返回哈希；可信
+  // 默认 Release 传入 expectedFileName 后，还必须把校验记录绑定到对应资产名。
+  const normalized = content.trim();
+  if (normalized.length === 0 || normalized.includes('\n') || normalized.includes('\r')) {
+    return '';
+  }
+  const match = normalized.match(/^([0-9A-Fa-f]{64})(?:[ \t]+[*]?([^ \t].*?))?[ \t]*$/);
+  if (match === null) {
+    return '';
+  }
+  const recordedFileName = (match[2] ?? '').trim();
+  if (expectedFileName.length > 0 && recordedFileName !== expectedFileName) {
+    return '';
+  }
+  return match[1].toLowerCase();
 }
 
 export function isPlausibleGeoData(data: ArrayBuffer, declaredSize: number = 0): boolean {

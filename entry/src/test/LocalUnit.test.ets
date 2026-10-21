@@ -2289,6 +2289,12 @@ export default function localUnitTest() {
       expect(parsed.manifest?.files.length).assertEqual(2);
       const checksum = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
       expect(parseSha256Checksum(`${checksum}  geosite.dat\n`)).assertEqual(checksum);
+      expect(parseSha256Checksum(`${checksum}  geosite.dat\n`, 'geosite.dat')).assertEqual(checksum);
+      expect(parseSha256Checksum(`${checksum} *geosite.dat`, 'geosite.dat')).assertEqual(checksum);
+      expect(parseSha256Checksum(checksum.toUpperCase(), '')).assertEqual(checksum);
+      expect(parseSha256Checksum(`${checksum}  geoip.dat`, 'geosite.dat')).assertEqual('');
+      expect(parseSha256Checksum(`${checksum}  geosite.dat\n${checksum}  geoip.dat`)).assertEqual('');
+      expect(parseSha256Checksum(checksum, 'geosite.dat')).assertEqual('');
       expect(parseSha256Checksum('not-a-checksum')).assertEqual('');
     });
 
