@@ -1423,6 +1423,7 @@ export default function localUnitTest() {
     it('enables local socks proxy by default', 0, () => {
       expect(DEFAULT_APP_SETTINGS.localSocksEnabled).assertTrue();
       expect(DEFAULT_APP_SETTINGS.localSocksPort).assertEqual(18080);
+      expect(DEFAULT_APP_SETTINGS.appendHttpProxy).assertTrue();
       // tun2socks 引擎默认 gvisor（useHevTun=false），hev 引擎需显式开启
       expect(DEFAULT_APP_SETTINGS.useHevTun).assertFalse();
       expect(DEFAULT_APP_SETTINGS.hevTunLogLevel).assertEqual(DEFAULT_HEV_TUN_LOG_LEVEL);
@@ -1438,6 +1439,9 @@ export default function localUnitTest() {
       expect(result.configJson).assertContain('"port": 18080');
       expect(result.configJson).assertContain('"auth": "noauth"');
       expect(result.configJson).assertContain('"udp": true');
+      expect(result.configJson).assertContain('"tag": "http-in"');
+      expect(result.configJson).assertContain('"listen": "127.0.0.1"');
+      expect(result.configJson).assertContain('"port": 18081');
       expect(result.socksPort).assertEqual(LOCAL_SOCKS_PROXY_PORT);
     });
 
@@ -2408,8 +2412,11 @@ export default function localUnitTest() {
       expect(alt.summary).assertEqual('198.51.100.9');
 
       expect(parseRemoteIpInfoContent('{').ok).assertFalse();
-      // 出厂不带查询地址：未填写时返回空串，调用方据此跳过请求。
-      expect(DEFAULT_IP_API_URL).assertEqual('');
+      expect(parseRemoteIpInfoContent('{}').status).assertEqual('missing-ip');
+      expect(parseRemoteIpInfoContent('{"ip":"not-an-ip"}').status).assertEqual('invalid-ip');
+      expect(parseRemoteIpInfoContent('{"ip":"2001:db8::1"}').ok).assertTrue();
+      // 默认端点仅返回 IP；高级设置留空时仍可明确关闭查询。
+      expect(DEFAULT_IP_API_URL).assertEqual('https://api.ipify.org?format=json');
       expect(normalizeIpApiUrl('')).assertEqual('');
       expect(normalizeIpApiUrl('ftp://example.com')).assertEqual('');
     });

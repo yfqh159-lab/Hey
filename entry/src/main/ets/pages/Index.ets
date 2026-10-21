@@ -107,6 +107,8 @@ struct Index {
   @State private connectionDelayMs: number = -1;
   @State private connectionDelayTesting: boolean = false;
   @State private connectionDelayFailed: boolean = false;
+  @State private egressIp: string = '';
+  @State private egressIpChecking: boolean = false;
   // 首页自动测速调度：当前连接会话起始时间（用于识别新会话）与上次自动触发时刻。
   private connectionStartedAt: number = 0;
   private autoDelayTestSessionAt: number = 0;
@@ -693,6 +695,7 @@ struct Index {
         .alignItems(HorizontalAlign.Center)
 
         this.ConnectionDelayChip()
+        this.EgressIpChip()
       }
       .layoutWeight(1)
       .width('100%')
@@ -781,6 +784,37 @@ struct Index {
     .onClick(() => {
       this.testCurrentConnectionDelay();
     })
+  }
+
+  @Builder
+  private EgressIpChip() {
+    Row({ space: 6 }) {
+      if (this.egressIpChecking) {
+        LoadingProgress()
+          .width(14)
+          .height(14)
+          .color(AppColor.textSecondary)
+      }
+      Text(this.egressIpText())
+        .fontSize(FontSz.footnote)
+        .fontColor(this.egressIp.length > 0 ? AppColor.success : AppColor.textSecondary)
+    }
+    .height(32)
+    .padding({ left: Space.lg, right: Space.lg })
+    .backgroundColor(AppColor.surface)
+    .borderRadius(Radius.pill)
+    .border({ width: 1, color: AppColor.border })
+    .visibility(this.isRunning() ? Visibility.Visible : Visibility.Hidden)
+  }
+
+  private egressIpText(): string {
+    if (this.egressIpChecking) {
+      return this.t('home.egressIpChecking');
+    }
+    if (this.egressIp.length > 0) {
+      return this.f1('home.egressIp', 'value', this.egressIp);
+    }
+    return this.t('home.egressIpUnavailable');
   }
 
   private connectionDelayText(): string {
@@ -2243,6 +2277,8 @@ struct Index {
     this.connectionDelayMs = state.connectionDelayMs;
     this.connectionDelayTesting = state.connectionDelayTesting;
     this.connectionDelayFailed = state.connectionDelayFailed;
+    this.egressIp = state.egressIp;
+    this.egressIpChecking = state.egressIpChecking;
     this.stats = state.stats;
     this.updateRealtimeSpeed();
     this.accumulateTraffic();

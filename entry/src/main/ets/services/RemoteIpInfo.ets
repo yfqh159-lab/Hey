@@ -49,14 +49,18 @@ export async function fetchRemoteIpInfo(ipApiUrl: string, proxyPort: number, tim
       return failedRemoteIpInfo(`HTTP ${response.responseCode}`);
     }
     return parseRemoteIpInfoContent(responseBodyText(response.result));
-  } catch (error) {
-    return failedRemoteIpInfo(JSON.stringify(error));
+  } catch (_error) {
+    // 系统异常文本可能回显自定义 URL（其中可能含私密查询参数），日志只保留稳定错误码。
+    return failedRemoteIpInfo('request-failed');
   } finally {
     request.destroy();
   }
 }
 
 export function parseRemoteIpInfoContent(content: string): RemoteIpInfoResult {
+  if (content.length > 4096) {
+    return failedRemoteIpInfo('response-too-large');
+  }
   try {
     const payload = JSON.parse(content) as RemoteIpPayload;
     const ip = firstNonEmpty([
@@ -66,17 +70,40 @@ export function parseRemoteIpInfoContent(content: string): RemoteIpInfoResult {
       payload.query
     ]);
     // 只回报出口 IP，不解析也不展示地理归属。
-    return {
-      ok: true,
-      summary: ip.length > 0 ? ip : 'unknown',
-      status: 'ok'
-    };
+    if (!looksLikeIpLiteral(ip)) {
+      return failedRemoteIpInfo(ip.length === 0 ? 'missing-ip' : 'invalid-ip');
+    }
+    return { ok: true, summary: ip, status: 'ok' };
   } catch (error) {
     return failedRemoteIpInfo(`parse-failed: ${JSON.stringify(error)}`);
   }
 }
 
-// 未填写地址时返回空串，调用方据此跳过请求。应用不预置任何查询服务。
+function looksLikeIpLiteral(value: string): boolean {
+  if (value.length < 2 || value.length > 64 || !/^[0-9a-fA-F:.]+$/.test(value)) {
+    return false;
+  }
+  if (value.indexOf(':') >= 0) {
+    return value.split(':').length <= 9;
+  }
+  const parts = value.split('.');
+  if (parts.length !== 4) {
+    return false;
+  }
+  for (let index = 0; index < parts.length; index++) {
+    const part = parts[index];
+    if (part.length === 0 || part.length > 3 || !/^\d+$/.test(part)) {
+      return false;
+    }
+    const numberValue = Number(part);
+    if (numberValue < 0 || numberValue > 255) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// 未填写地址时返回空串，调用方据此跳过请求；高级设置仍允许替换或关闭默认服务。
 export function normalizeIpApiUrl(ipApiUrl: string): string {
   const target = ipApiUrl.trim();
   if (target.startsWith('http://') || target.startsWith('https://')) {

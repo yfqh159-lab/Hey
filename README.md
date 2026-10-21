@@ -43,8 +43,11 @@ Geo release and verify both core files against its published SHA-256 sums.
 
 Concretely, the repository ships no server address, no config source, no rule
 set, and no region or country preset. Geo files are downloaded only after the
-user taps the check action; they are not bundled or updated on a schedule. The factory defaults for the delay-test
-URL, the egress address lookup, and every DNS field are empty. Deep links,
+user taps the check action; they are not bundled or updated on a schedule. The
+factory defaults for the delay-test URL and every DNS field are empty. Exit-IP
+checks use an HTTPS endpoint that returns only the public address, run only
+after the user starts a proxy, and can be disabled or replaced in advanced
+settings. Deep links,
 shared text, and scanned codes always show what they contain and wait for an
 explicit confirmation before anything is added or fetched.
 
@@ -134,9 +137,9 @@ traffic stats.
   `geosite.dat` checks from the maintained default release, published SHA-256
   verification, safe replacement/rollback, advanced user-supplied URLs with
   companion checksum files, and local file import. Runtime logs, core logs,
-  optional speed display, persistent traffic totals, egress address lookup
-  (does nothing unless you configure an endpoint, and reports the address
-  only), and English/Chinese plus additional language resources are included.
+  optional speed display, persistent traffic totals, and an exit-IP check shown
+  on the connection page (the built-in HTTPS endpoint reports the address only).
+  English/Chinese plus additional language resources are included.
 - Backup/restore: profile, subscription groups, settings, routing rules,
   per-app list, and custom asset URLs are exported as local JSON. Runtime
   traffic totals and control-card state are intentionally not migrated.
@@ -168,8 +171,10 @@ docs/                             Native build and HarmonyOS notes
 ## Build And Install
 
 **This repository ships source code only.** No prebuilt package is provided or
-distributed, and the app has no in-app update or download path. Build it
-yourself with your own signing key using the instructions below.
+distributed, and the app has no self-update, package-download, or install path.
+The user-initiated Geo data update is limited to Xray data files and never
+downloads application packages. Build the app yourself with your own signing
+key using the instructions below.
 
 
 `build-profile.json5` is a local DevEco Studio file and is ignored by Git because
@@ -221,6 +226,10 @@ Useful device commands:
 ./scripts/device_vpn_smoke_test.sh install
 ./scripts/device_vpn_smoke_test.sh logs
 ```
+
+The target-device test matrix and evidence fields are in
+[`docs/device-acceptance.md`](docs/device-acceptance.md). Items in that document
+remain **not verified** until they are completed on the actual signed device.
 
 ## Native Libraries
 

@@ -2,7 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { DEFAULT_LANGUAGE, translate } from '../../core/I18n';
 import { shouldExposeLocalHttpProxy } from '../../core/LocalProxy';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppLanguage, AppRuntimeMode, AppSettings, ConnectionStatus, normalizeAppRuntimeMode, ProxyProfile, RuntimeStats } from '../../core/Profile';
-import { LOCAL_HTTP_PROXY_PORT } from '../../core/XrayConfig';
+import { LOCAL_HTTP_PROXY_PORT, VPN_DATA_SOCKS_PORT } from '../../core/XrayConfig';
 import { CoreSelectionStore, isSingboxCore } from '../../core/CoreSelection';
 import { ConnectionController, ConnectionSnapshot } from '../../services/ConnectionController';
 import { NetSceneStopFlag } from '../../services/NetSceneStopFlag';
@@ -34,6 +34,8 @@ export interface RuntimeViewState {
   connectionDelayMs: number;
   connectionDelayTesting: boolean;
   connectionDelayFailed: boolean;
+  egressIp: string;
+  egressIpChecking: boolean;
 }
 
 export class RuntimeController {
@@ -57,12 +59,16 @@ export class RuntimeController {
   private connectionDelayMs: number = -1;
   private connectionDelayTesting: boolean = false;
   private connectionDelayFailed: boolean = false;
+  // 只保存当前会话经代理实测得到的公网 IP；断开/切换会话立即清空，避免展示旧出口。
+  private egressIp: string = '';
+  private egressIpChecking: boolean = false;
 
   async start(context: common.Context, profile: ProxyProfile, settings: AppSettings, language: AppLanguage): Promise<RuntimeViewState> {
     this.runtimeMode = normalizeAppRuntimeMode(settings.mode, APP_MODE_VPN);
     this.activeProfile = profile;
     this.activeSettings = settings;
     this.resetConnectionDelay();
+    this.resetEgressIp();
     this.appendLog(this.runtimeMode === APP_MODE_PROXY_ONLY ? translate(language, 'log.startingProxy') : translate(language, 'log.startingVpn'));
     const snapshot = await this.controller.start(context, profile, settings);
     this.applySnapshot(snapshot, language);
@@ -80,6 +86,7 @@ export class RuntimeController {
   async stop(context: common.Context, language: AppLanguage): Promise<RuntimeViewState> {
     const stoppingMode = this.runtimeMode;
     this.resetConnectionDelay();
+    this.resetEgressIp();
     this.appendLog(stoppingMode === APP_MODE_PROXY_ONLY ? translate(language, 'log.stoppingProxy') : translate(language, 'log.stoppingVpn'));
     const snapshot = await this.controller.stop(context);
     this.applySnapshot(snapshot, language);
@@ -110,6 +117,7 @@ export class RuntimeController {
     this.activeProfile = null;
     this.activeSettings = null;
     this.resetConnectionDelay();
+    this.resetEgressIp();
   }
 
   // 运行中按传入的新 Profile 热切换：先停后启。非运行态直接返回当前快照，调用方无需自行判断。
@@ -191,7 +199,9 @@ export class RuntimeController {
       stats: this.stats,
       connectionDelayMs: this.connectionDelayMs,
       connectionDelayTesting: this.connectionDelayTesting,
-      connectionDelayFailed: this.connectionDelayFailed
+      connectionDelayFailed: this.connectionDelayFailed,
+      egressIp: this.egressIp,
+      egressIpChecking: this.egressIpChecking
     };
   }
 
@@ -306,7 +316,12 @@ export class RuntimeController {
     language: AppLanguage,
     startedAt: number
   ): void {
+    this.egressIpChecking = this.status === ConnectionStatus.RUNNING &&
+      this.resolveRemoteIpProxyPort(profile, settings) > 0;
     this.appendRuntimeConnectivityInfo(context, profile, settings, language, startedAt).catch((error: Object) => {
+      if (this.startedAt === startedAt) {
+        this.egressIpChecking = false;
+      }
       this.appendLog(formatOne(language, 'log.connectionDelayError', 'error', JSON.stringify(error)));
     });
   }
@@ -322,9 +337,8 @@ export class RuntimeController {
     if (delayResult === null) {
       return;
     }
-    if (delayResult.ok || delayResult.status === 'unsupported-config') {
-      await this.appendRemoteIpInfo(profile, settings, language, startedAt);
-    }
+    // 出口 IP 请求本身就是经代理的 HTTPS 连通性验证，不依赖 TCP 延迟探测是否成功。
+    await this.appendRemoteIpInfo(profile, settings, language, startedAt);
   }
 
   // 点按复测「当前连接」延迟（连接页胶囊触发）。复用启动时自动测速的同一条链路与日志格式，
@@ -373,15 +387,41 @@ export class RuntimeController {
     this.connectionDelayFailed = false;
   }
 
+  private resetEgressIp(): void {
+    this.egressIp = '';
+    this.egressIpChecking = false;
+  }
+
   private async appendRemoteIpInfo(profile: ProxyProfile, settings: AppSettings, language: AppLanguage, startedAt: number): Promise<void> {
-    if (this.status !== ConnectionStatus.RUNNING || this.startedAt !== startedAt || !shouldExposeLocalHttpProxy(settings) ||
-      (profile.configType ?? 'outbound') === 'full') {
+    const proxyPort = this.resolveRemoteIpProxyPort(profile, settings);
+    if (this.status !== ConnectionStatus.RUNNING || this.startedAt !== startedAt || proxyPort <= 0) {
+      if (this.startedAt === startedAt) {
+        this.egressIpChecking = false;
+      }
       return;
     }
-    const result: RemoteIpInfoResult = await fetchRemoteIpInfo(settings.ipApiUrl, LOCAL_HTTP_PROXY_PORT);
-    if (this.status === ConnectionStatus.RUNNING && this.startedAt === startedAt && result.ok && result.summary.length > 0) {
-      this.appendLog(formatOne(language, 'log.remoteIpInfo', 'info', result.summary));
+    const result: RemoteIpInfoResult = await fetchRemoteIpInfo(settings.ipApiUrl, proxyPort);
+    if (this.status !== ConnectionStatus.RUNNING || this.startedAt !== startedAt) {
+      return;
     }
+    this.egressIpChecking = false;
+    if (result.ok && result.summary.length > 0) {
+      this.egressIp = result.summary;
+      this.appendLog(formatOne(language, 'log.remoteIpInfo', 'info', result.summary));
+    } else {
+      this.appendLog(formatOne(language, 'log.remoteIpInfoFailed', 'error', result.status));
+    }
+  }
+
+  private resolveRemoteIpProxyPort(profile: ProxyProfile, settings: AppSettings): number {
+    if ((profile.configType ?? 'outbound') === 'full' || settings.ipApiUrl.trim().length === 0) {
+      return 0;
+    }
+    // sing-box 的 VPN 数据入站是仅监听回环地址的 mixed(SOCKS+HTTP) 端口，可直接用于检测。
+    if (isSingboxCore(this.controller.getSnapshot().coreType)) {
+      return VPN_DATA_SOCKS_PORT;
+    }
+    return shouldExposeLocalHttpProxy(settings) ? LOCAL_HTTP_PROXY_PORT : 0;
   }
 
   private async refreshDiagnostics(context: common.Context, language: AppLanguage): Promise<void> {
@@ -441,6 +481,7 @@ export class RuntimeController {
     this.activeProfile = null;
     this.activeSettings = null;
     this.resetConnectionDelay();
+    this.resetEgressIp();
     this.appendLog(message);
   }
 

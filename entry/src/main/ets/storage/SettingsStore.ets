@@ -49,7 +49,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   // 关掉时浏览器的 UDP/53 会被原样转发给节点，节点不放行 UDP 时解析失败（issue #6）。
   localDnsEnabled: true,
   fakeDnsEnabled: false,
-  appendHttpProxy: false,
+  // 默认只监听 127.0.0.1，供出口 IP 检测与 Geo 下载复用；只有用户另行开启共享时才监听 LAN。
+  appendHttpProxy: true,
   localSocksEnabled: true,
   localSocksPort: 18080,
   localSocksDynamicPort: false,

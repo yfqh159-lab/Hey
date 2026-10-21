@@ -123,10 +123,10 @@ export const VPN_INTERFACE_ADDRESS_CONFIGS: Array<VpnInterfaceAddressConfig> = [
 ];
 
 export const DEFAULT_VPN_INTERFACE_ADDRESS_INDEX: number = 0;
-// 探测端点默认留空，由用户自行填写。留空时延迟测试退化为到服务器的 TCP 握手时延，
-// 出口地址查询不发起请求。应用不预置任何探测目标。
+// 延迟探测端点默认留空，测速退化为到服务器的 TCP 握手时延。出口地址仅在代理已经
+// 运行后通过本地回环 HTTP 代理查询；默认服务只返回公网 IP，不请求地理归属信息。
 export const DEFAULT_DELAY_TEST_URL: string = '';
-export const DEFAULT_IP_API_URL: string = '';
+export const DEFAULT_IP_API_URL: string = 'https://api.ipify.org?format=json';
 export const VPN_BYPASS_LAN_FOLLOW_CONFIG: string = '0';
 export const VPN_BYPASS_LAN_BYPASS: string = '1';
 export const VPN_BYPASS_LAN_PROXY: string = '2';
