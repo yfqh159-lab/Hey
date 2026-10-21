@@ -107,6 +107,19 @@ export class ControlCardManager {
       return state;
     }
     let persisted = VpnRuntimeStateStore.read(context);
+    if (VpnRuntimeStateStore.hasInvalidStateArtifacts(context)) {
+      // 可能已回退到旧 inactive/active 备份，不能据此宣称空闲或运行。该结果不落盘，
+      // Extension 下一次成功心跳修复文件后，卡片仍可自行恢复。
+      return buildControlCardFormData(
+        state.language,
+        ConnectionStatus.ERROR,
+        '',
+        translate(state.language, 'runtime.vpnHealthLost'),
+        false,
+        APP_MODE_VPN,
+        true
+      );
+    }
     if (persisted !== null && isPersistedVpnRuntimeHealthy(persisted, Date.now())) {
       const expectedSessionId = persisted.sessionId;
       const expectedStartedAt = persisted.startedAt;

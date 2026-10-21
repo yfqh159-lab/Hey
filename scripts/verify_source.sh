@@ -1155,6 +1155,7 @@ const health = fs.readFileSync('entry/src/main/ets/core/RuntimeHealth.ets', 'utf
 const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeController.ets', 'utf8');
 const runtimeStateStore = fs.readFileSync('entry/src/main/ets/services/VpnRuntimeStateStore.ets', 'utf8');
 const controlCardManager = fs.readFileSync('entry/src/main/ets/services/ControlCardManager.ets', 'utf8');
+const subscriptionWorker = fs.readFileSync('entry/src/main/ets/work/SubscriptionUpdateWorkAbility.ets', 'utf8');
 const vpn = fs.readFileSync('entry/src/main/ets/vpn/HeyVpnAbility.ets', 'utf8');
 if (!connection.includes('vpnSessionId: string;') ||
   !connection.includes('vpnSessionId: this.vpnSessionId')) {
@@ -1166,6 +1167,16 @@ if (!health.includes('expectedSessionId: string') || !health.includes('eventDeta
 }
 if (!runtimeStateStore.includes('(!value.active && (value.xrayRunning || value.tunRunning))')) {
   throw new Error('an inactive VPN state can still claim running core/TUN resources');
+}
+if (!runtimeStateStore.includes('static hasInvalidStateArtifacts(context: common.Context): boolean') ||
+  !runtimeStateStore.includes('parsePersistedVpnRuntimeState(fs.readTextSync(path)) === null') ||
+  !runtimeStateStore.includes('// 无法确认是瞬时访问错误还是损坏，涉及订阅凭据时必须保守处理。')) {
+  throw new Error('callers cannot distinguish absent VPN state from corrupt/unreadable state artifacts');
+}
+if (!subscriptionWorker.includes(
+  'const vpnStateArtifactsInvalid = VpnRuntimeStateStore.hasInvalidStateArtifacts(context);') ||
+  !subscriptionWorker.includes('vpnStateArtifactsInvalid || (vpnState !== null && vpnState.active)')) {
+  throw new Error('background subscriptions can direct-connect after a corrupt VPN state fallback');
 }
 const cardReconcileAt = controlCardManager.indexOf('  private async loadReconciledState(');
 const cardReconcileEnd = controlCardManager.indexOf('\n  private async updateOne(', cardReconcileAt);
@@ -1182,6 +1193,11 @@ if (cardReconcileAt < 0 || cardReconcileEnd < 0 || cardProbeAt < 0 ||
   !cardReconcile.includes('APP_MODE_VPN,\n          true') ||
   cardReconcile.includes('ControlCardStore.saveState(\n          context,\n          buildControlCardFormData(\n          state.language,\n          ConnectionStatus.ERROR')) {
   throw new Error('control card can trust a stale VPN heartbeat without a session-bound data-plane probe');
+}
+if (!cardReconcile.includes('VpnRuntimeStateStore.hasInvalidStateArtifacts(context)') ||
+  !cardReconcile.includes('// 可能已回退到旧 inactive/active 备份') ||
+  !cardReconcile.includes('APP_MODE_VPN,\n        true')) {
+  throw new Error('control card can present a corrupt VPN state fallback as authoritative');
 }
 const applyAt = runtime.indexOf('  private async applyDiagnosticError(');
 const apply = runtime.slice(applyAt);
@@ -1227,6 +1243,18 @@ if (persistedReconcileAt < 0 || persistedReconcileEnd < 0 ||
   !runtime.includes('current.sessionId === expectedSessionId') ||
   !runtime.includes('current.startedAt === expectedStartedAt')) {
   throw new Error('persisted VPN recovery can trust a stale active file or overwrite a newer session');
+}
+const invalidArtifactAt = persistedReconcile.indexOf(
+  'const stateArtifactsInvalid = VpnRuntimeStateStore.hasInvalidStateArtifacts(context);');
+const invalidArtifactBranchAt = persistedReconcile.indexOf('if (stateArtifactsInvalid) {', invalidArtifactAt);
+const invalidArtifactCleanupAt = persistedReconcile.indexOf(
+  'await this.cleanupUnhealthyVpn(context, language);', invalidArtifactBranchAt);
+const inactiveFallbackGuardAt = persistedReconcile.indexOf('if (!persisted.active) {', invalidArtifactBranchAt);
+if (invalidArtifactAt < 0 || invalidArtifactBranchAt < invalidArtifactAt ||
+  invalidArtifactCleanupAt < invalidArtifactBranchAt || inactiveFallbackGuardAt < invalidArtifactCleanupAt ||
+  !persistedReconcile.slice(invalidArtifactBranchAt, inactiveFallbackGuardAt)
+    .includes('shouldCleanupUnhealthyVpnRuntimeState(')) {
+  throw new Error('corrupt VPN state artifacts can immediately trust an old inactive/active backup');
 }
 if (!vpn.includes("this.emitInfo('VPN runtime state heartbeat write failed; retrying.'") ||
   !vpn.includes("`session=${this.sessionId}; error=${this.errorMessage(error)}`") ||

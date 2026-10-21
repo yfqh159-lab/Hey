@@ -174,6 +174,29 @@ export class VpnRuntimeStateStore {
     }
   }
 
+  // read() 会为可恢复性回退到备份；需要决定是否允许物理网络直连的调用方还必须知道
+  // 是否存在损坏/不可读工件。只要任一已存在文件无法读取或解析，就按“可能仍持有 VPN”
+  // fail-closed，等待 Extension 后续心跳用新的原子写入修复。
+  static hasInvalidStateArtifacts(context: common.Context): boolean {
+    const fileNames = [
+      VPN_RUNTIME_STATE_FILE,
+      VPN_RUNTIME_STATE_TEMP_FILE,
+      VPN_RUNTIME_STATE_BACKUP_FILE
+    ];
+    for (let index = 0; index < fileNames.length; index++) {
+      const path = VpnRuntimeStateStore.path(context, fileNames[index]);
+      try {
+        if (fs.accessSync(path) && parsePersistedVpnRuntimeState(fs.readTextSync(path)) === null) {
+          return true;
+        }
+      } catch (error) {
+        // 无法确认是瞬时访问错误还是损坏，涉及订阅凭据时必须保守处理。
+        return true;
+      }
+    }
+    return false;
+  }
+
   static stopped(
     sessionId: string,
     startedAt: number,
