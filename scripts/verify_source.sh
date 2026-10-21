@@ -27,7 +27,9 @@ done
 # A sparse clone can look clean while build-critical tracked files are absent from disk.
 # Reject skipped AppScope/entry paths when verification runs inside a Git checkout;
 # source archives still get the explicit file checks above.
+inside_git_checkout=false
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  inside_git_checkout=true
   skipped_project_files="$(git ls-files -t AppScope entry | awk '$1 == "S" { print $2 }')"
   if [[ -n "${skipped_project_files}" ]]; then
     printf 'build-critical files are excluded by sparse checkout:\n%s\n' "${skipped_project_files}" >&2
@@ -37,7 +39,11 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 printf 'project skeleton verification passed\n'
 
-git diff --check
+if [[ "${inside_git_checkout}" == true ]]; then
+  git diff --check
+else
+  printf 'Git diff verification skipped outside a checkout\n'
+fi
 ./scripts/compliance_scan.sh
 ./scripts/verify_prebuilt_native.sh
 bash -n scripts/*.sh
