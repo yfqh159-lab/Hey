@@ -1,14 +1,26 @@
 import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
-import { preferences } from '@kit.ArkData';
+import { cryptoFramework } from '@kit.CryptoArchitectureKit';
+import { util } from '@kit.ArkTS';
 import { http } from '@kit.NetworkKit';
 import fs from '@ohos.file.fs';
+import {
+  BUILTIN_GEO_DATA_FILE_NAMES,
+  DEFAULT_GEO_RELEASE_API,
+  MAX_GEO_DATA_BYTES,
+  isAllowedGeoAssetRedirect,
+  isPlausibleGeoData,
+  parseHttpRedirectLocation,
+  parseDefaultGeoRelease,
+  parseSha256Checksum
+} from '../../core/GeoAssets';
+import { APP_HTTP_USER_AGENT } from '../../core/HttpDefaults';
 import { shouldExposeLocalHttpProxy } from '../../core/LocalProxy';
 import { AppLanguage } from '../../core/Profile';
 import { LOCAL_HTTP_PROXY_HOST, LOCAL_HTTP_PROXY_PORT } from '../../core/XrayConfig';
 import { translate } from '../../core/I18n';
 import { formatTwo } from '../../utils/LocalizationPresenter';
-import { AssetStore, CustomAssetUrl } from '../../storage/AssetStore';
+import { AssetStore, CustomAssetUrl, GeoAssetMetadata, GeoUpdateMetadata } from '../../storage/AssetStore';
 import { SettingsStore } from '../../storage/SettingsStore';
 
 
@@ -19,11 +31,34 @@ export function buildAssetDownloadProxyPorts(proxyPort: number): Array<number> {
   return [Math.floor(proxyPort), 0];
 }
 
+export interface BuiltinGeoUpdateResult {
+  changed: boolean;
+  version: string;
+  checkedAt: number;
+  assets: Array<GeoAssetMetadata>;
+  metadataSaved: boolean;
+}
+
+interface StagedGeoAsset {
+  fileName: string;
+  targetPath: string;
+  tempPath: string;
+  backupPath: string;
+  hadOriginal: boolean;
+  installed: boolean;
+}
+
+const GEO_UPDATE_TEMP_SUFFIX: string = '.geo-update.tmp';
+const GEO_UPDATE_BACKUP_SUFFIX: string = '.geo-update.bak';
+const GEO_UPDATE_COMMIT_FILE: string = '.geo-update.committed';
+const MAX_ASSET_REDIRECTS: number = 5;
+
 function isValidAssetDownloadProxyPort(proxyPort: number): boolean {
   return typeof proxyPort === 'number' && Math.floor(proxyPort) === proxyPort && proxyPort > 0 && proxyPort <= 65535;
 }
 
 export class AssetsController {
+  private geoUpdateRunning: boolean = false;
   
   private pad(val: number): string {
     return val < 10 ? `0${val}` : `${val}`;
@@ -61,6 +96,137 @@ export class AssetsController {
     return this.t(language, 'assets.notDownloaded');
   }
 
+  // 检查可信默认发布源。两个核心文件全部通过版本、大小、格式和 SHA-256 校验后才一起替换。
+  // 若安装阶段失败，则回滚本次已替换的文件；进程中断留下的备份会在下次检查时恢复。
+  async checkAndUpdateBuiltinGeo(context: common.Context): Promise<BuiltinGeoUpdateResult> {
+    if (this.geoUpdateRunning) {
+      throw new Error('Geo update is already running');
+    }
+    this.geoUpdateRunning = true;
+    try {
+      return await this.performBuiltinGeoUpdate(context);
+    } catch (error) {
+      await this.recordGeoUpdateFailure(context);
+      throw error;
+    } finally {
+      this.geoUpdateRunning = false;
+    }
+  }
+
+  private async performBuiltinGeoUpdate(context: common.Context): Promise<BuiltinGeoUpdateResult> {
+    await this.recoverGeoTransaction(context);
+    const proxyPort = await this.resolveDownloadProxyPort(context);
+    const releaseText = await this.requestTextWithFallback(DEFAULT_GEO_RELEASE_API, proxyPort);
+    const parsed = parseDefaultGeoRelease(releaseText);
+    if (!parsed.ok || parsed.manifest === null) {
+      throw new Error(parsed.message.length > 0 ? parsed.message : 'invalid release metadata');
+    }
+
+    const manifest = parsed.manifest;
+    const checkedAt = Date.now();
+    const staged = new Array<StagedGeoAsset>();
+    const metadata = new Array<GeoAssetMetadata>();
+    let transactionCommitted = false;
+
+    try {
+      for (let index = 0; index < manifest.files.length; index++) {
+        const releaseFile = manifest.files[index];
+        const checksumText = await this.requestTextWithFallback(releaseFile.checksumUrl, proxyPort);
+        const expectedSha256 = parseSha256Checksum(checksumText);
+        if (expectedSha256.length !== 64) {
+          throw new Error(`${releaseFile.fileName}: invalid SHA-256 checksum`);
+        }
+
+        const targetPath = `${context.filesDir}/${releaseFile.fileName}`;
+        const existing = this.readFileData(targetPath);
+        const existingSha256 = existing === null ? '' : await this.sha256(existing);
+        if (existingSha256 === expectedSha256) {
+          metadata.push(this.geoMetadataForExisting(targetPath, releaseFile.fileName, expectedSha256));
+          continue;
+        }
+
+        const data = await this.requestDataWithFallback(releaseFile.downloadUrl, proxyPort);
+        if (!isPlausibleGeoData(data, releaseFile.declaredSize)) {
+          throw new Error(`${releaseFile.fileName}: downloaded data failed size or format validation`);
+        }
+        const actualSha256 = await this.sha256(data);
+        if (actualSha256 !== expectedSha256) {
+          throw new Error(`${releaseFile.fileName}: SHA-256 mismatch`);
+        }
+
+        const tempPath = `${targetPath}${GEO_UPDATE_TEMP_SUFFIX}`;
+        this.removeFileIfExists(tempPath);
+        this.writeFileData(tempPath, data);
+        staged.push({
+          fileName: releaseFile.fileName,
+          targetPath,
+          tempPath,
+          backupPath: `${targetPath}${GEO_UPDATE_BACKUP_SUFFIX}`,
+          hadOriginal: this.fileExists(targetPath),
+          installed: false
+        });
+        metadata.push({
+          fileName: releaseFile.fileName,
+          sha256: expectedSha256,
+          size: data.byteLength,
+          updatedAt: checkedAt
+        });
+      }
+
+      if (staged.length > 0) {
+        this.installStagedGeoAssets(context, staged);
+        transactionCommitted = true;
+      }
+
+      const updateMetadata: GeoUpdateMetadata = {
+        version: manifest.version,
+        source: manifest.source,
+        checkedAt,
+        result: staged.length > 0 ? 'updated' : 'latest',
+        assets: metadata
+      };
+      let metadataSaved = true;
+      try {
+        await AssetStore.saveGeoUpdateMetadata(context, updateMetadata);
+      } catch (error) {
+        metadataSaved = false;
+      }
+      if (transactionCommitted) {
+        this.finishGeoTransaction(context, staged);
+      }
+      return {
+        changed: staged.length > 0,
+        version: manifest.version,
+        checkedAt,
+        assets: metadata,
+        metadataSaved
+      };
+    } catch (error) {
+      if (!transactionCommitted) {
+        this.rollbackGeoTransaction(context, staged);
+      }
+      for (let index = 0; index < staged.length; index++) {
+        this.removeFileIfExists(staged[index].tempPath);
+      }
+      throw error;
+    }
+  }
+
+  private async recordGeoUpdateFailure(context: common.Context): Promise<void> {
+    try {
+      const previous = await AssetStore.loadGeoUpdateMetadata(context);
+      await AssetStore.saveGeoUpdateMetadata(context, {
+        version: previous.version,
+        source: previous.source,
+        checkedAt: Date.now(),
+        result: 'failed',
+        assets: previous.assets
+      });
+    } catch (error) {
+      // The original files are still authoritative; failure metadata is best effort only.
+    }
+  }
+
   // 执行资源网络更新下载
   async downloadAsset(
     context: common.Context,
@@ -80,7 +246,11 @@ export class AssetsController {
 
     try {
       promptAction.showToast({ message: this.t(language, 'assets.downloading').replace('{title}', fileName) });
-      await this.downloadToFileWithFallback(url, tempPath, targetPath, proxyPort);
+      if (BUILTIN_GEO_DATA_FILE_NAMES.includes(fileName)) {
+        await this.downloadVerifiedGeoWithFallback(fileName, url, tempPath, targetPath, proxyPort);
+      } else {
+        await this.downloadToFileWithFallback(url, tempPath, targetPath, proxyPort);
+      }
       promptAction.showToast({ message: this.t(language, 'assets.downloadSuccess').replace('{title}', fileName) });
       onSuccess();
     } catch (error) {
@@ -102,8 +272,7 @@ export class AssetsController {
     }
   }
 
-  // 一键更新全部：逐个刷新用户添加的远程资源（http/https；local:// 本地导入跳过），
-  // 最终按成功 / 部分 / 全失败给出汇总提示。应用不内置任何下载源。
+  // 逐个刷新用户添加的远程资源（http/https；local:// 本地导入跳过）。
   async downloadAllAssets(
     context: common.Context,
     language: AppLanguage,
@@ -190,15 +359,77 @@ export class AssetsController {
     throw new Error(lastError.length > 0 ? lastError : 'download failed');
   }
 
-  private async requestAssetData(url: string, proxyPort: number): Promise<ArrayBuffer> {
+  private async downloadVerifiedGeoWithFallback(
+    fileName: string,
+    url: string,
+    tempPath: string,
+    targetPath: string,
+    proxyPort: number
+  ): Promise<void> {
+    const checksumText = await this.requestTextWithFallback(`${url}.sha256sum`, proxyPort);
+    const expectedSha256 = parseSha256Checksum(checksumText);
+    if (expectedSha256.length !== 64) {
+      throw new Error(`${fileName}: invalid SHA-256 checksum`);
+    }
+    const data = await this.requestDataWithFallback(url, proxyPort);
+    if (!isPlausibleGeoData(data)) {
+      throw new Error(`${fileName}: downloaded data failed size or format validation`);
+    }
+    const actualSha256 = await this.sha256(data);
+    if (actualSha256 !== expectedSha256) {
+      throw new Error(`${fileName}: SHA-256 mismatch`);
+    }
+    this.writeAssetData(tempPath, targetPath, data);
+  }
+
+  private async requestTextWithFallback(url: string, proxyPort: number): Promise<string> {
+    const ports = buildAssetDownloadProxyPorts(proxyPort);
+    let lastError = '';
+    for (let index = 0; index < ports.length; index++) {
+      try {
+        return await this.requestAssetText(url, ports[index]);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : JSON.stringify(error);
+      }
+    }
+    throw new Error(lastError.length > 0 ? lastError : 'request failed');
+  }
+
+  private async requestDataWithFallback(url: string, proxyPort: number): Promise<ArrayBuffer> {
+    const ports = buildAssetDownloadProxyPorts(proxyPort);
+    let lastError = '';
+    for (let index = 0; index < ports.length; index++) {
+      try {
+        return await this.requestAssetData(url, ports[index]);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : JSON.stringify(error);
+      }
+    }
+    throw new Error(lastError.length > 0 ? lastError : 'download failed');
+  }
+
+  private async requestAssetText(
+    url: string,
+    proxyPort: number,
+    redirectCount: number = 0,
+    originalUrl: string = url
+  ): Promise<string> {
+    if (redirectCount > MAX_ASSET_REDIRECTS) {
+      throw new Error('HTTP redirect limit reached');
+    }
     const request = http.createHttp();
     try {
       const options: http.HttpRequestOptions = {
         method: http.RequestMethod.GET,
-        expectDataType: http.HttpDataType.ARRAY_BUFFER,
-        readTimeout: 60000,
+        expectDataType: http.HttpDataType.STRING,
+        readTimeout: 30000,
         connectTimeout: 15000,
-        usingCache: false
+        usingCache: false,
+        header: {
+          'User-Agent': APP_HTTP_USER_AGENT,
+          'Accept': 'application/json, text/plain, application/octet-stream, */*',
+          'Accept-Encoding': 'identity'
+        }
       };
       if (isValidAssetDownloadProxyPort(proxyPort)) {
         options.usingProxy = {
@@ -209,33 +440,275 @@ export class AssetsController {
       }
       const response = await request.request(url, options);
       const responseCode = Number(response.responseCode);
+      if (this.isRedirectCode(responseCode)) {
+        const redirectUrl = parseHttpRedirectLocation(JSON.stringify(response.header));
+        if (!isAllowedGeoAssetRedirect(originalUrl, redirectUrl)) {
+          throw new Error('HTTP redirect target is not allowed');
+        }
+        return await this.requestAssetText(redirectUrl, proxyPort, redirectCount + 1, originalUrl);
+      }
       if (responseCode < 200 || responseCode >= 300) {
         throw new Error(`HTTP ${response.responseCode}`);
       }
-      return response.result as ArrayBuffer;
+      if (typeof response.result === 'string') {
+        return response.result;
+      }
+      if (response.result instanceof ArrayBuffer) {
+        const decoder = util.TextDecoder.create('utf-8');
+        return decoder.decodeToString(new Uint8Array(response.result));
+      }
+      const objectText = JSON.stringify(response.result);
+      return objectText === undefined ? '' : objectText;
     } finally {
       request.destroy();
     }
   }
 
-  private writeAssetData(tempPath: string, targetPath: string, data: ArrayBuffer): void {
-    const file = fs.openSync(tempPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
-    fs.writeSync(file.fd, data);
-    fs.closeSync(file);
+  private async requestAssetData(
+    url: string,
+    proxyPort: number,
+    redirectCount: number = 0,
+    originalUrl: string = url
+  ): Promise<ArrayBuffer> {
+    if (redirectCount > MAX_ASSET_REDIRECTS) {
+      throw new Error('HTTP redirect limit reached');
+    }
+    const request = http.createHttp();
     try {
-      if (fs.accessSync(targetPath)) {
-        fs.unlinkSync(targetPath);
+      const options: http.HttpRequestOptions = {
+        method: http.RequestMethod.GET,
+        expectDataType: http.HttpDataType.ARRAY_BUFFER,
+        readTimeout: 60000,
+        connectTimeout: 15000,
+        usingCache: false,
+        header: {
+          'User-Agent': APP_HTTP_USER_AGENT,
+          'Accept': 'application/octet-stream, */*',
+          'Accept-Encoding': 'identity'
+        }
+      };
+      if (isValidAssetDownloadProxyPort(proxyPort)) {
+        options.usingProxy = {
+          host: LOCAL_HTTP_PROXY_HOST,
+          port: proxyPort,
+          exclusionList: []
+        };
       }
-    } catch (e) {}
-    fs.renameSync(tempPath, targetPath);
+      const response = await request.request(url, options);
+      const responseCode = Number(response.responseCode);
+      if (this.isRedirectCode(responseCode)) {
+        const redirectUrl = parseHttpRedirectLocation(JSON.stringify(response.header));
+        if (!isAllowedGeoAssetRedirect(originalUrl, redirectUrl)) {
+          throw new Error('HTTP redirect target is not allowed');
+        }
+        return await this.requestAssetData(redirectUrl, proxyPort, redirectCount + 1, originalUrl);
+      }
+      if (responseCode < 200 || responseCode >= 300) {
+        throw new Error(`HTTP ${response.responseCode}`);
+      }
+      if (!(response.result instanceof ArrayBuffer)) {
+        throw new Error('HTTP response did not contain binary data');
+      }
+      return response.result;
+    } finally {
+      request.destroy();
+    }
+  }
+
+  private isRedirectCode(code: number): boolean {
+    return code === 301 || code === 302 || code === 303 || code === 307 || code === 308;
+  }
+
+  private writeAssetData(tempPath: string, targetPath: string, data: ArrayBuffer): void {
+    this.writeFileData(tempPath, data);
+    this.replaceTempFileSafely(tempPath, targetPath);
+  }
+
+  private replaceTempFileSafely(tempPath: string, targetPath: string): void {
+    const backupPath = `${targetPath}.update.bak`;
+    try {
+      if (this.fileExists(backupPath)) {
+        if (this.fileExists(targetPath)) {
+          this.removeFileStrictIfExists(backupPath);
+        } else {
+          fs.renameSync(backupPath, targetPath);
+        }
+      }
+      const hadOriginal = this.fileExists(targetPath);
+      if (hadOriginal) {
+        fs.renameSync(targetPath, backupPath);
+      }
+      try {
+        fs.renameSync(tempPath, targetPath);
+        this.removeFileIfExists(backupPath);
+      } catch (error) {
+        this.removeFileStrictIfExists(targetPath);
+        if (hadOriginal && this.fileExists(backupPath)) {
+          fs.renameSync(backupPath, targetPath);
+        }
+        throw error;
+      }
+    } catch (error) {
+      this.removeFileIfExists(tempPath);
+      throw error;
+    }
   }
 
   private removeTempFile(tempPath: string): void {
+    this.removeFileIfExists(tempPath);
+  }
+
+  private async sha256(data: ArrayBuffer): Promise<string> {
+    const digest = cryptoFramework.createMd('SHA256');
+    await digest.update({ data: new Uint8Array(data) });
+    const result = await digest.digest();
+    let hex = '';
+    for (let index = 0; index < result.data.length; index++) {
+      hex += result.data[index].toString(16).padStart(2, '0');
+    }
+    return hex;
+  }
+
+  private readFileData(path: string): ArrayBuffer | null {
+    if (!this.fileExists(path)) {
+      return null;
+    }
+    let file: fs.File | null = null;
     try {
-      if (fs.accessSync(tempPath)) {
-        fs.unlinkSync(tempPath);
+      const stat = fs.statSync(path);
+      if (Number(stat.size) > MAX_GEO_DATA_BYTES) {
+        return null;
       }
-    } catch (e) {}
+      const data = new ArrayBuffer(Number(stat.size));
+      file = fs.openSync(path, fs.OpenMode.READ_ONLY);
+      const readLength = fs.readSync(file.fd, data);
+      if (readLength !== data.byteLength) {
+        throw new Error(`short read for ${path}`);
+      }
+      return data;
+    } finally {
+      if (file !== null) {
+        fs.closeSync(file);
+      }
+    }
+  }
+
+  private writeFileData(path: string, data: ArrayBuffer): void {
+    const file = fs.openSync(path, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+    try {
+      fs.writeSync(file.fd, data);
+    } finally {
+      fs.closeSync(file);
+    }
+  }
+
+  private geoMetadataForExisting(targetPath: string, fileName: string, sha256: string): GeoAssetMetadata {
+    const stat = fs.statSync(targetPath);
+    return {
+      fileName,
+      sha256,
+      size: Number(stat.size),
+      updatedAt: Number(stat.mtime) * 1000
+    };
+  }
+
+  private installStagedGeoAssets(context: common.Context, staged: Array<StagedGeoAsset>): void {
+    const commitPath = `${context.filesDir}/${GEO_UPDATE_COMMIT_FILE}`;
+    this.removeFileStrictIfExists(commitPath);
+    for (let index = 0; index < staged.length; index++) {
+      const asset = staged[index];
+      this.removeFileStrictIfExists(asset.backupPath);
+      if (asset.hadOriginal) {
+        fs.renameSync(asset.targetPath, asset.backupPath);
+      }
+    }
+    for (let index = 0; index < staged.length; index++) {
+      const asset = staged[index];
+      fs.renameSync(asset.tempPath, asset.targetPath);
+      asset.installed = true;
+    }
+    this.writeFileData(commitPath, new Uint8Array([1]).buffer);
+  }
+
+  private finishGeoTransaction(context: common.Context, staged: Array<StagedGeoAsset>): void {
+    let cleanupComplete = true;
+    for (let index = 0; index < staged.length; index++) {
+      try {
+        this.removeFileStrictIfExists(staged[index].backupPath);
+      } catch (error) {
+        cleanupComplete = false;
+      }
+    }
+    if (cleanupComplete) {
+      this.removeFileIfExists(`${context.filesDir}/${GEO_UPDATE_COMMIT_FILE}`);
+    }
+  }
+
+  private rollbackGeoTransaction(context: common.Context, staged: Array<StagedGeoAsset>): void {
+    this.removeFileIfExists(`${context.filesDir}/${GEO_UPDATE_COMMIT_FILE}`);
+    let firstError: Error | null = null;
+    for (let index = 0; index < staged.length; index++) {
+      const asset = staged[index];
+      try {
+        if (asset.installed || (!asset.hadOriginal && this.fileExists(asset.targetPath))) {
+          this.removeFileStrictIfExists(asset.targetPath);
+        }
+        if (asset.hadOriginal && this.fileExists(asset.backupPath)) {
+          fs.renameSync(asset.backupPath, asset.targetPath);
+        }
+      } catch (error) {
+        if (firstError === null) {
+          firstError = error instanceof Error ? error : new Error(JSON.stringify(error));
+        }
+      }
+      this.removeFileIfExists(asset.tempPath);
+    }
+    if (firstError !== null) {
+      throw firstError;
+    }
+  }
+
+  private async recoverGeoTransaction(context: common.Context): Promise<void> {
+    const commitPath = `${context.filesDir}/${GEO_UPDATE_COMMIT_FILE}`;
+    const committed = this.fileExists(commitPath);
+    const names = BUILTIN_GEO_DATA_FILE_NAMES;
+    for (let index = 0; index < names.length; index++) {
+      const targetPath = `${context.filesDir}/${names[index]}`;
+      const backupPath = `${targetPath}${GEO_UPDATE_BACKUP_SUFFIX}`;
+      const tempPath = `${targetPath}${GEO_UPDATE_TEMP_SUFFIX}`;
+      if (committed) {
+        this.removeFileStrictIfExists(backupPath);
+      } else if (this.fileExists(backupPath)) {
+        this.removeFileStrictIfExists(targetPath);
+        fs.renameSync(backupPath, targetPath);
+      }
+      this.removeFileStrictIfExists(tempPath);
+    }
+    this.removeFileStrictIfExists(commitPath);
+  }
+
+  private fileExists(path: string): boolean {
+    try {
+      return fs.accessSync(path);
+    } catch (error) {
+      return false;
+    }
+  }
+
+  private removeFileIfExists(path: string): void {
+    try {
+      if (fs.accessSync(path)) {
+        fs.unlinkSync(path);
+      }
+    } catch (error) {
+      // best-effort cleanup; the caller's primary operation retains the useful error
+    }
+  }
+
+  private removeFileStrictIfExists(path: string): void {
+    if (this.fileExists(path)) {
+      fs.unlinkSync(path);
+    }
   }
 
   // 流式拷贝文件到沙箱
@@ -267,12 +740,7 @@ export class AssetsController {
       srcFile = null;
       destFile = null;
 
-      try {
-        if (fs.accessSync(destPath)) {
-          fs.unlinkSync(destPath);
-        }
-      } catch (e) {}
-      fs.renameSync(tempPath, destPath);
+      this.replaceTempFileSafely(tempPath, destPath);
 
       promptAction.showToast({ message: this.t(language, 'assets.action.importLocal.success').replace('{title}', destFileName) });
       onSuccess();

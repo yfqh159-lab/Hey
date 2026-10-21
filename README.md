@@ -35,12 +35,15 @@ settings, but its app integration is intentionally narrower today.
 Every change is measured against one question: *is this a decision the app makes
 for the user, or a decision the user makes themselves?* Supporting a protocol,
 parsing a config format, or exposing a transport parameter is the user's
-decision, and those are kept and made to work well. Preset rule sets, bundled
-sources, automatic selection, and region-based hardcoding are the app's
-decision, and those are not implemented.
+decision, and those are kept and made to work well. Preset routing rules,
+server/configuration sources, automatic selection, and region-based hardcoding
+are the app's decision, and those are not implemented. The data-files page has
+one narrow exception: an explicit user action can check the maintained default
+Geo release and verify both core files against its published SHA-256 sums.
 
 Concretely, the repository ships no server address, no config source, no rule
-set, and no region or country preset. The factory defaults for the delay-test
+set, and no region or country preset. Geo files are downloaded only after the
+user taps the check action; they are not bundled or updated on a schedule. The factory defaults for the delay-test
 URL, the egress address lookup, and every DNS field are empty. Deep links,
 shared text, and scanned codes always show what they contain and wait for an
 explicit confirmation before anything is added or fetched.
@@ -121,11 +124,13 @@ traffic stats.
   process polls the current network, because it is the only component
   HarmonyOS keeps alive in the background. The app never classifies a network
   on its own — the list is entirely yours.
-- Data files and diagnostics: user-supplied data-file URLs and local file
-  import, runtime logs, core logs, optional speed display, persistent traffic
-  totals, egress address lookup (does nothing unless you configure an endpoint,
-  and reports the address only), and English/Chinese plus additional language
-  resources. No download source is bundled, and the app has no update check.
+- Data files and diagnostics: one-tap, user-initiated `geoip.dat` and
+  `geosite.dat` checks from the maintained default release, published SHA-256
+  verification, safe replacement/rollback, advanced user-supplied URLs with
+  companion checksum files, and local file import. Runtime logs, core logs,
+  optional speed display, persistent traffic totals, egress address lookup
+  (does nothing unless you configure an endpoint, and reports the address
+  only), and English/Chinese plus additional language resources are included.
 - Backup/restore: profile, subscription groups, settings, routing rules,
   per-app list, and custom asset URLs are exported as local JSON. Runtime
   traffic totals and control-card state are intentionally not migrated.

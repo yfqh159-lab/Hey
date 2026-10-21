@@ -8,8 +8,9 @@ import { GEOIP_FILE_NAME, GEOSITE_FILE_NAME } from '../core/GeoAssets';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { AppLanguage } from '../core/Profile';
 import { SETTINGS_CONTROLLER } from '../features/settings/SettingsController';
+import { SHARED_RUNTIME_CONTROLLER } from '../features/runtime/RuntimeController';
 import { PageHeader } from '../shell/PageHeader';
-import { AssetStore, CustomAssetUrl } from '../storage/AssetStore';
+import { AssetStore, CustomAssetUrl, GeoUpdateMetadata } from '../storage/AssetStore';
 import { ASSETS_CONTROLLER } from '../features/assets/AssetsController';
 import { BOTTOM_SAFE_HEIGHT_KEY } from '../core/Immersive';
 import { AppColor, FontSz, Radius, Space } from '../theme/Theme';
@@ -40,6 +41,8 @@ struct AssetsPage {
   // 内置 Geo 文件状态
   @State private geositeStatus: string = '';
   @State private geoipStatus: string = '';
+  @State private geoUpdateSummary: string = '';
+  @State private geoAssetHashes: Record<string, string> = {};
 
   // 下载状态（正在下载的文件名，空=空闲）
   @State private downloadingFile: string = '';
@@ -135,7 +138,7 @@ struct AssetsPage {
             this.QuickRow(
               $r('app.media.ic_refresh'), AppColor.brand, AppColor.brandTint,
               this.t('assets.action.updateAll'), this.t('assets.action.updateAll.detail'),
-              false, true, () => this.downloadAllAssets()
+              false, true, () => this.checkGeoUpdate()
             )
             this.RowDivider()
             this.QuickRow(
@@ -156,11 +159,22 @@ struct AssetsPage {
           .border({ width: 0.5, color: AppColor.border })
           .clip(true)
 
-          // —— 核心数据文件（本地状态 / 导入 / 删除；应用不内置下载源）——
+          // —— 核心数据文件（默认可信源一键检查；单文件 URL 位于更多操作）——
           this.SectionLabel(this.t('assets.builtin.title'))
           Column() {
             this.GeoRow(GEOSITE_FILE_NAME, true)
             this.GeoRow(GEOIP_FILE_NAME, false)
+            if (this.geoUpdateSummary.length > 0) {
+              Divider()
+                .strokeWidth(0.5)
+                .color(AppColor.divider)
+                .margin({ left: Space.lg, right: Space.lg })
+              Text(this.geoUpdateSummary)
+                .width('100%')
+                .fontSize(FontSz.caption)
+                .fontColor(AppColor.textTertiary)
+                .padding({ left: Space.lg, right: Space.lg, top: Space.sm, bottom: Space.md })
+            }
           }
           .width('100%')
           .backgroundColor(AppColor.surface)
@@ -364,7 +378,7 @@ struct AssetsPage {
           Text(this.statusOf(fileName))
             .fontSize(FontSz.footnote)
             .fontColor(AppColor.textTertiary)
-            .maxLines(1)
+            .maxLines(2)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
         }
         .alignItems(HorizontalAlign.Start)
@@ -620,7 +634,7 @@ struct AssetsPage {
     .padding({ left: Space.md, right: Space.md })
   }
 
-  // 为 geosite.dat / geoip.dat 自填下载地址。应用不内置任何源，地址完全由用户提供。
+  // 高级入口：允许为单个核心文件临时指定自定义下载地址。
   @Builder
   private SheetGeoUrlBody() {
     Column() {
@@ -668,6 +682,7 @@ struct AssetsPage {
       return;
     }
     const context = this.getUIContext().getHostContext() as common.Context;
+    await this.clearGeoMetadata();
     await ASSETS_CONTROLLER.downloadAsset(
       context,
       fileName,
@@ -831,33 +846,48 @@ struct AssetsPage {
     }
   }
 
-  private async downloadAllAssets(): Promise<void> {
+  private async checkGeoUpdate(): Promise<void> {
     if (this.downloadingFile.length > 0) {
       this.toast(this.t('assets.downloadBusy'));
       return;
     }
     const context = this.getUIContext().getHostContext() as common.Context;
     this.downloadingFile = GEOSITE_FILE_NAME;
-    this.updateFileStatus();
-    await ASSETS_CONTROLLER.downloadAllAssets(
-      context,
-      this.language,
-      this.customAssets,
-      (fileName) => {
-        this.downloadingFile = fileName;
-        this.updateFileStatus();
-      },
-      () => {
-        this.downloadingFile = '';
-        this.updateFileStatus();
-        this.refreshCustomStatuses();
+    this.toast(this.t('assets.updatingAll'));
+    try {
+      const result = await ASSETS_CONTROLLER.checkAndUpdateBuiltinGeo(context);
+      await this.loadGeoMetadata();
+      this.updateFileStatus();
+      let message = '';
+      if (!result.metadataSaved) {
+        message = this.t('assets.geo.metadataWarning');
+      } else if (!result.changed) {
+        message = this.f1('assets.geo.latest', 'version', result.version);
+      } else if (SHARED_RUNTIME_CONTROLLER.isRunning()) {
+        message = this.f1('assets.geo.updatedReconnect', 'version', result.version);
+      } else {
+        message = this.f1('assets.geo.updated', 'version', result.version);
       }
-    );
+      SHARED_RUNTIME_CONTROLLER.appendLog(message);
+      this.toast(message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : JSON.stringify(error);
+      await this.loadGeoMetadata();
+      const localized = this.f1('assets.geo.checkFailed', 'error', message);
+      SHARED_RUNTIME_CONTROLLER.appendLog(localized);
+      this.toast(localized);
+    } finally {
+      this.downloadingFile = '';
+      this.updateFileStatus();
+    }
   }
 
   private deleteAsset(fileName: string): void {
     const context = this.getUIContext().getHostContext() as common.Context;
-    ASSETS_CONTROLLER.deleteAsset(context, fileName, this.language, () => this.updateFileStatus());
+    ASSETS_CONTROLLER.deleteAsset(context, fileName, this.language, () => {
+      this.updateFileStatus();
+      this.clearGeoMetadata();
+    });
   }
 
   // ===================== 导入本地 / 扫码 =====================
@@ -902,7 +932,17 @@ struct AssetsPage {
     if (target.length === 0) {
       return;
     }
-    await ASSETS_CONTROLLER.copyLocalFileToAssets(context, fileUri, target, this.language, () => this.updateFileStatus(), () => {});
+    const imported = await ASSETS_CONTROLLER.copyLocalFileToAssets(
+      context,
+      fileUri,
+      target,
+      this.language,
+      () => this.updateFileStatus(),
+      () => {}
+    );
+    if (imported) {
+      await this.clearGeoMetadata();
+    }
     this.tempImportUri = '';
   }
 
@@ -1057,13 +1097,14 @@ struct AssetsPage {
 
   // ===================== 状态读取 =====================
   private statusOf(fileName: string): string {
+    let status = this.t('assets.notDownloaded');
     if (fileName === GEOSITE_FILE_NAME) {
-      return this.geositeStatus;
+      status = this.geositeStatus;
+    } else if (fileName === GEOIP_FILE_NAME) {
+      status = this.geoipStatus;
     }
-    if (fileName === GEOIP_FILE_NAME) {
-      return this.geoipStatus;
-    }
-    return this.t('assets.notDownloaded');
+    const hash = this.geoAssetHashes[fileName];
+    return hash !== undefined && hash.length >= 8 ? `${status} · SHA-256 ${hash.substring(0, 8)}…` : status;
   }
 
   private customStatusOf(name: string): string {
@@ -1117,8 +1158,58 @@ struct AssetsPage {
     } catch (err) {
       // ignore
     }
+    await this.loadGeoMetadata();
     this.updateFileStatus();
     this.isStateLoaded = true;
+  }
+
+  private async loadGeoMetadata(): Promise<void> {
+    const context = this.getUIContext().getHostContext() as common.Context;
+    const metadata = await AssetStore.loadGeoUpdateMetadata(context);
+    const hashes: Record<string, string> = {};
+    for (let index = 0; index < metadata.assets.length; index++) {
+      hashes[metadata.assets[index].fileName] = metadata.assets[index].sha256;
+    }
+    this.geoAssetHashes = hashes;
+    this.geoUpdateSummary = this.formatGeoUpdateSummary(metadata);
+  }
+
+  private async clearGeoMetadata(): Promise<void> {
+    const context = this.getUIContext().getHostContext() as common.Context;
+    try {
+      await AssetStore.clearGeoUpdateMetadata(context);
+    } catch (error) {
+      // File operation already succeeded; stale verification metadata must not remain visible.
+    }
+    this.geoAssetHashes = {};
+    this.geoUpdateSummary = this.t('assets.geo.defaultSource');
+  }
+
+  private formatGeoUpdateSummary(metadata: GeoUpdateMetadata): string {
+    if (metadata.checkedAt <= 0) {
+      return this.t('assets.geo.defaultSource');
+    }
+    const checked = new Date(metadata.checkedAt);
+    const time = `${checked.getFullYear()}/${this.padTwo(checked.getMonth() + 1)}/${this.padTwo(checked.getDate())} ` +
+      `${this.padTwo(checked.getHours())}:${this.padTwo(checked.getMinutes())}`;
+    if (metadata.result === 'failed') {
+      if (metadata.version.length > 0) {
+        return this.t('assets.geo.summaryFailedWithVersion')
+          .replace('{version}', metadata.version)
+          .replace('{time}', time);
+      }
+      return this.t('assets.geo.summaryFailed').replace('{time}', time);
+    }
+    if (metadata.version.length === 0) {
+      return this.t('assets.geo.defaultSource');
+    }
+    return this.t('assets.geo.summary')
+      .replace('{version}', metadata.version)
+      .replace('{time}', time);
+  }
+
+  private padTwo(value: number): string {
+    return value < 10 ? `0${value}` : value.toString();
   }
 
   // ===================== 工具 =====================

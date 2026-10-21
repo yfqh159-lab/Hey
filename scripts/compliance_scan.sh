@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 词表扫描：确保应用不内置任何地区规则集、第三方规则源、服务商引导或用途宣称。
+# 词表扫描：确保应用不内置地区策略、未经批准的第三方规则源、服务商引导或用途宣称。
 #
 # 设计原则：不主观提供任何用途，允许用户自行摸索。
 # 因此本脚本查的是"应用替用户做的决定"，不是用户可以自己配的技术能力——
@@ -11,7 +11,8 @@
 #   - LICENSE 是 GPL-3.0 法定原文（含 freedom / circumvention 等词），逐字随附是许可证义务，改一个字即违约。
 #   - THIRD-PARTY-NOTICES.md 里的上游项目名出现在法定归属语境，删名同样违约。
 #   - 本脚本自身含词表，自我排除。
-#   - 测试目录只扫"真实服务商痕迹"，因为合规测试本身需要断言某些字符串不出现。
+#   - GeoAssets.ets 中工作区明确批准的 Loyalsoldier 发布 API/资产字段是唯一默认源例外。
+#   - 测试目录只扫"真实服务商痕迹"，但允许上述可信 Geo 发布源的固定测试夹具。
 
 set -uo pipefail
 
@@ -49,16 +50,19 @@ PT="$PT"'|subscription-userinfo|机场|翻墙|科学上网'
 fail=0
 
 echo "compliance scan (main): ${MAIN_TARGETS[*]}"
-HITS="$(grep -rniE "$P" "${MAIN_TARGETS[@]}" "${COMMON_EXCLUDES[@]}" 2>/dev/null | grep -v "^$SELF:" || true)"
+HITS="$(grep -rniE "$P" "${MAIN_TARGETS[@]}" "${COMMON_EXCLUDES[@]}" 2>/dev/null |
+  grep -v "^$SELF:" |
+  grep -vE '^entry/src/main/ets/core/GeoAssets\.ets:[0-9]+:.*(Loyalsoldier/v2ray-rules-dat|browser_download_url)' || true)"
 if [ -n "$HITS" ]; then
   echo
-  echo "COMPLIANCE CHECK FAILED (main) —"
+  echo "COMPLIANCE CHECK FAILED (main, excluding the approved Geo source) —"
   echo "$HITS"
   fail=1
 fi
 
 echo "compliance scan (test): ${TEST_TARGETS[*]}"
-HITS_T="$(grep -rniE "$PT" "${TEST_TARGETS[@]}" "${COMMON_EXCLUDES[@]}" 2>/dev/null || true)"
+HITS_T="$(grep -rniE "$PT" "${TEST_TARGETS[@]}" "${COMMON_EXCLUDES[@]}" 2>/dev/null |
+  grep -vE '^entry/src/test/LocalUnit\.test\.ets:[0-9]+:.*Loyalsoldier/v2ray-rules-dat' || true)"
 if [ -n "$HITS_T" ]; then
   echo
   echo "COMPLIANCE CHECK FAILED (test) —"
@@ -72,4 +76,4 @@ if [ "$fail" -ne 0 ]; then
   exit 1
 fi
 
-echo "clean — 未发现内置地区规则集、第三方规则源或用途宣称。"
+echo "clean — 未发现内置地区策略、未经批准的第三方规则源或用途宣称。"

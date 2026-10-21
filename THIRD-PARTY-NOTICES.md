@@ -49,6 +49,18 @@ part of Hey.
   high-performance TUN engine selected by the "Use Hev TUN engine" setting; the
   same TUN-fd → local SOCKS relay as tun2socks, implemented in C.
 
+## Downloaded at runtime by user action
+
+### Loyalsoldier/v2ray-rules-dat — GPL-3.0
+
+- Source: https://github.com/Loyalsoldier/v2ray-rules-dat
+- License: GNU General Public License v3.0 (GPL-3.0)
+- Usage: the Geo data screen can check the project's public GitHub releases and,
+  after verifying the published SHA-256 sums, install `geoip.dat` and
+  `geosite.dat` into the app's Xray asset directory. These files are not bundled
+  in this source repository and are downloaded only when the user taps the
+  update action.
+
 ## Build-time / wrapper
 
 ### libXray — MIT

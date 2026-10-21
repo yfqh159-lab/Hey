@@ -17,7 +17,7 @@ import { buildManualHysteria2Outbound, buildManualWireguardOutbound } from '../m
 import { clearVisiblePerAppPackages, exportPerAppProxyList, importPerAppProxyList, invertVisiblePerAppPackages, normalizePerAppPackageList, selectAllPerAppPackages } from '../main/ets/core/PerAppProxy';
 import { shouldShowProxySharingStartWarning } from '../main/ets/core/ProxySharingWarning';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppSettings, ConnectionStatus, DEFAULT_DELAY_TEST_URL, DEFAULT_HEV_TUN_LOG_LEVEL, DEFAULT_HEV_TUN_RW_TIMEOUT, DEFAULT_IP_API_URL, DEFAULT_VPN_MTU, OUTBOUND_DOMAIN_RESOLVE_DNS_HOSTS, OUTBOUND_DOMAIN_RESOLVE_NONE, OUTBOUND_DOMAIN_RESOLVE_REPLACE, OutboundDomainResolveMethod, normalizeAppRuntimeMode, normalizeHevTunLogLevel, normalizeHevTunRwTimeout, normalizeRealPingConcurrency, normalizeRoutingDomainStrategy, normalizeUiModeNight, ProxyNode, resolveDelayTestUrl, RoutingRule, RuntimeStats, SubscriptionGroup } from '../main/ets/core/Profile';
-import { BUILTIN_GEO_DATA_FILE_NAMES, GEOIP_FILE_NAME, GEOSITE_FILE_NAME, buildAssetDownloadUrl } from '../main/ets/core/GeoAssets';
+import { BUILTIN_GEO_DATA_FILE_NAMES, DEFAULT_GEO_RELEASE_API, DEFAULT_GEO_RELEASE_DOWNLOAD_PREFIX, GEOIP_FILE_NAME, GEOSITE_FILE_NAME, buildAssetDownloadUrl, isAllowedGeoAssetRedirect, isPlausibleGeoData, parseDefaultGeoRelease, parseHttpRedirectLocation, parseSha256Checksum } from '../main/ets/core/GeoAssets';
 import { DELAY_TEST_SOCKS_PORT, LOCAL_HTTP_PROXY_LAN_HOST, LOCAL_HTTP_PROXY_PORT, LOCAL_SOCKS_PROXY_PORT, UNIDENTIFIED_PROCESS_PACKAGE, buildDelayTestConfig, buildRuntimeXrayConfig, buildXrayConfig, buildXrayConfigWithSettings, canUseProcessRouting, collectOutboundDomainPreResolveHosts, normalizeFullConfigRoutingProcesses, normalizeOutboundInput, normalizeRoutingRuleProcesses, validateFullConfigJson, validateOutboundJson, validatePolicyGroupConfigJson, validateProxyChainConfigJson, withOutboundDomainResolvedHosts, injectXrayLogFile } from '../main/ets/core/XrayConfig';
 import { CONTROL_SHORTCUT_ACTION_PARAM, CONTROL_SHORTCUT_GUID_PARAM, CONTROL_SHORTCUT_NODE_ID_PARAM, CONTROL_SHORTCUT_URI_PARAM, TASKER_EXTRA_BUNDLE_GUID_PARAM, TASKER_EXTRA_BUNDLE_SWITCH_PARAM, controlUriFromShortcutParameters, deepLinkUriFromWant, parseDeepLink } from '../main/ets/core/DeepLink';
 import { HARMONY_SEND_DATA_ACTION, HARMONY_SHARE_ABSTRACT_KEY, HARMONY_SHARE_URL_KEY, HARMONY_TEXT_MIME_TYPE, SharedTextWantLike, extractSharedTextFromWant, isSharedTextWant } from '../main/ets/core/SharedTextImport';
@@ -1891,12 +1891,69 @@ export default function localUnitTest() {
       expect(resolveLanguage('fr', 'en-US')).assertEqual('en');
     });
 
-    it('resolves data file names and download urls without bundled sources', 0, () => {
+    it('resolves data file names and custom download urls', 0, () => {
       expect(BUILTIN_GEO_DATA_FILE_NAMES.length).assertEqual(2);
       expect(BUILTIN_GEO_DATA_FILE_NAMES[0]).assertEqual(GEOSITE_FILE_NAME);
       expect(BUILTIN_GEO_DATA_FILE_NAMES[1]).assertEqual(GEOIP_FILE_NAME);
       expect(buildAssetDownloadUrl('https://example.com/release/', 'geosite.dat')).assertEqual('https://example.com/release/geosite.dat');
       expect(buildAssetDownloadUrl('https://example.com/release', 'geoip.dat')).assertEqual('https://example.com/release/geoip.dat');
+    });
+
+    it('parses the trusted default geo release and checksum files', 0, () => {
+      const release = JSON.stringify({
+        tag_name: '202610202206',
+        assets: [
+          { name: 'geosite.dat', size: 2048, browser_download_url: 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610202206/geosite.dat' },
+          { name: 'geosite.dat.sha256sum', size: 80, browser_download_url: 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610202206/geosite.dat.sha256sum' },
+          { name: 'geoip.dat', size: 4096, browser_download_url: 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610202206/geoip.dat' },
+          { name: 'geoip.dat.sha256sum', size: 80, browser_download_url: 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610202206/geoip.dat.sha256sum' }
+        ]
+      });
+      const parsed = parseDefaultGeoRelease(release);
+      expect(parsed.ok).assertTrue();
+      expect(parsed.manifest?.version).assertEqual('202610202206');
+      expect(parsed.manifest?.files.length).assertEqual(2);
+      const checksum = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+      expect(parseSha256Checksum(`${checksum}  geosite.dat\n`)).assertEqual(checksum);
+      expect(parseSha256Checksum('not-a-checksum')).assertEqual('');
+    });
+
+    it('rejects default geo release metadata that redirects an asset', 0, () => {
+      const release = JSON.stringify({
+        tag_name: '202610202206',
+        assets: [
+          { name: 'geosite.dat', size: 2048, browser_download_url: 'https://example.com/geosite.dat' },
+          { name: 'geosite.dat.sha256sum', browser_download_url: 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610202206/geosite.dat.sha256sum' },
+          { name: 'geoip.dat', size: 4096, browser_download_url: 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610202206/geoip.dat' },
+          { name: 'geoip.dat.sha256sum', browser_download_url: 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610202206/geoip.dat.sha256sum' }
+        ]
+      });
+      expect(parseDefaultGeoRelease(release).ok).assertFalse();
+    });
+
+    it('rejects tiny, size-mismatched, and html geo downloads', 0, () => {
+      const valid = new ArrayBuffer(2048);
+      new Uint8Array(valid).fill(1);
+      expect(isPlausibleGeoData(valid, 2048)).assertTrue();
+      expect(isPlausibleGeoData(valid, 4096)).assertFalse();
+      expect(isPlausibleGeoData(new ArrayBuffer(8))).assertFalse();
+      const html = new ArrayBuffer(2048);
+      const htmlBytes = new Uint8Array(html);
+      const prefix = '<!doctype html>';
+      for (let index = 0; index < prefix.length; index++) {
+        htmlBytes[index] = prefix.charCodeAt(index);
+      }
+      expect(isPlausibleGeoData(html)).assertFalse();
+    });
+
+    it('only follows safe redirects for default and custom geo sources', 0, () => {
+      const assetRedirect = 'https://release-assets.githubusercontent.com/github-production-release-asset/file';
+      expect(parseHttpRedirectLocation(JSON.stringify({ location: assetRedirect }))).assertEqual(assetRedirect);
+      expect(isAllowedGeoAssetRedirect(`${DEFAULT_GEO_RELEASE_DOWNLOAD_PREFIX}v1/geoip.dat`, assetRedirect)).assertTrue();
+      expect(isAllowedGeoAssetRedirect(`${DEFAULT_GEO_RELEASE_DOWNLOAD_PREFIX}v1/geoip.dat`, 'https://example.com/file')).assertFalse();
+      expect(isAllowedGeoAssetRedirect(DEFAULT_GEO_RELEASE_API, 'https://api.github.com/repositories/1/releases/2')).assertTrue();
+      expect(isAllowedGeoAssetRedirect('https://example.com/file', 'http://example.com/file')).assertFalse();
+      expect(isAllowedGeoAssetRedirect('https://example.com/file', 'https://cdn.example.com/file')).assertTrue();
     });
 
     it('tries asset downloads through local HTTP proxy before direct fallback', 0, () => {
