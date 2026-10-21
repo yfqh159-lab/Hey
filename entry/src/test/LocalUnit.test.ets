@@ -17,6 +17,7 @@ import { parseManualOutboundEditState } from '../main/ets/core/ManualOutboundEdi
 import { buildManualHysteria2Outbound, buildManualWireguardOutbound } from '../main/ets/core/ManualOutboundBuilder';
 import { clearVisiblePerAppPackages, exportPerAppProxyList, importPerAppProxyList, invertVisiblePerAppPackages, normalizePerAppPackageList, selectAllPerAppPackages } from '../main/ets/core/PerAppProxy';
 import { shouldShowProxySharingStartWarning } from '../main/ets/core/ProxySharingWarning';
+import { canCancelStartingConnection, shouldDeferBusyControlAction, shouldOfferConnectionStop } from '../main/ets/core/ConnectionInteraction';
 import { shouldStartScannerImmediately } from '../main/ets/core/ScannerLaunch';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppSettings, ConnectionStatus, DEFAULT_DELAY_TEST_URL, DEFAULT_HEV_TUN_LOG_LEVEL, DEFAULT_HEV_TUN_RW_TIMEOUT, DEFAULT_IP_API_URL, DEFAULT_VPN_MTU, OUTBOUND_DOMAIN_RESOLVE_DNS_HOSTS, OUTBOUND_DOMAIN_RESOLVE_NONE, OUTBOUND_DOMAIN_RESOLVE_REPLACE, OutboundDomainResolveMethod, normalizeAppRuntimeMode, normalizeHevTunLogLevel, normalizeHevTunRwTimeout, normalizeRealPingConcurrency, normalizeRoutingDomainStrategy, normalizeUiModeNight, ProxyNode, resolveDelayTestUrl, RoutingRule, RuntimeStats, SubscriptionGroup } from '../main/ets/core/Profile';
 import { BUILTIN_GEO_DATA_FILE_NAMES, DEFAULT_GEO_RELEASE_API, DEFAULT_GEO_RELEASE_DOWNLOAD_PREFIX, GEOIP_FILE_NAME, GEOSITE_FILE_NAME, buildAssetDownloadUrl, encodeGeoTransactionState, isAllowedGeoAssetRedirect, isPlausibleGeoData, isValidGeoCommitMarker, parseDefaultGeoRelease, parseGeoTransactionState, parseHttpRedirectLocation, parseSha256Checksum, resolveGeoRecoveryAction, resolveGeoUpdateNotice, resolveStandaloneAssetRecoveryAction } from '../main/ets/core/GeoAssets';
@@ -333,6 +334,25 @@ export default function localUnitTest() {
       expect(decideActiveNodeRemovalAction(true, false)).assertEqual('none');
       // 未运行删除：不动连接。
       expect(decideActiveNodeRemovalAction(false, true)).assertEqual('none');
+    });
+  });
+
+  describe('connectionInteraction', () => {
+    it('offers one safe stop action while startup is in flight', 0, () => {
+      expect(canCancelStartingConnection(ConnectionStatus.STARTING)).assertTrue();
+      expect(canCancelStartingConnection(ConnectionStatus.STOPPING)).assertFalse();
+      expect(shouldOfferConnectionStop(ConnectionStatus.STARTING, false)).assertTrue();
+      expect(shouldOfferConnectionStop(ConnectionStatus.RUNNING, false)).assertTrue();
+      expect(shouldOfferConnectionStop(ConnectionStatus.ERROR, true)).assertTrue();
+      expect(shouldOfferConnectionStop(ConnectionStatus.IDLE, false)).assertFalse();
+    });
+
+    it('lets confirmed stop or toggle cancel startup but defers other busy actions', 0, () => {
+      expect(shouldDeferBusyControlAction('stop', ConnectionStatus.STARTING, true)).assertFalse();
+      expect(shouldDeferBusyControlAction('toggle', ConnectionStatus.STARTING, true)).assertFalse();
+      expect(shouldDeferBusyControlAction('start', ConnectionStatus.STARTING, true)).assertTrue();
+      expect(shouldDeferBusyControlAction('stop', ConnectionStatus.STOPPING, true)).assertTrue();
+      expect(shouldDeferBusyControlAction('start', ConnectionStatus.IDLE, false)).assertFalse();
     });
   });
 

@@ -12,6 +12,11 @@ import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { consumeRuntimeSettingsRestartDecision } from '../core/SettingsChange';
 import { resolveImportedNodeName } from '../core/ImportedNodeNames';
 import { shouldShowProxySharingStartWarning } from '../core/ProxySharingWarning';
+import {
+  canCancelStartingConnection,
+  shouldDeferBusyControlAction,
+  shouldOfferConnectionStop
+} from '../core/ConnectionInteraction';
 import { DelayTester, DelayTestResult, DELAY_STATUS_UDP_ONLY } from '../services/DelayTester';
 import { convertNativeShareTextToOutbounds } from '../services/NativeShareConverter';
 import { CONTROL_CARD_MANAGER } from '../services/ControlCardManager';
@@ -728,7 +733,7 @@ struct Index {
       return;
     }
 
-    if (this.isBusy()) {
+    if (shouldDeferBusyControlAction(action, this.status, this.isBusy())) {
       SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('log.deepLinkControlBusy', 'action', action));
       return;
     }
@@ -977,7 +982,7 @@ struct Index {
         .opacity(this.shouldStopBeforeStart() ? 1 : 0.6)
 
       Column() {
-        if (this.isBusy()) {
+        if (this.isBusy() && !canCancelStartingConnection(this.status)) {
           LoadingProgress()
             .width(44)
             .height(44)
@@ -1000,7 +1005,11 @@ struct Index {
         ? { radius: Elevation.glow, color: AppColor.shadowBrand, offsetX: 0, offsetY: 8 }
         : { radius: Elevation.card, color: AppColor.shadowCard, offsetX: 0, offsetY: 4 })
       .onClick(() => {
-        if (this.isBusy()) {
+        if (this.isBusy() && !canCancelStartingConnection(this.status)) {
+          return;
+        }
+        if (canCancelStartingConnection(this.status)) {
+          this.stopConnection();
           return;
         }
         if (this.shouldStopBeforeStart()) {
@@ -1962,7 +1971,7 @@ struct Index {
   }
 
   private async stopConnection(): Promise<void> {
-    if (this.isBusy()) {
+    if (this.isBusy() && !canCancelStartingConnection(this.status)) {
       try {
         this.getUIContext().getPromptAction().showToast({ message: this.t('home.busy') });
       } catch (err) {
@@ -2898,7 +2907,7 @@ struct Index {
   }
 
   private shouldStopBeforeStart(): boolean {
-    return this.isRunning() || SHARED_RUNTIME_CONTROLLER.requiresCleanup();
+    return shouldOfferConnectionStop(this.status, SHARED_RUNTIME_CONTROLLER.requiresCleanup());
   }
 
   private isBusy(): boolean {

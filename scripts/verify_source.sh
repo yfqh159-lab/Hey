@@ -249,6 +249,23 @@ printf 'optional TUN/runtime mode separation verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');
+const policy = fs.readFileSync('entry/src/main/ets/core/ConnectionInteraction.ets', 'utf8');
+const index = fs.readFileSync('entry/src/main/ets/pages/Index.ets', 'utf8');
+if (!policy.includes('status === ConnectionStatus.STARTING') ||
+  !policy.includes("action === 'stop' || action === 'toggle'")) {
+  throw new Error('connection-start cancellation policy is incomplete');
+}
+if (!index.includes('if (this.isBusy() && !canCancelStartingConnection(this.status))') ||
+  !index.includes('if (canCancelStartingConnection(this.status)) {\n          this.stopConnection();') ||
+  !index.includes('shouldDeferBusyControlAction(action, this.status, this.isBusy())') ||
+  !index.includes('shouldOfferConnectionStop(this.status, SHARED_RUNTIME_CONTROLLER.requiresCleanup())')) {
+  throw new Error('home or external controls no longer expose safe startup cancellation');
+}
+NODE
+printf 'connection startup cancellation verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
 
 const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeController.ets', 'utf8');
 const networkScene = fs.readFileSync('entry/src/main/ets/services/NetworkSceneManager.ets', 'utf8');
