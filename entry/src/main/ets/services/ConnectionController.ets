@@ -239,7 +239,9 @@ export class ConnectionController {
       at: Date.now(),
       level: 'info',
       source: 'proxy',
-      message: 'Native config preflight passed.',
+      message: validation.message.startsWith('Preflight skipped:')
+        ? 'Native config preflight skipped.'
+        : 'Native config preflight passed.',
       details: validation.message
     });
     const xrayResult = startNativeXray(this.generatedConfig.configJson, context.filesDir);

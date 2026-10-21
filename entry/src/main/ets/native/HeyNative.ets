@@ -157,7 +157,10 @@ export function pingNativeOutbound(configJson: string, datDir: string, url: stri
 export function testNativeXrayConfig(configJson: string, workDir: string): NativeResult {
   const result = bridge.testXrayConfig(configJson, workDir);
   if (result.ok) {
-    return { ok: true, message: 'Native config preflight passed.' };
+    return {
+      ok: true,
+      message: result.message.length > 0 ? result.message : 'Native config preflight completed.'
+    };
   }
   return { ok: false, message: extractCallError(result.message) };
 }
