@@ -31,6 +31,7 @@ import { DiagnosticLog } from '../services/DiagnosticLog';
 import { VpnRuntimeStateStore } from '../services/VpnRuntimeStateStore';
 import { isRuntimeHealthPort, probeRuntimeSocksHealth, waitForRuntimeSocksHealth } from '../services/RuntimeHealthProbe';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
+import { SPEED_NOTIFICATION_MANAGER } from '../services/SpeedNotificationManager';
 
 const LOG_DOMAIN: number = 0x0001;
 const LOG_TAG: string = 'HeyVpnAbility';
@@ -42,6 +43,7 @@ const RUNTIME_STATE_INTERVAL_MS: number = 4000;
 // 连续两次采样都看不到核心或 TUN 才判定失效，避免单次桥查询抖动误拆连接。
 const UNHEALTHY_SAMPLE_LIMIT: number = 2;
 const PROTECT_PROCESS_TIMEOUT_MS: number = 10000;
+const NOTIFICATION_CANCEL_TIMEOUT_MS: number = 2000;
 // 网络场景轮询间隔：VPN 扩展进程后台存活，自驱动定时器可跑（区别于后台收不到的 connection.on 事件）。
 const NET_SCENE_POLL_MS: number = 5000;
 
@@ -343,6 +345,9 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       return;
     }
     this.cleaningUp = true;
+    // 通知由 UI 进程发布，但 VPN 可能在 UI 被挂起/回收后由扩展自行清理。立即并行撤销，
+    // 不能让“正在运行”的常驻通知晚于真实隧道状态；失败或超时不得阻塞 TUN/核心释放。
+    const notificationCancel = this.cancelSpeedNotificationSafely();
     try {
       do {
         this.cleanupAgainRequested = false;
@@ -381,7 +386,20 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     } finally {
       this.cleaningUp = false;
     }
+    await notificationCancel;
     this.emitInfo('VPN cleanup finished.', `session=${this.sessionId}`);
+  }
+
+  private async cancelSpeedNotificationSafely(): Promise<void> {
+    try {
+      await withTimeout(
+        SPEED_NOTIFICATION_MANAGER.cancel(this.context),
+        NOTIFICATION_CANCEL_TIMEOUT_MS,
+        'Speed notification cancellation timed out.'
+      );
+    } catch (error) {
+      this.emitInfo('Speed notification cancellation did not complete.', this.errorMessage(error));
+    }
   }
 
   private ensureStartAllowed(stage: string): void {
