@@ -103,6 +103,10 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
 
 export default class HeyVpnAbility extends VpnExtensionAbility {
   private vpnConnection: vpnExtension.VpnConnection | null = null;
+  // destroy() 的系统 Promise 无法由外层超时取消。同一个 VpnConnection 在真正结算前
+  // 始终复用同一销毁任务，避免用户重试停止时堆积系统调用。
+  private vpnDestroyInFlight: Promise<void> | null = null;
+  private vpnDestroyConnection: vpnExtension.VpnConnection | null = null;
   private tunFd: number = -1;
   private statsTimerId: number = -1;
   private sessionId: string = '';
@@ -782,7 +786,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         if (connection !== null) {
           try {
             await withTimeout(
-              connection.destroy(),
+              this.destroyVpnConnectionSingleFlight(connection),
               VPN_DESTROY_TIMEOUT_MS,
               'VPN connection destroy timed out.'
             );
@@ -848,6 +852,44 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     const want = this.pendingStartWant;
     this.pendingStartWant = null;
     this.beginSession(want);
+  }
+
+  private destroyVpnConnectionSingleFlight(connection: vpnExtension.VpnConnection): Promise<void> {
+    if (this.vpnDestroyConnection === connection && this.vpnDestroyInFlight !== null) {
+      return this.vpnDestroyInFlight;
+    }
+    const promise = connection.destroy();
+    this.vpnDestroyConnection = connection;
+    this.vpnDestroyInFlight = promise;
+    promise.then(
+      (): void => this.handleVpnDestroySettled(connection, promise, true),
+      (_error: Object): void => this.handleVpnDestroySettled(connection, promise, false)
+    );
+    return promise;
+  }
+
+  private handleVpnDestroySettled(
+    connection: vpnExtension.VpnConnection,
+    promise: Promise<void>,
+    destroyed: boolean
+  ): void {
+    if (this.vpnDestroyConnection === connection && this.vpnDestroyInFlight === promise) {
+      this.vpnDestroyConnection = null;
+      this.vpnDestroyInFlight = null;
+    }
+    if (!destroyed || this.vpnConnection !== connection || !this.stopRequested) {
+      return;
+    }
+    // 超时只结束 ArkTS 的等待；系统稍后确认销毁时立即移除旧连接归属，并补完停止态。
+    // 若原 cleanup 仍在等待，重入标志会让它在同一串行循环再核对一次，不会并发清理。
+    this.vpnConnection = null;
+    this.tunFd = -1;
+    this.cleanupAgainRequested = true;
+    if (!this.cleaningUp) {
+      this.cleanup().catch((error: Object) => {
+        this.emitError('Late VPN destroy cleanup failed.', this.errorMessage(error));
+      });
+    }
   }
 
   private async cancelSpeedNotificationSafely(): Promise<void> {

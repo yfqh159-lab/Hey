@@ -2340,7 +2340,11 @@ printf 'bounded native-delay task verification passed\n'
 vpn_ability_file="entry/src/main/ets/vpn/HeyVpnAbility.ets"
 if ! grep -q "const VPN_DESTROY_TIMEOUT_MS: number = 8000;" "$vpn_ability_file" || \
   ! grep -q "VPN connection destroy timed out\." "$vpn_ability_file" || \
-  ! grep -A4 "connection\.destroy()" "$vpn_ability_file" | grep -q "VPN_DESTROY_TIMEOUT_MS"; then
+  ! grep -Fq "private vpnDestroyInFlight: Promise<void> | null = null;" "$vpn_ability_file" || \
+  ! grep -Fq "this.destroyVpnConnectionSingleFlight(connection)," "$vpn_ability_file" || \
+  ! grep -Fq "this.handleVpnDestroySettled(connection, promise, true)" "$vpn_ability_file" || \
+  ! grep -Fq "this.vpnConnection = null;" "$vpn_ability_file" || \
+  ! grep -Fq "this.cleanupAgainRequested = true;" "$vpn_ability_file"; then
   throw_error "VPN connection destroy must be bounded and remain distinguishable from successful cleanup"
 fi
 printf 'bounded VPN destroy verification passed\n'
