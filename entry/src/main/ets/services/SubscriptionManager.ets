@@ -36,6 +36,7 @@ export interface SubscriptionParseOutcome {
 export const DEFAULT_SUBSCRIPTION_USER_AGENT: string = APP_HTTP_USER_AGENT;
 const MAX_SUBSCRIPTION_RESPONSE_BYTES: number = 16 * 1024 * 1024;
 const SUBSCRIPTION_HTTP_DEADLINE_MS: number = 45000;
+const MAX_SUBSCRIPTION_REDIRECTS: number = 5;
 
 function withSubscriptionRequestTimeout<T>(promise: Promise<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -392,6 +393,30 @@ export class SubscriptionManager {
     return '';
   }
 
+  static validateSubscriptionRedirectChain(
+    originalUrl: string,
+    redirectUrls: Array<string>,
+    allowInsecureUrl: boolean
+  ): string {
+    if (redirectUrls.length > MAX_SUBSCRIPTION_REDIRECTS) {
+      return 'HTTP redirect limit reached';
+    }
+    let previousUrl = originalUrl;
+    for (let index = 0; index < redirectUrls.length; index++) {
+      const redirectUrl = redirectUrls[index];
+      const validationMessage = SubscriptionManager.validateSubscriptionUrl(redirectUrl, allowInsecureUrl);
+      if (validationMessage.length > 0) {
+        return validationMessage;
+      }
+      if (!allowInsecureUrl && previousUrl.toLowerCase().startsWith('https://') &&
+        redirectUrl.toLowerCase().startsWith('http://')) {
+        return 'HTTPS 订阅链接不能重定向到不安全的 HTTP 地址。';
+      }
+      previousUrl = redirectUrl;
+    }
+    return '';
+  }
+
   static toSubscriptionRequestUrl(url: string): string {
     return toIdnUrl(url.trim());
   }
@@ -446,13 +471,23 @@ export class SubscriptionManager {
   }
 
   private static async fetchText(url: string, redirectCount: number, userAgent: string, allowInsecureUrl: boolean, proxyPort: number): Promise<string> {
-    if (redirectCount > 5) {
+    if (redirectCount > MAX_SUBSCRIPTION_REDIRECTS) {
       throw new Error('HTTP redirect limit reached');
     }
 
     const requestUrl = SubscriptionManager.toSubscriptionRequestUrl(url);
     const request = http.createHttp();
+    const observedRedirects = new Array<string>();
+    let lastObservedRedirect = '';
+    const redirectHeaderListener = (headers: Object): void => {
+      const redirectUrl = SubscriptionManager.redirectUrl(requestUrl, JSON.stringify(headers));
+      if (redirectUrl.length > 0 && redirectUrl !== lastObservedRedirect) {
+        observedRedirects.push(redirectUrl);
+        lastObservedRedirect = redirectUrl;
+      }
+    };
     try {
+      request.on('headersReceive', redirectHeaderListener);
       const header = SubscriptionManager.buildSubscriptionRequestHeader(requestUrl, userAgent);
       const options: http.HttpRequestOptions = {
         method: http.RequestMethod.GET,
@@ -474,6 +509,18 @@ export class SubscriptionManager {
       // 参数超时不足以保证部分设备的 NetworkKit Promise 结算。外层截止时间释放
       // 手动/后台更新队列；运行态代理入口失败时仍原样失败，不降级携带凭据直连。
       const response = await withSubscriptionRequestTimeout(request.request(requestUrl, options));
+      redirectHeaderListener(response.header);
+      const redirectValidation = SubscriptionManager.validateSubscriptionRedirectChain(
+        requestUrl,
+        observedRedirects,
+        allowInsecureUrl
+      );
+      if (observedRedirects.length + redirectCount > MAX_SUBSCRIPTION_REDIRECTS) {
+        throw new Error('HTTP redirect limit reached');
+      }
+      if (redirectValidation.length > 0) {
+        throw new Error(redirectValidation);
+      }
       const responseCode = Number(response.responseCode);
       if (SubscriptionManager.isRedirectCode(responseCode)) {
         const redirectUrl = SubscriptionManager.redirectUrl(requestUrl, JSON.stringify(response.header));
@@ -513,6 +560,11 @@ export class SubscriptionManager {
     } catch (err) {
       throw err as Error;
     } finally {
+      try {
+        request.off('headersReceive', redirectHeaderListener);
+      } catch (_error) {
+        // destroy() still releases the request if listener removal is rejected late.
+      }
       request.destroy();
     }
   }

@@ -384,6 +384,15 @@ if ! grep -Fq "const MAX_SUBSCRIPTION_RESPONSE_BYTES: number = 16 * 1024 * 1024;
 fi
 printf 'bounded subscription HTTP verification passed\n'
 
+if ! grep -Fq "const MAX_SUBSCRIPTION_REDIRECTS: number = 5;" "${subscription_manager}" || \
+  ! grep -Fq "request.on('headersReceive', redirectHeaderListener);" "${subscription_manager}" || \
+  ! grep -Fq "validateSubscriptionRedirectChain(" "${subscription_manager}" || \
+  ! grep -Fq "observedRedirects.length + redirectCount > MAX_SUBSCRIPTION_REDIRECTS" \
+  "${subscription_manager}"; then
+  throw_error "subscription downloads do not validate Network Kit's automatically followed redirects"
+fi
+printf 'subscription automatic redirect-chain verification passed\n'
+
 geo_page="entry/src/main/ets/pages/Assets.ets"
 geo_urls="entry/src/main/ets/core/AssetUrls.ets"
 if ! grep -q 'const normalizedUrl = normalizeGeoAssetDownloadUrl(url)' "${geo_controller}" ||

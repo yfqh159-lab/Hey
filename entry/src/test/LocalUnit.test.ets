@@ -4685,6 +4685,23 @@ export default function localUnitTest() {
       expect(SubscriptionManager.validateSubscriptionUrl('https://sub.example:abc/list', false)).assertContain('主机名或端口');
       expect(SubscriptionManager.validateSubscriptionUrl('https://2001:db8::1/list', false)).assertContain('主机名或端口');
       expect(SubscriptionManager.validateSubscriptionUrl('https://sub.example\\@evil.example/list', false)).assertContain('主机名或端口');
+      expect(SubscriptionManager.validateSubscriptionRedirectChain(
+        'https://sub.example/list', ['https://cdn.example/list'], false)).assertEqual('');
+      expect(SubscriptionManager.validateSubscriptionRedirectChain(
+        'https://sub.example/list', ['http://cdn.example/list'], false)).assertContain('不安全');
+      expect(SubscriptionManager.validateSubscriptionRedirectChain(
+        'https://sub.example/list', ['http://127.0.0.1/list'], false)).assertContain('不能重定向');
+      expect(SubscriptionManager.validateSubscriptionRedirectChain(
+        'https://sub.example/list', ['http://cdn.example/list'], true)).assertEqual('');
+      expect(SubscriptionManager.validateSubscriptionRedirectChain(
+        'https://sub.example/list', [
+          'https://1.example/list',
+          'https://2.example/list',
+          'https://3.example/list',
+          'https://4.example/list',
+          'https://5.example/list',
+          'https://6.example/list'
+        ], false)).assertContain('limit');
     });
 
     it('converts IDN subscription hosts to punycode HttpUtil', 0, () => {
