@@ -5,6 +5,10 @@
       "value": "Used to observe the current physical network while the user-started VPN is running, so network changes and trusted-network disconnects can be handled."
     },
     {
+      "name": "reason_camera",
+      "value": "Used only when you choose to scan a QR code to import a proxy node."
+    },
+    {
       "name": "reason_location",
       "value": "Used to identify the current Wi-Fi network and scan nearby networks for the network automation feature. Used locally only, never uploaded."
     },

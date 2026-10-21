@@ -1,4 +1,4 @@
-import { common } from '@kit.AbilityKit';
+import { abilityAccessCtrl, common, Permissions } from '@kit.AbilityKit';
 import { router, promptAction } from '@kit.ArkUI';
 import { picker } from '@kit.CoreFileKit';
 import { scanBarcode, scanCore, detectBarcode } from '@kit.ScanKit';
@@ -19,6 +19,8 @@ import { SubscriptionStore } from '../storage/SubscriptionStore';
 import { convertNativeShareTextToOutbounds } from '../services/NativeShareConverter';
 import { SubscriptionManager } from '../services/SubscriptionManager';
 import { AppColor } from '../theme/Theme';
+
+const CAMERA_PERMISSION: Permissions = 'ohos.permission.CAMERA';
 
 @Entry
 @Component
@@ -350,6 +352,10 @@ struct ScannerPage {
   private async startCameraScan(): Promise<void> {
     try {
       const context = getContext(this) as common.UIAbilityContext;
+      if (!await this.requestCameraPermission(context)) {
+        this.lastError = this.t('scanner.cameraPermissionDenied');
+        return;
+      }
       const options: scanBarcode.ScanOptions = {
         scanTypes: [scanCore.ScanType.QR_CODE],
         enableMultiMode: false,
@@ -662,6 +668,16 @@ struct ScannerPage {
     const record = error as Record<string, Object>;
     const code = record['code'];
     return code === 20001 || code === '20001' || code === 1000500002 || code === '1000500002';
+  }
+
+  private async requestCameraPermission(context: common.UIAbilityContext): Promise<boolean> {
+    try {
+      const atManager = abilityAccessCtrl.createAtManager();
+      const result = await atManager.requestPermissionsFromUser(context, [CAMERA_PERMISSION]);
+      return result.authResults.length === 1 && result.authResults[0] === 0;
+    } catch (error) {
+      return false;
+    }
   }
 
   private errorMessage(error: Object): string {
