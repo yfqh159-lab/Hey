@@ -21,11 +21,15 @@ struct NetworkScenarioPage {
   @State private showManualInput: boolean = false;
   @State private scanEntries: WifiScanEntry[] = [];
   @State private showScanResults: boolean = false;
+  @State private settingsLoaded: boolean = false;
+  @State private lastError: string = '';
   private draft: SettingsDraft | null = null;
   private settingsSaveInFlight: boolean = false;
   private settingsSavePending: boolean = false;
+  private settingsLoadGeneration: number = 0;
 
   aboutToAppear(): void {
+    this.settingsLoaded = false;
     this.loadState();
   }
 
@@ -35,29 +39,63 @@ struct NetworkScenarioPage {
         title: this.t('screen.netScenario.title'),
         showBack: true
       })
-      Scroll() {
-        Column({ space: Space.md }) {
-          this.IntroCard()
-          this.CellularCard()
-          this.GroupLabel(this.t('netScenario.trustedWifi'))
-          this.TrustedWifiCard()
-          this.ActionButtons()
-          if (this.showManualInput) {
-            this.ManualAddCard()
+      Stack({ alignContent: Alignment.Center }) {
+        Scroll() {
+          Column({ space: Space.md }) {
+            this.IntroCard()
+            this.CellularCard()
+            this.GroupLabel(this.t('netScenario.trustedWifi'))
+            this.TrustedWifiCard()
+            this.ActionButtons()
+            if (this.showManualInput) {
+              this.ManualAddCard()
+            }
+            if (this.showScanResults) {
+              this.ScanResultsCard()
+            }
           }
-          if (this.showScanResults) {
-            this.ScanResultsCard()
-          }
+          .width('100%')
+          .padding({ left: Space.lg, right: Space.lg, top: Space.md, bottom: Space.xxl + this.bottomSafe })
         }
         .width('100%')
-        .padding({ left: Space.lg, right: Space.lg, top: Space.md, bottom: Space.xxl + this.bottomSafe })
+        .height('100%')
+        .align(Alignment.Top)
+        .enabled(this.settingsLoaded)
+
+        if (!this.settingsLoaded) {
+          this.SettingsLoadState()
+        }
       }
       .layoutWeight(1)
       .width('100%')
-      .align(Alignment.Top)
     }
     .height('100%')
     .width('100%')
+    .backgroundColor(AppColor.bg)
+  }
+
+  @Builder
+  private SettingsLoadState() {
+    Column() {
+      if (this.lastError.length === 0) {
+        LoadingProgress()
+          .width(32)
+          .height(32)
+          .color(AppColor.brand)
+      } else {
+        Text(this.lastError)
+          .fontSize(FontSz.footnote)
+          .fontColor(AppColor.danger)
+          .width('100%')
+          .padding(Space.md)
+          .backgroundColor(AppColor.dangerTint)
+          .borderRadius(Radius.md)
+      }
+    }
+    .width('100%')
+    .height('100%')
+    .padding({ left: Space.lg, right: Space.lg, top: Space.xl })
+    .alignItems(HorizontalAlign.Center)
     .backgroundColor(AppColor.bg)
   }
 
@@ -265,14 +303,28 @@ struct NetworkScenarioPage {
   }
 
   private async loadState(): Promise<void> {
+    const loadGeneration = ++this.settingsLoadGeneration;
+    this.settingsLoaded = false;
+    this.lastError = '';
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
       const settings = await SETTINGS_CONTROLLER.load(context);
+      if (loadGeneration !== this.settingsLoadGeneration) {
+        return;
+      }
       this.draft = SETTINGS_CONTROLLER.toDraft(settings);
       this.cellularTrusted = settings.netAutomationCellularTrusted;
       this.trustedSsids = (settings.netAutomationTrustedSsids ?? []).slice();
+      this.settingsLoaded = true;
     } catch (error) {
-      // ignore
+      if (loadGeneration === this.settingsLoadGeneration) {
+        this.lastError = formatOne(
+          this.language,
+          'error.loadSettings',
+          'error',
+          redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error))
+        );
+      }
     }
   }
 
@@ -339,6 +391,9 @@ struct NetworkScenarioPage {
   }
 
   private saveSettings(): void {
+    if (!this.settingsLoaded) {
+      return;
+    }
     this.settingsSavePending = true;
     if (this.settingsSaveInFlight) {
       return;

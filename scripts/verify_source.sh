@@ -146,6 +146,10 @@ printf 'manual connection policy translation verification passed\n'
 network_scenario_source='entry/src/main/ets/pages/NetworkScenario.ets'
 if grep -Fq 'markRuntimeSettingsRestartNeeded' "${network_scenario_source}" ||
   ! grep -Fq 'NETWORK_SCENE_MANAGER.refreshNow(true);' "${network_scenario_source}" ||
+  ! grep -Fq '@State private settingsLoaded: boolean = false;' "${network_scenario_source}" ||
+  ! grep -Fq 'private settingsLoadGeneration: number = 0;' "${network_scenario_source}" ||
+  ! grep -Fq '.enabled(this.settingsLoaded)' "${network_scenario_source}" ||
+  ! grep -Fq 'loadGeneration !== this.settingsLoadGeneration' "${network_scenario_source}" ||
   ! grep -Fq 'private settingsSaveInFlight: boolean = false;' "${network_scenario_source}" ||
   ! grep -Fq 'while (this.settingsSavePending)' "${network_scenario_source}" ||
   ! grep -Fq 'draft.netAutomationTrustedSsids = this.trustedSsids.slice();' "${network_scenario_source}"; then
