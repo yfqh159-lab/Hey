@@ -1085,6 +1085,12 @@ if (permissionAt < 0 || scanAt < 0 ||
 NODE
 printf 'scanner camera permission error classification passed\n'
 
+if ! grep -F "'scanner.supportedPayloads':" entry/src/main/ets/core/I18n.ets | grep -Fq "trojan://" || \
+  ! grep -F "'import.linkDetail':" entry/src/main/ets/core/I18n.ets | grep -Fq "trojan://"; then
+  throw_error "scanner and link-import guidance must advertise supported Trojan links"
+fi
+printf 'primary scanner protocol guidance verification passed\n'
+
 node <<'NODE'
 const fs = require('fs');
 const source = fs.readFileSync('entry/src/main/cpp/napi_init.cpp', 'utf8');
