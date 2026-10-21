@@ -51,7 +51,7 @@ import { SPEED_NOTIFICATION_MANAGER } from '../services/SpeedNotificationManager
 import { CONTROL_CARD_MANAGER } from '../services/ControlCardManager';
 import { DEFAULT_LANGUAGE } from '../core/I18n';
 import { isVpnCleanupComplete } from '../core/RuntimeHealth';
-import { assertGeoAssetsStableForCore } from '../services/GeoCoreReadiness';
+import { areGeoAssetsStableForCore, assertGeoAssetsStableForCore } from '../services/GeoCoreReadiness';
 
 const LOG_DOMAIN: number = 0x0001;
 const LOG_TAG: string = 'HeyVpnAbility';
@@ -519,6 +519,16 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   private async reloadCoreAfterNetworkChange(sessionGeneration: number): Promise<void> {
     if (sessionGeneration !== this.sessionGeneration || this.coreReloading || this.cleaningUp ||
       this.stopRequested || this.activeConfigJson.length === 0) {
+      return;
+    }
+    // Geo 更新由 UI 进程执行；若它正处于 rename 窗口，保留当前已加载的健康核心，
+    // 不并发读半套文件，也不把安全延迟误判成切网恢复失败而拆掉 VPN。清空已提交的
+    // 承载签名，让下一轮 5 秒轮询在事务结束后再次识别同一变化并重试。
+    if (!areGeoAssetsStableForCore(this.context.filesDir)) {
+      this.netSceneSignature = '';
+      this.netSceneTransportSignature = '';
+      this.emitInfo('Core reload deferred while Geo data replacement is in progress.',
+        `session=${this.sessionId}`);
       return;
     }
     this.coreReloading = true;

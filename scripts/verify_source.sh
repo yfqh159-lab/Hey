@@ -1257,8 +1257,16 @@ const vpnStartAt = vpn.indexOf('  private async startVpn(');
 const vpnConnectionCreateAt = vpn.indexOf('vpnExtension.createVpnConnection(this.context)', vpnStartAt);
 const geoFenceAt = vpn.indexOf('assertGeoAssetsStableForCore(this.context.filesDir);', vpnStartAt);
 if (vpnStartAt < 0 || geoFenceAt < vpnStartAt || vpnConnectionCreateAt < geoFenceAt ||
-  !geoReadiness.includes('hasPendingGeoReplacementArtifacts(names)')) {
+  !geoReadiness.includes('return !hasPendingGeoReplacementArtifacts(names);')) {
   throw new Error('VPN Extension can load a core while a Geo replacement transaction is incomplete');
+}
+const vpnReloadAt = vpn.indexOf('  private async reloadCoreAfterNetworkChange(');
+const vpnReloadStopAt = vpn.indexOf("this.activeCoreType === 'singbox' ? stopNativeSingbox() : stopNativeXray()", vpnReloadAt);
+const vpnReloadGeoAt = vpn.indexOf('if (!areGeoAssetsStableForCore(this.context.filesDir))', vpnReloadAt);
+const vpnReloadRetrySignatureAt = vpn.indexOf("this.netSceneSignature = '';", vpnReloadGeoAt);
+if (vpnReloadAt < 0 || vpnReloadGeoAt < vpnReloadAt || vpnReloadRetrySignatureAt < vpnReloadGeoAt ||
+  vpnReloadStopAt < vpnReloadRetrySignatureAt) {
+  throw new Error('VPN handover core reload can race a cross-process Geo replacement or lose its retry');
 }
 const connectionStartAt = connection.indexOf(
   '  async start(context: common.Context, profile: ProxyProfile, settings?: AppSettings)');
