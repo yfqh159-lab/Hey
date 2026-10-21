@@ -867,7 +867,20 @@ struct AssetsPage {
     this.toast(this.t('assets.updatingAll'));
     try {
       const result = await ASSETS_CONTROLLER.checkAndUpdateBuiltinGeo(context);
-      await this.loadGeoMetadata();
+      if (result.metadataSaved) {
+        await this.loadGeoMetadata();
+      } else {
+        // 文件事务已经成功但校验记录未持久化时，不得重新加载并展示上一版元数据。
+        // 尽力清掉旧记录，同时用本次已验证结果更新当前页面；下次启动会重新核对文件。
+        await this.clearGeoMetadata();
+        this.applyGeoMetadata({
+          version: result.version,
+          source: '',
+          checkedAt: result.checkedAt,
+          result: result.changed ? 'updated' : 'latest',
+          assets: result.assets
+        });
+      }
       this.updateFileStatus();
       // 文件校验/替换结果与“校验记录是否成功落盘”是两件事；记录失败不能覆盖真实
       // 更新结果，更不能漏掉运行中必须重连的提示。
@@ -1199,6 +1212,22 @@ struct AssetsPage {
   private async loadGeoMetadata(): Promise<void> {
     const context = this.getUIContext().getHostContext() as common.Context;
     const metadata = await AssetStore.loadGeoUpdateMetadata(context);
+    if (!await ASSETS_CONTROLLER.isBuiltinGeoMetadataCurrent(context, metadata)) {
+      // 陈旧记录不能继续宣称当前文件属于某版本或某 SHA。清理失败时本页仍先隐藏它；
+      // 后续再次检查更新可重建可信记录。
+      try {
+        await AssetStore.clearGeoUpdateMetadata(context);
+      } catch (error) {
+        // ignore stale-record cleanup failure
+      }
+      this.geoAssetHashes = {};
+      this.geoUpdateSummary = this.t('assets.geo.defaultSource');
+      return;
+    }
+    this.applyGeoMetadata(metadata);
+  }
+
+  private applyGeoMetadata(metadata: GeoUpdateMetadata): void {
     const hashes: Record<string, string> = {};
     for (let index = 0; index < metadata.assets.length; index++) {
       hashes[metadata.assets[index].fileName] = metadata.assets[index].sha256;

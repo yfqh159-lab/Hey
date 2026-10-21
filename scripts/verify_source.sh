@@ -93,6 +93,38 @@ for (const file of routedDownloads) {
 NODE
 printf 'cleanup-aware download routing verification passed\n'
 
+node <<'NODE'
+const fs = require('fs');
+const controller = fs.readFileSync('entry/src/main/ets/features/assets/AssetsController.ets', 'utf8');
+const page = fs.readFileSync('entry/src/main/ets/pages/Assets.ets', 'utf8');
+const verifyAt = controller.indexOf('  async isBuiltinGeoMetadataCurrent(');
+const verifyEnd = controller.indexOf('\n  // 检查可信默认发布源', verifyAt);
+const verify = controller.slice(verifyAt, verifyEnd);
+if (verifyAt < 0 || verifyEnd < 0 ||
+  !verify.includes('metadata.assets.length !== BUILTIN_GEO_DATA_FILE_NAMES.length') ||
+  !verify.includes('isPlausibleGeoData(data, matched.size)') ||
+  !verify.includes('await this.sha256(data) !== matched.sha256')) {
+  throw new Error('stored Geo version/hash metadata is not verified against both installed files');
+}
+const loadAt = page.indexOf('  private async loadGeoMetadata(): Promise<void>');
+const loadEnd = page.indexOf('\n  private applyGeoMetadata(', loadAt);
+const load = page.slice(loadAt, loadEnd);
+if (loadAt < 0 || loadEnd < 0 ||
+  !load.includes('await ASSETS_CONTROLLER.isBuiltinGeoMetadataCurrent(context, metadata)') ||
+  !load.includes('await AssetStore.clearGeoUpdateMetadata(context);') ||
+  !load.includes("this.geoUpdateSummary = this.t('assets.geo.defaultSource');")) {
+  throw new Error('Assets page can display stale Geo verification metadata');
+}
+const updateAt = page.indexOf('  private async checkGeoUpdate(): Promise<void>');
+const updateEnd = page.indexOf('\n  private deleteAsset(', updateAt);
+const update = page.slice(updateAt, updateEnd);
+if (updateAt < 0 || updateEnd < 0 || !update.includes('if (result.metadataSaved)') ||
+  !update.includes('await this.clearGeoMetadata();') || !update.includes('this.applyGeoMetadata({')) {
+  throw new Error('a metadata write failure can reload and display an obsolete Geo version');
+}
+NODE
+printf 'installed Geo metadata verification passed\n'
+
 # These legacy resources described removed automatic-connect/fastest-node features.
 # Their return would contradict the single-node, user-controlled runtime model even if
 # no current page referenced them, so keep their identifiers out of the translation map.

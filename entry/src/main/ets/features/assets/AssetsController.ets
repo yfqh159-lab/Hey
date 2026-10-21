@@ -121,6 +121,47 @@ export class AssetsController {
     return this.t(language, 'assets.notDownloaded');
   }
 
+  // Preferences 中的版本/哈希只是上次检查记录，不能脱离沙箱中的实际文件直接展示。
+  // 文件替换成功但元数据保存失败、用户导入/覆盖中途进程退出等情况下，重新计算两个
+  // 核心文件的摘要；只有文件名、大小和 SHA-256 全部一致才承认记录仍代表当前资源。
+  async isBuiltinGeoMetadataCurrent(
+    context: common.Context,
+    metadata: GeoUpdateMetadata
+  ): Promise<boolean> {
+    if (metadata.assets.length === 0) {
+      return metadata.version.length === 0;
+    }
+    if (metadata.assets.length !== BUILTIN_GEO_DATA_FILE_NAMES.length) {
+      return false;
+    }
+    try {
+      for (let index = 0; index < BUILTIN_GEO_DATA_FILE_NAMES.length; index++) {
+        const fileName = BUILTIN_GEO_DATA_FILE_NAMES[index];
+        let matched: GeoAssetMetadata | null = null;
+        for (let assetIndex = 0; assetIndex < metadata.assets.length; assetIndex++) {
+          if (metadata.assets[assetIndex].fileName === fileName) {
+            if (matched !== null) {
+              return false;
+            }
+            matched = metadata.assets[assetIndex];
+          }
+        }
+        if (matched === null || !/^[0-9a-f]{64}$/.test(matched.sha256) ||
+          !Number.isFinite(matched.size) || Math.floor(matched.size) !== matched.size) {
+          return false;
+        }
+        const data = this.readFileData(`${context.filesDir}/${fileName}`);
+        if (data === null || !isPlausibleGeoData(data, matched.size) ||
+          await this.sha256(data) !== matched.sha256) {
+          return false;
+        }
+      }
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
   // 检查可信默认发布源。两个核心文件全部通过版本、大小、格式和 SHA-256 校验后才一起替换。
   // 若安装阶段失败，则回滚本次已替换的文件；进程中断留下的事务状态会在下次检查时恢复。
   async checkAndUpdateBuiltinGeo(context: common.Context): Promise<BuiltinGeoUpdateResult> {
