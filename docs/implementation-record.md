@@ -44,8 +44,14 @@ git diff --check
 ./scripts/compliance_scan.sh
 ./scripts/verify_prebuilt_native.sh
 bash -n scripts/*.sh
-中英文翻译键完整性检查（1129 个键）
+中英文翻译键完整性检查（1130 个键）
 ```
+
+2026-10-21 还直接核对了
+[`Loyalsoldier/v2ray-rules-dat` 最新 Release API](https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest)：
+版本 `202610202206` 同时提供 `geoip.dat`、`geosite.dat` 及对应 `.sha256sum`；临时目录中下载的
+16,587,463 字节 `geoip.dat` 与 11,338,645 字节 `geosite.dat` 均通过发布方 SHA-256。
+这只证明当前上游发布契约与解析器假设一致，不代表 HarmonyOS 应用内下载或安装已经真机通过。
 
 未执行且不得写成已通过：
 
