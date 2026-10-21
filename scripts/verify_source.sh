@@ -260,6 +260,7 @@ printf 'import re-entry and scanner disposal verification passed\n'
 node <<'NODE'
 const fs = require('fs');
 const store = fs.readFileSync('entry/src/main/ets/storage/SubscriptionStore.ets', 'utf8');
+const profileStore = fs.readFileSync('entry/src/main/ets/storage/ProfileStore.ets', 'utf8');
 const mutations = [
   'saveUrl', 'saveNodes', 'saveNodeDelay', 'saveNodeDelays', 'saveActiveGroupNodes',
   'saveGroups', 'restoreProfile', 'removeNode', 'removeInvalidNodes',
@@ -310,6 +311,16 @@ for (const marker of [
 }
 if (store.split('const nodesSnapshot = SubscriptionStore.normalizeNodes(nodes);').length - 1 !== 2) {
   throw new Error('node array snapshots do not cover both queued replacement paths');
+}
+const profileLoadAt = profileStore.indexOf('  static load(context: common.Context)');
+const profileSelectAt = profileStore.indexOf('  static selectStoredProfile(', profileLoadAt);
+const profileSaveAt = profileStore.indexOf('  static save(context: common.Context', profileSelectAt);
+const profileQueueAt = profileStore.indexOf('  private static enqueueOperation', profileSaveAt);
+if (!profileStore.includes('private static operationTail: Promise<void> = Promise.resolve();') ||
+  !profileStore.includes('ProfileStore.operationTail = task.then(') ||
+  !profileStore.slice(profileLoadAt, profileSelectAt).includes('return ProfileStore.enqueueOperation(') ||
+  !profileStore.slice(profileSaveAt, profileQueueAt).includes('return ProfileStore.enqueueOperation(')) {
+  throw new Error('selected profile recovery and saves do not share a failure-safe operation queue');
 }
 for (const file of [
   'entry/src/main/ets/pages/Scanner.ets',

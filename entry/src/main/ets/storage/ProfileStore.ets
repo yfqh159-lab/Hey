@@ -12,24 +12,28 @@ export interface StoredProfileSelection {
 }
 
 export class ProfileStore {
-  static async load(context: common.Context): Promise<ProxyProfile> {
-    const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-    const primaryRaw = (await store.get(PROFILE_KEY, '')).toString();
-    const backupRaw = (await store.get(PROFILE_BACKUP_KEY, '')).toString();
-    const selection = ProfileStore.selectStoredProfile(primaryRaw, backupRaw);
-    if (selection.profile !== null && selection.source !== 'backup') {
-      return selection.profile;
-    }
-    if (selection.profile !== null) {
-      try {
-        await store.put(PROFILE_KEY, JSON.stringify(selection.profile));
-        await store.flush();
-      } catch (_error) {
-        // keep recovered in-memory value
+  private static operationTail: Promise<void> = Promise.resolve();
+
+  static load(context: common.Context): Promise<ProxyProfile> {
+    return ProfileStore.enqueueOperation(async (): Promise<ProxyProfile> => {
+      const store = await preferences.getPreferences(context, PREFERENCES_NAME);
+      const primaryRaw = (await store.get(PROFILE_KEY, '')).toString();
+      const backupRaw = (await store.get(PROFILE_BACKUP_KEY, '')).toString();
+      const selection = ProfileStore.selectStoredProfile(primaryRaw, backupRaw);
+      if (selection.profile !== null && selection.source !== 'backup') {
+        return selection.profile;
       }
-      return selection.profile;
-    }
-    throw new Error('Stored selected profile is unreadable; the existing data was not overwritten.');
+      if (selection.profile !== null) {
+        try {
+          await store.put(PROFILE_KEY, JSON.stringify(selection.profile));
+          await store.flush();
+        } catch (_error) {
+          // keep recovered in-memory value
+        }
+        return selection.profile;
+      }
+      throw new Error('Stored selected profile is unreadable; the existing data was not overwritten.');
+    });
   }
 
   static selectStoredProfile(primaryRaw: string, backupRaw: string): StoredProfileSelection {
@@ -47,7 +51,7 @@ export class ProfileStore {
     return { profile: null, source: 'invalid' };
   }
 
-  static async save(context: common.Context, outboundJson: string, configType: XrayConfigType = 'outbound'): Promise<ProxyProfile> {
+  static save(context: common.Context, outboundJson: string, configType: XrayConfigType = 'outbound'): Promise<ProxyProfile> {
     const profile: ProxyProfile = {
       id: DEFAULT_PROFILE_ID,
       name: 'Default Xray Profile',
@@ -55,23 +59,37 @@ export class ProfileStore {
       configType: ProfileStore.normalizeConfigType(configType),
       updatedAt: Date.now()
     };
-    // Profile 决定下一次手动连接使用哪个配置，其持久化失败不能伪装成成功。
-    // 调用方已有面向用户的错误处理；让 ArkData 错误向上传递，避免 UI/订阅库已经
-    // 指向新节点，而重启应用后又静默回到旧 Profile。
-    const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-    const nextRaw = JSON.stringify(profile);
-    const currentRaw = (await store.get(PROFILE_KEY, '')).toString();
-    if (ProfileStore.parseStoredProfile(currentRaw) !== null) {
-      await store.put(PROFILE_BACKUP_KEY, currentRaw);
-    } else {
-      const backupRaw = (await store.get(PROFILE_BACKUP_KEY, '')).toString();
-      if (ProfileStore.parseStoredProfile(backupRaw) === null) {
-        await store.put(PROFILE_BACKUP_KEY, nextRaw);
+    return ProfileStore.enqueueOperation(async (): Promise<ProxyProfile> => {
+      // Profile 决定下一次手动连接使用哪个配置，其持久化失败不能伪装成成功。
+      // 调用方已有面向用户的错误处理；让 ArkData 错误向上传递，避免 UI/订阅库已经
+      // 指向新节点，而重启应用后又静默回到旧 Profile。
+      const store = await preferences.getPreferences(context, PREFERENCES_NAME);
+      const nextRaw = JSON.stringify(profile);
+      const currentRaw = (await store.get(PROFILE_KEY, '')).toString();
+      if (ProfileStore.parseStoredProfile(currentRaw) !== null) {
+        await store.put(PROFILE_BACKUP_KEY, currentRaw);
+      } else {
+        const backupRaw = (await store.get(PROFILE_BACKUP_KEY, '')).toString();
+        if (ProfileStore.parseStoredProfile(backupRaw) === null) {
+          await store.put(PROFILE_BACKUP_KEY, nextRaw);
+        }
       }
-    }
-    await store.put(PROFILE_KEY, nextRaw);
-    await store.flush();
-    return profile;
+      await store.put(PROFILE_KEY, nextRaw);
+      await store.flush();
+      return profile;
+    });
+  }
+
+  private static enqueueOperation<T>(operation: () => Promise<T>): Promise<T> {
+    const task = ProfileStore.operationTail.then(
+      (): Promise<T> => operation(),
+      (): Promise<T> => operation()
+    );
+    ProfileStore.operationTail = task.then(
+      (): void => {},
+      (_error: Object): void => {}
+    );
+    return task;
   }
 
   private static parseStoredProfile(raw: string): ProxyProfile | null {
