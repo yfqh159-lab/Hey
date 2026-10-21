@@ -86,6 +86,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   private netScenePollTimerId: number = -1;
   private netSceneSignature: string = '';
   private netSceneSeeded: boolean = false;
+  private netScenePollInFlight: boolean = false;
 
   onCreate(want: Want): void {
     this.startedAt = Date.now();
@@ -256,12 +257,19 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   }
 
   private async pollNetScene(): Promise<void> {
-    if (this.cleaningUp) {
+    if (this.cleaningUp || this.stopRequested || this.netScenePollInFlight) {
       return;
     }
+    this.netScenePollInFlight = true;
     try {
       const settings = await SETTINGS_CONTROLLER.load(this.context);
+      if (this.cleaningUp || this.stopRequested) {
+        return;
+      }
       const ctx = await NetworkProbe.readCurrentNetContext();
+      if (this.cleaningUp || this.stopRequested) {
+        return;
+      }
       const signature = `${ctx.kind}|${ctx.ssid ?? ''}`;
       // 首次只 seed 不动作——避免拆掉用户「在可信网络手动开的 VPN」；仅对之后的网络切换生效。
       if (!this.netSceneSeeded) {
@@ -297,7 +305,11 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         this.requestCleanup('Network scene auto-disconnect.', `session=${this.sessionId}`);
       }
     } catch (error) {
-      this.emitInfo('Net scene poll failed.', this.errorMessage(error));
+      if (!this.cleaningUp && !this.stopRequested) {
+        this.emitInfo('Net scene poll failed.', this.errorMessage(error));
+      }
+    } finally {
+      this.netScenePollInFlight = false;
     }
   }
 
