@@ -72,7 +72,6 @@ function runtimeSettingsSignature(settings: AppSettings): string {
     preferIpv6: settings.preferIpv6,
     proxySharingEnabled: settings.proxySharingEnabled,
     allowInsecure: settings.allowInsecure,
-    localDnsPort: settings.localDnsPort,
     vpnInterfaceAddressIndex: settings.vpnInterfaceAddressIndex,
     vpnBypassLan: settings.vpnBypassLan,
     vpnMtu: settings.vpnMtu,

@@ -1385,9 +1385,14 @@ if (catalogStart < 0 || filterStart < 0) {
   throw new Error('settings catalog could not be inspected');
 }
 const visibleCatalog = catalog.slice(catalogStart, filterStart);
+const settingsChange = fs.readFileSync('entry/src/main/ets/core/SettingsChange.ets', 'utf8');
+const signatureStart = settingsChange.indexOf('function runtimeSettingsSignature(');
+const markerStart = settingsChange.indexOf('\nexport function markRuntimeSettingsRestartNeeded', signatureStart);
+const signature = settingsChange.slice(signatureStart, markerStart);
 if (visibleCatalog.includes("key: 'localDnsPort'") ||
   !visibleCatalog.includes("key: 'localDns'") ||
-  !visibleCatalog.includes("key: 'vpnDns'")) {
+  !visibleCatalog.includes("key: 'vpnDns'") ||
+  signatureStart < 0 || markerStart < 0 || signature.includes('localDnsPort')) {
   throw new Error('settings UI exposes an unused local DNS port or hides active DNS controls');
 }
 NODE

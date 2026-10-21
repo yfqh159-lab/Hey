@@ -325,6 +325,7 @@ export default function localUnitTest() {
       uiOnly.homeDelayTestInterval = 15;
       uiOnly.netAutomationEnabled = !uiOnly.netAutomationEnabled;
       uiOnly.netAutomationTrustedSsids = ['home'];
+      uiOnly.localDnsPort++;
       expect(shouldRestartRuntimeForSettingsChange(previous, uiOnly)).assertFalse();
 
       const modeChanged = buildSettingsFixture();
