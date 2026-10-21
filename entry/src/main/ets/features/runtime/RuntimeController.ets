@@ -91,6 +91,7 @@ export class RuntimeController {
   private missingVpnStateSampleCount: number = 0;
   private unhealthyVpnStateFirstSeenAt: number = 0;
   private unhealthyVpnStateSessionId: string = '';
+  private networkRecoveryInFlight: boolean = false;
 
   async start(context: common.Context, profile: ProxyProfile, settings: AppSettings, language: AppLanguage): Promise<RuntimeViewState> {
     if (this.status === ConnectionStatus.STARTING || this.status === ConnectionStatus.STOPPING ||
@@ -188,6 +189,46 @@ export class RuntimeController {
       return stopped;
     }
     return this.start(context, profile, settings, language);
+  }
+
+  // Proxy-only 与 UI 同进程，不能依赖 VPN Extension 的后台轮询。网络监听确认承载发生
+  // 真实变化后从原始运行配置重载核心；手动 stop 可在任意 await 处取消底层恢复代际。
+  async recoverProxyOnlyAfterNetworkChange(
+    context: common.Context,
+    language: AppLanguage
+  ): Promise<RuntimeViewState> {
+    if (this.networkRecoveryInFlight || this.status !== ConnectionStatus.RUNNING ||
+      this.runtimeMode !== APP_MODE_PROXY_ONLY) {
+      return this.snapshot();
+    }
+    const sessionStartedAt = this.startedAt;
+    this.networkRecoveryInFlight = true;
+    this.resetEgressIp();
+    this.appendLog(translate(language, 'log.restartingService'));
+    try {
+      const snapshot = await this.controller.reloadProxyOnlyAfterNetworkChange(context);
+      // 用户可能在域名解析或 SOCKS 就绪等待期间手动停止；stop() 已经更新本地状态，
+      // 此时绝不能用迟到的恢复结果覆盖它，更不能重新连接。
+      if (this.status !== ConnectionStatus.RUNNING || this.runtimeMode !== APP_MODE_PROXY_ONLY ||
+        this.startedAt !== sessionStartedAt) {
+        return this.snapshot();
+      }
+      this.applySnapshot(snapshot, language);
+      if (snapshot.status === ConnectionStatus.RUNNING) {
+        this.resetProxyHealth();
+      } else {
+        this.activeProfile = null;
+        this.activeSettings = null;
+        this.resetConnectionDelay();
+        this.resetEgressIp();
+        if (this.lastError.length > 0) {
+          this.appendLog(this.lastError);
+        }
+      }
+      return this.snapshot();
+    } finally {
+      this.networkRecoveryInFlight = false;
+    }
   }
 
   // UI 进程重建后，reconcilePersistedVpnState() 只接管仍存活的 VPN 会话；这里再补回当前
@@ -391,7 +432,8 @@ export class RuntimeController {
   }
 
   isBusy(): boolean {
-    return this.status === ConnectionStatus.STARTING || this.status === ConnectionStatus.STOPPING;
+    return this.networkRecoveryInFlight ||
+      this.status === ConnectionStatus.STARTING || this.status === ConnectionStatus.STOPPING;
   }
 
   // 核心日志、诊断日志、应用日志各自最新在前，合并后按时间倒序统一排列（最新在顶），上限 120 条。

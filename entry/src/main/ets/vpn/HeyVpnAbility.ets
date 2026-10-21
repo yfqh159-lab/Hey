@@ -8,7 +8,7 @@ import {
   NET_ACTION_DISCONNECT,
   decideNetAutomationAction,
   networkContextSignature,
-  shouldReloadVpnCoreAfterNetworkChange
+  shouldReloadActiveCoreAfterNetworkChange
 } from '../core/NetworkAutomation';
 import { NetSceneStopFlag } from '../services/NetSceneStopFlag';
 import { APP_MODE_VPN, AppLanguage, ConnectionStatus, resolveVpnInterfaceAddressConfig, RuntimeStats } from '../core/Profile';
@@ -359,7 +359,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         this.requestCleanup('Network scene auto-disconnect.', `session=${this.sessionId}`);
         return;
       }
-      if (shouldReloadVpnCoreAfterNetworkChange(ctx, action)) {
+      if (shouldReloadActiveCoreAfterNetworkChange(ctx, action)) {
         // 蜂窝→Wi-Fi 常是 make-before-break：旧核心连接可能仍挂在即将消失的承载上。
         // 只重载当前核心并保留 VPN/TUN，迫使域名解析和新出站使用当前默认网络；一次网络
         // 签名变化最多执行一次。失败时清理整个会话，等待用户手动重连。

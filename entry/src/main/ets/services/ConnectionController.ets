@@ -2,7 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { vpnExtension } from '@kit.NetworkKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppRuntimeMode, AppSettings, ConnectionStatus, GeneratedXrayConfig, normalizeAppRuntimeMode, ProxyProfile, RuntimeStats } from '../core/Profile';
+import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppRuntimeMode, AppSettings, ConnectionStatus, GeneratedXrayConfig, normalizeAppRuntimeMode, ProxyProfile, RuntimeStats, XrayConfigType } from '../core/Profile';
 import { resolveDynamicPolicyGroupConfigJson } from '../core/AdvancedOutboundBuilder';
 import { selectRuntimeLocalSocksPort, shouldUseDynamicLocalSocksPort, withRuntimeLocalSocksPort } from '../core/LocalProxy';
 import { appReservedRuntimePorts, buildRuntimeXrayConfig, injectXrayLogFile, normalizeConfigInput, VPN_DATA_SOCKS_PORT, XRAY_CORE_LOG_FILE } from '../core/XrayConfig';
@@ -54,6 +54,13 @@ export class ConnectionController {
   // 本次连接实际使用的内核（anytls/tuic 会强制走 sing-box，与全局开关可能不一致）。
   private effectiveCoreType: CoreType = CORE_TYPE_XRAY;
   private vpnSessionId: string = '';
+  // Proxy-only 承载切换时必须从未预解析的配置重新构建核心配置；否则旧网络解析出的
+  // VPS 地址可能继续被复用。这里只保留当前内存会话所需数据，不写入日志或额外落盘。
+  private proxyReloadConfigJson: string = '';
+  private proxyReloadSettings: AppSettings | undefined = undefined;
+  private proxyReloadConfigType: XrayConfigType | undefined = undefined;
+  // 用户停止或新启动会递增代际，使网络切换中正在等待 DNS/SOCKS 的恢复任务立即失效。
+  private proxyReloadGeneration: number = 0;
 
   getSnapshot(): ConnectionSnapshot {
     return {
@@ -91,6 +98,9 @@ export class ConnectionController {
       return this.getSnapshot();
     }
 
+    this.proxyReloadGeneration++;
+    this.clearProxyReloadState();
+
     const validation = normalizeConfigInput(profile.outboundJson, profile.configType);
     if (!validation.valid) {
       this.status = ConnectionStatus.ERROR;
@@ -122,6 +132,11 @@ export class ConnectionController {
     const fallbackLogLevel = normalizeCoreLogLevel(resolvedRuntimeSettings?.logLevel ?? '');
     this.generatedConfig.configJson = injectXrayLogFile(this.generatedConfig.configJson, coreLogPath, fallbackLogLevel);
     this.runtimeMode = normalizeAppRuntimeMode(resolvedRuntimeSettings?.mode ?? settings?.mode, APP_MODE_VPN);
+    if (this.runtimeMode === APP_MODE_PROXY_ONLY) {
+      this.proxyReloadConfigJson = runtimeConfigJson;
+      this.proxyReloadSettings = runtimeSettings;
+      this.proxyReloadConfigType = validation.configType;
+    }
     const requestedAt = Date.now();
     let vpnStartRequested = false;
 
@@ -285,6 +300,112 @@ export class ConnectionController {
     });
   }
 
+  /**
+   * 底层承载变化后原地重载仍在运行的本地代理核心。
+   *
+   * 先在旧核心仍可用时重新解析域名并生成配置，再执行一次同步 stop/start，最后等待
+   * 实际 SOCKS 入口恢复。用户停止会改变代际；任何异步阶段恢复后都先检查代际，绝不
+   * 在手动断开之后重新启动核心。
+   */
+  async reloadProxyOnlyAfterNetworkChange(context: common.Context): Promise<ConnectionSnapshot> {
+    if (this.status !== ConnectionStatus.RUNNING || this.runtimeMode !== APP_MODE_PROXY_ONLY ||
+      this.proxyReloadConfigJson.length === 0 || this.generatedConfig === null) {
+      return this.getSnapshot();
+    }
+    const generation = this.proxyReloadGeneration;
+    const sessionStartedAt = this.startedAt;
+    DiagnosticLog.append(context, {
+      at: Date.now(),
+      level: 'info',
+      source: 'proxy',
+      message: 'Proxy-only network handover recovery started.'
+    });
+    try {
+      const resolvedSettings = await OUTBOUND_DOMAIN_RESOLVER.resolve(
+        context,
+        this.proxyReloadConfigJson,
+        this.proxyReloadSettings,
+        this.proxyReloadConfigType
+      );
+      if (!this.isCurrentProxyReload(generation, sessionStartedAt)) {
+        return this.getSnapshot();
+      }
+      const nextConfig = buildRuntimeXrayConfig(
+        this.proxyReloadConfigJson,
+        resolvedSettings,
+        this.proxyReloadConfigType
+      );
+      const coreLogPath = `${context.filesDir}/${XRAY_CORE_LOG_FILE}`;
+      const fallbackLogLevel = normalizeCoreLogLevel(resolvedSettings?.logLevel ?? '');
+      nextConfig.configJson = injectXrayLogFile(nextConfig.configJson, coreLogPath, fallbackLogLevel);
+
+      const stopResult = stopNativeXray();
+      if (!stopResult.ok) {
+        throw new Error(stopResult.message);
+      }
+      if (!this.isCurrentProxyReload(generation, sessionStartedAt)) {
+        return this.getSnapshot();
+      }
+      const startResult = startNativeXray(nextConfig.configJson, context.filesDir);
+      if (!startResult.ok) {
+        throw new Error(startResult.message);
+      }
+      const healthPort = nextConfig.runtimeHealthPort;
+      if (healthPort !== undefined) {
+        const ready = await waitForRuntimeSocksHealth(healthPort);
+        if (!this.isCurrentProxyReload(generation, sessionStartedAt)) {
+          return this.getSnapshot();
+        }
+        if (!ready.ok) {
+          throw new Error(`本地代理网络切换后 SOCKS 入口未恢复：${ready.status}`);
+        }
+      } else if (!getNativeStats().xrayRunning) {
+        // 历史完整配置可能没有 Hey 可识别的 SOCKS 健康端口；保持兼容，但至少要求
+        // 原生核心仍明确报告运行，不能把 start 调用返回当成唯一成功依据。
+        throw new Error('本地代理网络切换后核心未保持运行。');
+      }
+      this.generatedConfig = nextConfig;
+      DiagnosticLog.append(context, {
+        at: Date.now(),
+        level: 'info',
+        source: 'proxy',
+        message: 'Proxy-only network handover recovery completed.'
+      });
+    } catch (error) {
+      if (!this.isCurrentProxyReload(generation, sessionStartedAt)) {
+        return this.getSnapshot();
+      }
+      stopNativeXray();
+      const businessError = error as BusinessError;
+      this.status = ConnectionStatus.ERROR;
+      this.startedAt = 0;
+      this.lastError = redactDiagnosticText(
+        `本地代理网络切换恢复失败，请手动重连：${businessError.message ?? JSON.stringify(error)}`
+      );
+      DiagnosticLog.append(context, {
+        at: Date.now(),
+        level: 'error',
+        source: 'proxy',
+        message: 'Proxy-only network handover recovery failed.',
+        details: this.lastError
+      });
+    }
+    return this.getSnapshot();
+  }
+
+  private isCurrentProxyReload(generation: number, sessionStartedAt: number): boolean {
+    return this.proxyReloadGeneration === generation &&
+      this.status === ConnectionStatus.RUNNING &&
+      this.runtimeMode === APP_MODE_PROXY_ONLY &&
+      this.startedAt === sessionStartedAt;
+  }
+
+  private clearProxyReloadState(): void {
+    this.proxyReloadConfigJson = '';
+    this.proxyReloadSettings = undefined;
+    this.proxyReloadConfigType = undefined;
+  }
+
   private resolveRuntimeSettings(settings?: AppSettings): AppSettings | undefined {
     if (!shouldUseDynamicLocalSocksPort(settings)) {
       return settings;
@@ -309,6 +430,9 @@ export class ConnectionController {
   }
 
   async stop(context: common.Context): Promise<ConnectionSnapshot> {
+    // 必须早于状态判断：即使另一路已把控制器置为 IDLE，也要取消仍在等待 DNS/SOCKS 的
+    // 网络切换恢复任务，保证用户停止后绝不发生迟到重启。
+    this.proxyReloadGeneration++;
     if (this.status === ConnectionStatus.IDLE || this.status === ConnectionStatus.STOPPING) {
       return this.getSnapshot();
     }
@@ -324,6 +448,7 @@ export class ConnectionController {
         this.lastError = '';
         this.runtimeMode = APP_MODE_VPN;
         this.vpnSessionId = '';
+        this.clearProxyReloadState();
         return this.getSnapshot();
       }
       hilog.info(LOG_DOMAIN, LOG_TAG, 'Calling startVpnExtensionAbility with stop command.');
@@ -345,6 +470,7 @@ export class ConnectionController {
       this.startedAt = 0;
       this.lastError = '';
       this.vpnSessionId = '';
+      this.clearProxyReloadState();
       hilog.info(LOG_DOMAIN, LOG_TAG, 'VPN stop command completed.');
     } catch (error) {
       if (!systemStopAttempted) {
@@ -369,12 +495,14 @@ export class ConnectionController {
   // 隧道已被 VPN 扩展在后台自动断开（网络场景），本进程状态滞留「运行中」时校正为空闲。
   // 不下发停止命令（隧道已不存在）。仅在自认为运行/启动中时生效。
   reconcileStopped(): ConnectionSnapshot {
+    this.proxyReloadGeneration++;
     if (this.status === ConnectionStatus.RUNNING || this.status === ConnectionStatus.STARTING) {
       this.status = ConnectionStatus.IDLE;
       this.startedAt = 0;
       this.lastError = '';
       this.runtimeMode = APP_MODE_VPN;
       this.vpnSessionId = '';
+      this.clearProxyReloadState();
     }
     return this.getSnapshot();
   }

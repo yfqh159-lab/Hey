@@ -92,6 +92,6 @@ export function decideNetAutomationAction(
  * - `none` 是切网中的瞬时断网，等待下一个可用承载，避免在无网络时把核心重载失败。
  * - 这里只决定已有会话的内部恢复，绝不创建 VPN，也不改变用户手动停止意图。
  */
-export function shouldReloadVpnCoreAfterNetworkChange(ctx: NetContext, action: AutoAction): boolean {
+export function shouldReloadActiveCoreAfterNetworkChange(ctx: NetContext, action: AutoAction): boolean {
   return action !== NET_ACTION_DISCONNECT && ctx.kind !== NET_KIND_NONE;
 }

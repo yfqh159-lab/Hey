@@ -10,7 +10,7 @@ import { buildH2HttpSettings, splitH2Hosts } from '../main/ets/core/H2Transport'
 import { toIdnDomain, toIdnUrl } from '../main/ets/core/IdnUrl';
 import { formatTranslation, missingTranslationKeys, normalizeLanguage, resolveLanguage, resolveSystemLanguage, translate } from '../main/ets/core/I18n';
 import { resolveImportedNodeName } from '../main/ets/core/ImportedNodeNames';
-import { AutoAction, NetAutomationConfig, NetContext, decideNetAutomationAction, isTrustedNetwork, networkContextSignature, shouldReloadVpnCoreAfterNetworkChange } from '../main/ets/core/NetworkAutomation';
+import { AutoAction, NetAutomationConfig, NetContext, decideNetAutomationAction, isTrustedNetwork, networkContextSignature, shouldReloadActiveCoreAfterNetworkChange } from '../main/ets/core/NetworkAutomation';
 import { defaultJsonConfigNodeName, resolveJsonConfigNodeName } from '../main/ets/core/JsonConfigNames';
 import { selectRuntimeLocalSocksPort, shouldExposeLocalHttpProxy, shouldUseDynamicLocalSocksPort, withRuntimeLocalSocksPort } from '../main/ets/core/LocalProxy';
 import { parseManualOutboundEditState } from '../main/ets/core/ManualOutboundEditState';
@@ -4960,12 +4960,12 @@ export default function localUnitTest() {
       expect(decide({ kind: 'wifi', networkId: 12 }, c, true)).assertEqual('noop');
     });
 
-    it('reloads an existing vpn core only for a usable non-disconnecting handover', 0, () => {
-      expect(shouldReloadVpnCoreAfterNetworkChange({ kind: 'wifi', networkId: 12 }, 'noop')).assertTrue();
-      expect(shouldReloadVpnCoreAfterNetworkChange({ kind: 'cellular', networkId: 18 }, 'noop')).assertTrue();
-      expect(shouldReloadVpnCoreAfterNetworkChange({ kind: 'other', networkId: 20 }, 'noop')).assertTrue();
-      expect(shouldReloadVpnCoreAfterNetworkChange({ kind: 'none' }, 'noop')).assertFalse();
-      expect(shouldReloadVpnCoreAfterNetworkChange({ kind: 'wifi', ssid: 'home' }, 'disconnect')).assertFalse();
+    it('reloads an existing active core only for a usable non-disconnecting handover', 0, () => {
+      expect(shouldReloadActiveCoreAfterNetworkChange({ kind: 'wifi', networkId: 12 }, 'noop')).assertTrue();
+      expect(shouldReloadActiveCoreAfterNetworkChange({ kind: 'cellular', networkId: 18 }, 'noop')).assertTrue();
+      expect(shouldReloadActiveCoreAfterNetworkChange({ kind: 'other', networkId: 20 }, 'noop')).assertTrue();
+      expect(shouldReloadActiveCoreAfterNetworkChange({ kind: 'none' }, 'noop')).assertFalse();
+      expect(shouldReloadActiveCoreAfterNetworkChange({ kind: 'wifi', ssid: 'home' }, 'disconnect')).assertFalse();
     });
   });
 }

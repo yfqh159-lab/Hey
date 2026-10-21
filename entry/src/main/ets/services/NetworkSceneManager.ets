@@ -12,7 +12,8 @@ import {
   NetAutomationConfig,
   NET_ACTION_DISCONNECT,
   decideNetAutomationAction,
-  networkContextSignature
+  networkContextSignature,
+  shouldReloadActiveCoreAfterNetworkChange
 } from '../core/NetworkAutomation';
 import { SettingsStore } from '../storage/SettingsStore';
 import { NetSceneStopFlag } from './NetSceneStopFlag';
@@ -149,6 +150,7 @@ export class NetworkSceneManager {
         return;
       }
       const signature = networkContextSignature(ctx);
+      const signatureChanged = this.lastHandledSignature.length > 0 && signature !== this.lastHandledSignature;
       if (!force && signature === this.lastHandledSignature) {
         return; // 同一网络只处理一次，避免抖动/较劲
       }
@@ -186,9 +188,14 @@ export class NetworkSceneManager {
       if (action === NET_ACTION_DISCONNECT) {
         await this.applyDisconnect(context);
       } else if (runtimeRunning) {
-        // 未断开时数据面会继续使用新的默认承载；立即废弃旧出口并经当前代理复测。
-        // 不触发重连，也不改变用户手动启停意图。
-        await SHARED_RUNTIME_CONTROLLER.recheckCurrentEgressIp(this.currentLanguage());
+        const language = this.currentLanguage();
+        // VPN 核心由 Extension 的后台轮询恢复；Proxy-only 与 UI 同进程，需要在确认是
+        // 真实签名变化（而非首次/强制补判）后重建预解析配置并原地重载核心。
+        if (signatureChanged && shouldReloadActiveCoreAfterNetworkChange(ctx, action)) {
+          await SHARED_RUNTIME_CONTROLLER.recoverProxyOnlyAfterNetworkChange(context, language);
+        }
+        // 恢复完成后再经当前代理复测出口，避免把旧承载的结果继续展示为当前出口。
+        await SHARED_RUNTIME_CONTROLLER.recheckCurrentEgressIp(language);
       }
     } catch (error) {
       hilog.error(DOMAIN, TAG, 'evaluate failed: %{public}s', redactDiagnosticText(JSON.stringify(error)));
