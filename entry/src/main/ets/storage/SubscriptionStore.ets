@@ -346,7 +346,13 @@ export class SubscriptionStore {
     return SubscriptionStore.load(context);
   }
 
-  static async addManualNode(context: common.Context, name: string, outboundJson: string, configType?: XrayConfigType): Promise<SubscriptionProfile> {
+  static async addManualNode(
+    context: common.Context,
+    name: string,
+    outboundJson: string,
+    configType?: XrayConfigType,
+    makeActive: boolean = true
+  ): Promise<SubscriptionProfile> {
     const profile = await SubscriptionStore.load(context);
     
     let localGroup = SubscriptionStore.findGroup(profile.groups, 'sub-local');
@@ -392,11 +398,17 @@ export class SubscriptionStore {
     };
     
     localGroup.nodes.push(newNode);
-    localGroup.selectedNodeId = nodeId;
     localGroup.updatedAt = Date.now();
-    
-    profile.selectedGroupId = 'sub-local';
-    profile.selectedNodeId = nodeId;
+
+    // 扫码/深链/系统分享等外部入口只保存节点，不得悄悄切换正在运行的连接。
+    // 首次导入尚无任何全局选择时仍建立一个可用默认值；显式手动添加保持原行为。
+    if (makeActive || profile.selectedNodeId.length === 0) {
+      localGroup.selectedNodeId = nodeId;
+      profile.selectedGroupId = 'sub-local';
+      profile.selectedNodeId = nodeId;
+    } else if (localGroup.selectedNodeId.length === 0) {
+      localGroup.selectedNodeId = nodeId;
+    }
     
     await SubscriptionStore.save(context, SubscriptionStore.normalize(profile));
     return SubscriptionStore.load(context);

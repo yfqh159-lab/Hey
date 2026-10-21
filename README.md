@@ -112,7 +112,9 @@ traffic stats.
   display the full target and require an explicit confirmation; none of them
   add a source or issue a request on their own. Confirming a subscription URL
   from any of these entry points saves only the source; downloading remains a
-  separate, explicit action on the Subscriptions page.
+  separate, explicit action on the Subscriptions page. Imported nodes are
+  deduplicated and do not replace the active selection while a connection is
+  running.
 - Exports: node share links for the protocols implemented by
   `formatOutboundJsonToShareLink`, QR generation on export/detail flows, routing
   rule JSON, and full local backup JSON.

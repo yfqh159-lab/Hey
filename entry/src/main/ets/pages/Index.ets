@@ -9,7 +9,7 @@ import { AppLanguage, AppSettings, ConnectionStatus, normalizeHomeDelayTestInter
 import { CoreSelectionStore, requiredCoreForProtocol, CORE_TYPE_SINGBOX } from '../core/CoreSelection';
 import { DELAY_TEST_BATCH_PORT_BASE, LOCAL_HTTP_PROXY_PORT, normalizeOutboundInput } from '../core/XrayConfig';
 import { DeepLinkControlAction, DeepLinkIntent, parseDeepLink, subscriptionNameFromDeepLink } from '../core/DeepLink';
-import { consumeRuntimeSettingsRestartDecision, markRuntimeSettingsRestartNeeded } from '../core/SettingsChange';
+import { consumeRuntimeSettingsRestartDecision } from '../core/SettingsChange';
 import { resolveImportedNodeName } from '../core/ImportedNodeNames';
 import { shouldShowProxySharingStartWarning } from '../core/ProxySharingWarning';
 import { DelayTester, DelayTestResult, DELAY_STATUS_UDP_ONLY } from '../services/DelayTester';
@@ -307,7 +307,20 @@ struct Index {
       if (intent.kind === 'sub') {
         const name = subscriptionNameFromDeepLink(intent.payload);
         // 只添加配置源，不自动联网拉取——拉取由用户在订阅页手动触发。
+        const profile = await SubscriptionStore.load(context);
+        const existing = SubscriptionStore.findGroupByUrl(profile.groups, intent.payload);
+        if (existing !== null) {
+          const selected = await SUBSCRIPTIONS_CONTROLLER.selectGroup(context, existing, this.language);
+          this.applySubscriptionsState(selected);
+          SHARED_RUNTIME_CONTROLLER.appendLog(this.t('scanner.subscriptionAlreadyAdded'));
+          return;
+        }
         const added = await SUBSCRIPTIONS_CONTROLLER.addGroup(context, name, intent.payload, '', '', '', '', false, this.language);
+        if (SubscriptionStore.findGroupByUrl(added.subscriptionGroups, intent.payload) === null) {
+          this.lastError = added.subscriptionMessage;
+          SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
+          return;
+        }
         this.applySubscriptionsState(added);
         this.applyNodesState(await NODES_CONTROLLER.load(context, this.language));
         SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('log.deepLinkSub', 'name', name));
@@ -318,7 +331,11 @@ struct Index {
           return;
         }
         const nodeName = this.nodeNameFromOutbound(saved.profile.outboundJson);
-        await SubscriptionStore.addManualNode(context, nodeName, saved.profile.outboundJson, saved.profile.configType);
+        if (!await this.addExternalNodeIfUnique(context, nodeName, saved.profile.outboundJson, saved.profile.configType)) {
+          this.lastError = this.f1('scanner.duplicateNode', 'name', nodeName);
+          SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
+          return;
+        }
         this.applyNodesState(await NODES_CONTROLLER.load(context, this.language));
         SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('log.deepLinkConfig', 'name', nodeName));
       }
@@ -393,7 +410,6 @@ struct Index {
       const configPayload = configLines.length === lines.length ? value : configLines.join('\n');
       const configCount = configPayload.trim().length > 0 ? await this.importSharedConfigPayload(context, configPayload) : 0;
       if (configCount > 0 || subscriptionCount > 0) {
-        markRuntimeSettingsRestartNeeded();
         this.applyNodesState(await NODES_CONTROLLER.load(context, this.language));
         await this.syncSubscriptionBackgroundSchedule();
         const total = configCount + subscriptionCount;
@@ -443,12 +459,16 @@ struct Index {
   private async importSharedConfigPayload(context: common.Context, payload: string): Promise<number> {
     const saved = await NODES_CONTROLLER.saveProfile(context, payload, this.language);
     if (saved.profile !== null) {
-      await SubscriptionStore.addManualNode(
+      const nodeName = resolveImportedNodeName(saved.profile.outboundJson, this.t('import.sharedTextNodeName'));
+      if (!await this.addExternalNodeIfUnique(
         context,
-        resolveImportedNodeName(saved.profile.outboundJson, this.t('import.sharedTextNodeName')),
+        nodeName,
         saved.profile.outboundJson,
         saved.profile.configType
-      );
+      )) {
+        SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('scanner.duplicateNode', 'name', nodeName));
+        return 0;
+      }
       SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('log.deepLinkConfig', 'name', this.nodeNameFromOutbound(saved.profile.outboundJson)));
       return 1;
     }
@@ -457,16 +477,22 @@ struct Index {
     // 等 sing-box 专属协议）。native(xray-core) 转换不认识 anytls/tuic，只作后备。
     const parsedNodes = SubscriptionManager.parseSubscriptionContent(payload, '');
     if (parsedNodes.length > 0) {
+      let importedCount = 0;
       for (let index = 0; index < parsedNodes.length; index++) {
         const parsedNode = parsedNodes[index];
-        await SubscriptionStore.addManualNode(
+        if (await this.addExternalNodeIfUnique(
           context,
           parsedNode.name,
           parsedNode.outboundJson,
           parsedNode.configType
-        );
+        )) {
+          importedCount++;
+        }
       }
-      return parsedNodes.length;
+      if (importedCount < parsedNodes.length) {
+        SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('scanner.duplicateNodes', 'count', `${parsedNodes.length - importedCount}`));
+      }
+      return importedCount;
     }
 
     const nativeResult = convertNativeShareTextToOutbounds(payload);
@@ -485,12 +511,16 @@ struct Index {
         lastValidationError = imported.lastError;
         continue;
       }
-      await SubscriptionStore.addManualNode(
+      const nodeName = resolveImportedNodeName(imported.profile.outboundJson, outbound.name);
+      if (!await this.addExternalNodeIfUnique(
         context,
-        resolveImportedNodeName(imported.profile.outboundJson, outbound.name),
+        nodeName,
         imported.profile.outboundJson,
         imported.profile.configType
-      );
+      )) {
+        SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('scanner.duplicateNode', 'name', nodeName));
+        continue;
+      }
       importedCount++;
     }
 
@@ -499,6 +529,19 @@ struct Index {
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
     }
     return importedCount;
+  }
+
+  private async addExternalNodeIfUnique(
+    context: common.Context,
+    name: string,
+    outboundJson: string,
+    configType?: XrayConfigType
+  ): Promise<boolean> {
+    if (await SubscriptionStore.findDuplicateNode(context, outboundJson, configType) !== null) {
+      return false;
+    }
+    await SubscriptionStore.addManualNode(context, name, outboundJson, configType, false);
+    return true;
   }
 
   private uniqueImportLines(value: string): Array<string> {

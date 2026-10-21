@@ -7,7 +7,6 @@ import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { subscriptionNameFromDeepLink } from '../core/DeepLink';
 import { resolveImportedNodeName } from '../core/ImportedNodeNames';
 import { AppLanguage, XrayConfigType } from '../core/Profile';
-import { markRuntimeSettingsRestartNeeded } from '../core/SettingsChange';
 import { NODES_CONTROLLER } from '../features/nodes/NodesController';
 import { SETTINGS_CONTROLLER } from '../features/settings/SettingsController';
 import { SHARED_RUNTIME_CONTROLLER } from '../features/runtime/RuntimeController';
@@ -526,7 +525,6 @@ struct ScannerPage {
             SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
             return;
           }
-          markRuntimeSettingsRestartNeeded();
           const batchMessage = importedCount === 1 ?
             this.t('scanner.nodeImported') : this.f1('scanner.nodesImported', 'count', importedCount.toString());
           SHARED_RUNTIME_CONTROLLER.appendLog(batchMessage);
@@ -575,7 +573,6 @@ struct ScannerPage {
           return;
         }
 
-        markRuntimeSettingsRestartNeeded();
         const successMessage = importedCount === 1 ?
           this.t('scanner.nodeImported') : this.f1('scanner.nodesImported', 'count', importedCount.toString());
         SHARED_RUNTIME_CONTROLLER.appendLog(successMessage);
@@ -593,7 +590,6 @@ struct ScannerPage {
         SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
         return;
       }
-      markRuntimeSettingsRestartNeeded();
       SHARED_RUNTIME_CONTROLLER.appendLog(this.t('log.profileSaved'));
       promptAction.showToast({ message: this.t('scanner.nodeImported') });
       router.back();
@@ -650,7 +646,7 @@ struct ScannerPage {
     if (duplicate !== null) {
       return false;
     }
-    await SubscriptionStore.addManualNode(context, name, outboundJson, configType);
+    await SubscriptionStore.addManualNode(context, name, outboundJson, configType, false);
     return true;
   }
 
