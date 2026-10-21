@@ -1,4 +1,4 @@
-import { ProxyNode, SubscriptionGroup } from './Profile';
+import { ProxyNode, ProxyProfile, SubscriptionGroup } from './Profile';
 import { normalizeConfigInput } from './XrayConfig';
 
 // 全局当前节点：浏览的活动组改变不应改变它（切组只是浏览）。只有当它已不存在于任何组时，
@@ -11,6 +11,32 @@ export function resolveGlobalSelectedNodeId(groups: Array<SubscriptionGroup>, cu
     return activeGroupSelectedId;
   }
   return '';
+}
+
+// 订阅组刷新后，仅当「全局当前节点」确实属于刚刷新的组时，才允许同步运行 Profile。
+// 这样后台更新其他组不会悄悄替换用户下一次手动连接所使用的节点。
+export function findSelectedNodeInGroup(
+  groups: Array<SubscriptionGroup>,
+  groupId: string,
+  selectedNodeId: string
+): ProxyNode | null {
+  if (groupId.length === 0 || selectedNodeId.length === 0) {
+    return null;
+  }
+  for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
+    const group = groups[groupIndex];
+    if (group.id === groupId) {
+      return findNodeById(group.nodes, selectedNodeId);
+    }
+  }
+  return null;
+}
+
+// 不为内容完全相同的定时刷新改写 updatedAt；否则健康的后台隧道会被误判为
+// 「所选节点已改变，需要重连」。真正的配置或类型变化才推进 Profile 版本。
+export function shouldRefreshProfileForNode(profile: ProxyProfile, node: ProxyNode): boolean {
+  return profile.outboundJson !== node.outboundJson ||
+    (profile.configType ?? 'outbound') !== (node.configType ?? 'outbound');
 }
 
 function nodeExistsInAnyGroup(groups: Array<SubscriptionGroup>, nodeId: string): boolean {

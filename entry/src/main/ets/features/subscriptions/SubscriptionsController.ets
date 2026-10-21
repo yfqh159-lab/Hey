@@ -7,6 +7,7 @@ import {
   isSubscriptionAutoUpdateDue,
   normalizeSubscriptionUpdateInterval
 } from '../../core/SubscriptionGroups';
+import { findSelectedNodeInGroup, shouldRefreshProfileForNode } from '../../core/SubscriptionSelection';
 import { ProfileStore } from '../../storage/ProfileStore';
 import { SubscriptionStore } from '../../storage/SubscriptionStore';
 import { SubscriptionManager, SubscriptionUpdateResult } from '../../services/SubscriptionManager';
@@ -412,8 +413,18 @@ export class SubscriptionsController {
     }
 
     const nodes = this.applyNodeFilter(result.nodes, group.filter ?? '');
+    const subscription = await SubscriptionStore.saveNodes(context, group.id, url, nodes, group.selectedNodeId, makeActive);
+    const selected = findSelectedNodeInGroup(subscription.groups, group.id, subscription.selectedNodeId);
+    if (selected !== null) {
+      const profile = await ProfileStore.load(context);
+      if (shouldRefreshProfileForNode(profile, selected)) {
+        // 只同步下一次连接使用的 Profile 及其版本戳。运行中的旧会话不会在这里被
+        // 停止或重启；前台恢复时会据版本不一致明确提示用户手动重连。
+        await ProfileStore.save(context, selected.outboundJson, selected.configType ?? 'outbound');
+      }
+    }
     return {
-      subscription: await SubscriptionStore.saveNodes(context, group.id, url, nodes, group.selectedNodeId, makeActive),
+      subscription,
       ok: true
     };
   }

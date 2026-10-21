@@ -48,7 +48,7 @@ import {
   normalizeSubscriptionUpdateInterval
 } from '../main/ets/core/SubscriptionGroups';
 import { buildSubscriptionAutoUpdateGroupSchedulePlans, buildSubscriptionAutoUpdateSchedulePlan, subscriptionAutoUpdateWorkIdForGroup } from '../main/ets/core/SubscriptionSchedulerPlan';
-import { findMatchedSubscriptionNode, resolveGlobalSelectedNodeId, resolveRetainedSelectedNodeId } from '../main/ets/core/SubscriptionSelection';
+import { findMatchedSubscriptionNode, findSelectedNodeInGroup, resolveGlobalSelectedNodeId, resolveRetainedSelectedNodeId, shouldRefreshProfileForNode } from '../main/ets/core/SubscriptionSelection';
 import { buildSpeedNotificationAdditionalText, buildSpeedNotificationText, calculateSpeedNotificationRates, sampleSpeedNotificationStats, shouldPublishSpeedNotification } from '../main/ets/core/SpeedNotification';
 import { BROWSER_DIALER_MODE_OPTIONS, CORE_LOG_LEVEL_OPTIONS, DEFAULT_BROWSER_DIALER_MODE, DEFAULT_CORE_LOG_LEVEL, DEFAULT_FRAGMENT_PACKETS, DEFAULT_HYSTERIA2_SECURITY, DEFAULT_MUX_XUDP_QUIC, DEFAULT_STREAM_ALPN, DEFAULT_VMESS_SECURITY, FLOW_OPTIONS, FRAGMENT_PACKET_OPTIONS, GRPC_MODE_OPTIONS, HYSTERIA2_SECURITY_OPTIONS, KCP_HEADER_TYPE_OPTIONS, MUX_XUDP_QUIC_OPTIONS, SS_SECURITY_OPTIONS, STREAM_ALPN_OPTIONS, SUPPORTED_TRANSPORT_OPTIONS, TCP_HEADER_TYPE_OPTIONS, UTLS_FINGERPRINT_OPTIONS, VMESS_SECURITY_OPTIONS, XHTTP_MODE_OPTIONS, normalizeBrowserDialerMode, normalizeCoreLogLevel, normalizeFragmentPackets, normalizeHysteria2Security, normalizeMuxXudpQuic, normalizeStreamAlpn, normalizeStreamAlpnWithFallback, normalizeXhttpMode } from '../main/ets/core/ProtocolOptions';
 import { countLogLevels, filterLogEntries, filterLogItems, formatLogcatText, formatLogEntriesText } from '../main/ets/features/logs/LogOperations';
@@ -3127,6 +3127,35 @@ export default function localUnitTest() {
       sameServerOnly.outboundJson = selected.outboundJson.replace('"password":"secret"', '"password":"changed"');
       const matchedByRemarks = findMatchedSubscriptionNode([sameRemarks, sameServerOnly], selected);
       expect(matchedByRemarks?.id ?? '').assertEqual(sameRemarks.id);
+    });
+
+    it('syncs the runtime profile only for the selected node in the refreshed group', 0, () => {
+      const nodes = buildNodeFixture();
+      const groups = [
+        buildGroupFixture('sub-a', 'A', [nodes[0]], nodes[0].id),
+        buildGroupFixture('sub-b', 'B', [nodes[1]], nodes[1].id)
+      ];
+
+      expect(findSelectedNodeInGroup(groups, 'sub-a', nodes[0].id)?.id ?? '').assertEqual(nodes[0].id);
+      expect(findSelectedNodeInGroup(groups, 'sub-b', nodes[0].id)).assertNull();
+      expect(findSelectedNodeInGroup(groups, 'missing', nodes[0].id)).assertNull();
+
+      const currentProfile: ProxyProfile = {
+        id: 'default-profile',
+        name: 'Default Xray Profile',
+        outboundJson: nodes[0].outboundJson,
+        configType: nodes[0].configType,
+        updatedAt: 100
+      };
+      expect(shouldRefreshProfileForNode(currentProfile, nodes[0])).assertFalse();
+
+      const changed = copyNode(nodes[0], 'changed-selected');
+      changed.outboundJson = VLESS_FINALMASK_OUTBOUND;
+      expect(shouldRefreshProfileForNode(currentProfile, changed)).assertTrue();
+
+      const changedType = copyNode(nodes[0], 'changed-type');
+      changedType.configType = 'full';
+      expect(shouldRefreshProfileForNode(currentProfile, changedType)).assertTrue();
     });
 
     it('applies the protocol spec visible batch operations across all groups', 0, () => {
