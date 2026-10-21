@@ -284,6 +284,21 @@ if (!store.includes('private static mutationTail: Promise<void> = Promise.resolv
   !store.includes('SubscriptionStore.findDuplicateNodeInProfile(profile, outboundJson, configType)')) {
   throw new Error('subscription mutation queue or atomic duplicate check is missing');
 }
+for (const marker of [
+  'const nodesSnapshot = SubscriptionStore.normalizeNodes(nodes);',
+  'const updatesSnapshot = new Array<NodeDelayUpdate>();',
+  'const groupsSnapshot = SubscriptionStore.normalizeGroups(groups);',
+  'const profileSnapshot = SubscriptionStore.normalize(profile);'
+]) {
+  const snapshotAt = store.indexOf(marker);
+  const followingQueueAt = store.indexOf('return SubscriptionStore.enqueueMutation(', snapshotAt);
+  if (snapshotAt < 0 || followingQueueAt < snapshotAt) {
+    throw new Error(`queued subscription input is not snapshotted: ${marker}`);
+  }
+}
+if (store.split('const nodesSnapshot = SubscriptionStore.normalizeNodes(nodes);').length - 1 !== 2) {
+  throw new Error('node array snapshots do not cover both queued replacement paths');
+}
 for (const file of [
   'entry/src/main/ets/pages/Scanner.ets',
   'entry/src/main/ets/pages/Import.ets',

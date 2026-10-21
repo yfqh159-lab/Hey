@@ -111,6 +111,9 @@ export class SubscriptionStore {
   }
 
   static saveNodes(context: common.Context, groupId: string, url: string, nodes: Array<ProxyNode>, selectedNodeId: string, makeActive: boolean = true): Promise<SubscriptionProfile> {
+    // Queue execution may start after the caller continues using its parsed array. Freeze the
+    // payload at the API boundary so a later caller-side mutation cannot change this transaction.
+    const nodesSnapshot = SubscriptionStore.normalizeNodes(nodes);
     return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
     const profile = await SubscriptionStore.load(context);
     let group: SubscriptionGroup | null = null;
@@ -129,7 +132,7 @@ export class SubscriptionStore {
     }
 
     const previousNodes = group.nodes;
-    const mergedNodes = SubscriptionStore.mergeNodeRuntime(previousNodes, nodes);
+    const mergedNodes = SubscriptionStore.mergeNodeRuntime(previousNodes, nodesSnapshot);
     const globalSelectedInThisGroup = profile.selectedNodeId.length > 0 &&
       SubscriptionStore.findNode(previousNodes, profile.selectedNodeId) !== null;
     group.url = url;
@@ -169,11 +172,20 @@ export class SubscriptionStore {
   // 批量落库一组节点的延迟结果：一次 load/save 写完整块，避免逐节点反复读写
   // preferences（大列表分块测速时每块只写一次）。
   static saveNodeDelays(context: common.Context, updates: Array<NodeDelayUpdate>): Promise<SubscriptionProfile> {
+    const updatesSnapshot = new Array<NodeDelayUpdate>();
+    for (let index = 0; index < updates.length; index++) {
+      updatesSnapshot.push({
+        nodeId: updates[index].nodeId,
+        delayMs: updates[index].delayMs,
+        delayStatus: updates[index].delayStatus,
+        delayTestAt: updates[index].delayTestAt
+      });
+    }
     return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
     const profile = await SubscriptionStore.load(context);
     const byId = new Map<string, NodeDelayUpdate>();
-    for (let i = 0; i < updates.length; i++) {
-      byId.set(updates[i].nodeId, updates[i]);
+    for (let i = 0; i < updatesSnapshot.length; i++) {
+      byId.set(updatesSnapshot[i].nodeId, updatesSnapshot[i]);
     }
     for (let groupIndex = 0; groupIndex < profile.groups.length; groupIndex++) {
       const group = profile.groups[groupIndex];
@@ -192,11 +204,12 @@ export class SubscriptionStore {
   }
 
   static saveActiveGroupNodes(context: common.Context, nodes: Array<ProxyNode>, selectedNodeId: string): Promise<SubscriptionProfile> {
+    const nodesSnapshot = SubscriptionStore.normalizeNodes(nodes);
     return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
     const profile = await SubscriptionStore.load(context);
     const group = SubscriptionStore.activeGroup(profile);
     if (group !== null) {
-      group.nodes = SubscriptionStore.normalizeNodes(nodes);
+      group.nodes = nodesSnapshot;
       group.selectedNodeId = SubscriptionStore.resolveSelectedNodeId(group.nodes, selectedNodeId);
       group.updatedAt = Date.now();
       await SubscriptionStore.save(context, SubscriptionStore.normalize(profile));
@@ -206,9 +219,10 @@ export class SubscriptionStore {
   }
 
   static saveGroups(context: common.Context, groups: Array<SubscriptionGroup>): Promise<SubscriptionProfile> {
+    const groupsSnapshot = SubscriptionStore.normalizeGroups(groups);
     return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
     const profile = await SubscriptionStore.load(context);
-    profile.groups = groups;
+    profile.groups = groupsSnapshot;
     await SubscriptionStore.save(context, SubscriptionStore.normalize(profile));
     return SubscriptionStore.load(context);
     });
@@ -216,8 +230,9 @@ export class SubscriptionStore {
 
   // 用整份订阅档案覆盖现有数据（配置恢复用）。normalize 负责字段归一化与容错。
   static restoreProfile(context: common.Context, profile: SubscriptionProfile): Promise<SubscriptionProfile> {
+    const profileSnapshot = SubscriptionStore.normalize(profile);
     return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
-    await SubscriptionStore.save(context, SubscriptionStore.normalize(profile));
+    await SubscriptionStore.save(context, profileSnapshot);
     return SubscriptionStore.load(context);
     });
   }
@@ -739,6 +754,14 @@ export class SubscriptionStore {
       autoUpdate: group.autoUpdate ?? false,
       updateIntervalMinutes: normalizeSubscriptionUpdateInterval(group.updateIntervalMinutes)
     };
+  }
+
+  private static normalizeGroups(groups: Array<SubscriptionGroup>): Array<SubscriptionGroup> {
+    const normalized = new Array<SubscriptionGroup>();
+    for (let index = 0; index < groups.length; index++) {
+      normalized.push(SubscriptionStore.normalizeGroup(groups[index], index));
+    }
+    return normalized;
   }
 
   private static normalizeNodes(nodes: Array<ProxyNode>): Array<ProxyNode> {
