@@ -2154,6 +2154,14 @@ if (persistedReconcileAt < 0 || persistedReconcileEnd < 0 ||
   !runtime.includes('current.startedAt === expectedStartedAt')) {
   throw new Error('persisted VPN recovery can trust a stale active file or overwrite a newer session');
 }
+if (!health.includes('export function shouldRestartUnhealthyVpnObservation(') ||
+  !health.includes('now < lastSeenAt || now - lastSeenAt > maxGapMs') ||
+  !runtime.includes('private unhealthyVpnStateLastSeenAt: number = 0;') ||
+  persistedReconcile.split('this.noteUnhealthyVpnStateObservation(').length - 1 !== 3 ||
+  !runtime.includes('this.unhealthyVpnStateLastSeenAt = 0;') ||
+  !runtime.includes('private noteUnhealthyVpnStateObservation(sessionId: string, now: number)')) {
+  throw new Error('VPN unhealthy confirmation can span a suspended UI or wall-clock jump');
+}
 const invalidArtifactAt = persistedReconcile.indexOf(
   'const stateArtifactsInvalid = persistedRead.authoritativeArtifactInvalid;');
 const invalidArtifactBranchAt = persistedReconcile.indexOf('if (stateArtifactsInvalid) {', invalidArtifactAt);

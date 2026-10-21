@@ -7,6 +7,19 @@ import {
 } from './Profile';
 
 export const VPN_RUNTIME_UNHEALTHY_CONFIRM_MS: number = 12000;
+export const VPN_RUNTIME_UNHEALTHY_OBSERVATION_GAP_MS: number = 5000;
+
+export function shouldRestartUnhealthyVpnObservation(
+  firstSeenAt: number,
+  lastSeenAt: number,
+  now: number,
+  maxGapMs: number = VPN_RUNTIME_UNHEALTHY_OBSERVATION_GAP_MS
+): boolean {
+  return !Number.isFinite(firstSeenAt) || firstSeenAt <= 0 ||
+    !Number.isFinite(lastSeenAt) || lastSeenAt <= 0 ||
+    !Number.isFinite(now) || now <= 0 || !Number.isFinite(maxGapMs) || maxGapMs < 0 ||
+    now < lastSeenAt || now - lastSeenAt > maxGapMs;
+}
 
 /**
  * 判断当前控制态是否仍可能持有核心、TUN 或本地监听器。普通配置/授权前错误没有

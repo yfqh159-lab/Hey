@@ -43,7 +43,8 @@ import {
   runtimeMayOwnNetwork,
   shouldApplyVpnDiagnosticError,
   shouldApplyVpnDiagnosticStats,
-  shouldCleanupUnhealthyVpnRuntimeState
+  shouldCleanupUnhealthyVpnRuntimeState,
+  shouldRestartUnhealthyVpnObservation
 } from '../main/ets/core/RuntimeHealth';
 import { proxyConfigDedupeKey } from '../main/ets/core/NodeDedupe';
 import { isSingboxOnlyProtocol, requiredCoreForProtocol, resolveRuntimeCoreType, CORE_TYPE_SINGBOX, CORE_TYPE_XRAY } from '../main/ets/core/CoreSelection';
@@ -3128,6 +3129,14 @@ export default function localUnitTest() {
       expect(shouldCleanupUnhealthyVpnRuntimeState(false, false, firstSeenAt, 13000, 12000)).assertFalse();
       expect(shouldCleanupUnhealthyVpnRuntimeState(true, false, 0, 13000, 12000)).assertFalse();
       expect(shouldCleanupUnhealthyVpnRuntimeState(true, false, firstSeenAt, 999, 12000)).assertFalse();
+    });
+
+    it('restarts unhealthy VPN confirmation after observation gaps or clock rollback', 0, () => {
+      expect(shouldRestartUnhealthyVpnObservation(1000, 2000, 3000)).assertFalse();
+      expect(shouldRestartUnhealthyVpnObservation(1000, 2000, 7001)).assertTrue();
+      expect(shouldRestartUnhealthyVpnObservation(1000, 2000, 1999)).assertTrue();
+      expect(shouldRestartUnhealthyVpnObservation(0, 0, 3000)).assertTrue();
+      expect(shouldRestartUnhealthyVpnObservation(1000, 2000, 3000, -1)).assertTrue();
     });
 
     it('matches VPN lifecycle events to the exact runtime session', 0, () => {

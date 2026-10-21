@@ -6,7 +6,8 @@ import {
   runtimeMayOwnNetwork,
   shouldApplyVpnDiagnosticError,
   shouldApplyVpnDiagnosticStats,
-  shouldCleanupUnhealthyVpnRuntimeState
+  shouldCleanupUnhealthyVpnRuntimeState,
+  shouldRestartUnhealthyVpnObservation
 } from '../../core/RuntimeHealth';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppLanguage, AppRuntimeMode, AppSettings, ConnectionStatus, normalizeAppRuntimeMode, ProxyProfile, RuntimeStats } from '../../core/Profile';
 import {
@@ -111,6 +112,7 @@ export class RuntimeController {
   private recoveredProfileMismatch: boolean = false;
   private missingVpnStateSampleCount: number = 0;
   private unhealthyVpnStateFirstSeenAt: number = 0;
+  private unhealthyVpnStateLastSeenAt: number = 0;
   private unhealthyVpnStateSessionId: string = '';
   private networkRecoveryInFlight: boolean = false;
   // 页面允许在 STARTING 阶段主动取消。除了 ConnectionController 的底层代际，这里也要
@@ -408,10 +410,7 @@ export class RuntimeController {
       if (this.status === ConnectionStatus.RUNNING) {
         const now = Date.now();
         const suspectedSessionId = persisted?.sessionId ?? this.controller.getSnapshot().vpnSessionId;
-        if (this.unhealthyVpnStateSessionId !== suspectedSessionId || this.unhealthyVpnStateFirstSeenAt <= 0) {
-          this.unhealthyVpnStateSessionId = suspectedSessionId;
-          this.unhealthyVpnStateFirstSeenAt = now;
-        }
+        this.noteUnhealthyVpnStateObservation(suspectedSessionId, now);
         if (shouldCleanupUnhealthyVpnRuntimeState(
           true,
           false,
@@ -484,10 +483,7 @@ export class RuntimeController {
     const now = Date.now();
     const healthy = isPersistedVpnRuntimeHealthy(persisted, now);
     if (!healthy) {
-      if (this.unhealthyVpnStateSessionId !== persisted.sessionId || this.unhealthyVpnStateFirstSeenAt <= 0) {
-        this.unhealthyVpnStateSessionId = persisted.sessionId;
-        this.unhealthyVpnStateFirstSeenAt = now;
-      }
+      this.noteUnhealthyVpnStateObservation(persisted.sessionId, now);
       if (!shouldCleanupUnhealthyVpnRuntimeState(
         persisted.active,
         healthy,
@@ -521,10 +517,7 @@ export class RuntimeController {
       }
       if (!dataPlane.ok) {
         const probeNow = Date.now();
-        if (this.unhealthyVpnStateSessionId !== recoveredSessionId || this.unhealthyVpnStateFirstSeenAt <= 0) {
-          this.unhealthyVpnStateSessionId = recoveredSessionId;
-          this.unhealthyVpnStateFirstSeenAt = probeNow;
-        }
+        this.noteUnhealthyVpnStateObservation(recoveredSessionId, probeNow);
         if (!shouldCleanupUnhealthyVpnRuntimeState(
           true,
           false,
@@ -601,7 +594,17 @@ export class RuntimeController {
 
   private resetUnhealthyVpnStateConfirmation(): void {
     this.unhealthyVpnStateFirstSeenAt = 0;
+    this.unhealthyVpnStateLastSeenAt = 0;
     this.unhealthyVpnStateSessionId = '';
+  }
+
+  private noteUnhealthyVpnStateObservation(sessionId: string, now: number): void {
+    if (this.unhealthyVpnStateSessionId !== sessionId || shouldRestartUnhealthyVpnObservation(
+      this.unhealthyVpnStateFirstSeenAt, this.unhealthyVpnStateLastSeenAt, now)) {
+      this.unhealthyVpnStateSessionId = sessionId;
+      this.unhealthyVpnStateFirstSeenAt = now;
+    }
+    this.unhealthyVpnStateLastSeenAt = now;
   }
 
   snapshot(): RuntimeViewState {
