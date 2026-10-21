@@ -137,6 +137,7 @@ struct SettingsPage {
   private settingsSaveShowMessage: boolean = false;
   private settingsEditGeneration: number = 0;
   private settingsLoadGeneration: number = 0;
+  private coreSaveGeneration: number = 0;
 
   aboutToAppear(): void {
     this.settingsLoaded = false;
@@ -1104,23 +1105,31 @@ struct SettingsPage {
 
   private pickOption(value: string): void {
     const key = this.sheetKey;
+    const previousCoreType = this.settingCoreType;
     this.applyOptionValue(key, value);
     SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('log.settingsChanged', 'action', this.sheetTitle));
     this.closeSheet();
     // 内核选择存在独立 store，不进 AppSettings 草稿。
     if (key === 'coreType') {
-      this.persistCoreType(value);
+      this.persistCoreType(value, previousCoreType);
       return;
     }
     this.persistSettings(false);
   }
 
-  private async persistCoreType(value: string): Promise<void> {
+  private async persistCoreType(value: string, previousCoreType: string): Promise<void> {
+    const saveGeneration = ++this.coreSaveGeneration;
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
-      this.settingCoreType = await CoreSelectionStore.save(context, value as CoreType);
+      const saved = await CoreSelectionStore.save(context, value as CoreType);
+      if (saveGeneration === this.coreSaveGeneration) {
+        this.settingCoreType = saved;
+      }
     } catch (error) {
-      this.lastError = this.f1('error.saveSettings', 'error', redactDiagnosticText(JSON.stringify(error)));
+      if (saveGeneration === this.coreSaveGeneration) {
+        this.settingCoreType = previousCoreType;
+        this.lastError = this.f1('error.saveSettings', 'error', redactDiagnosticText(JSON.stringify(error)));
+      }
     }
   }
 

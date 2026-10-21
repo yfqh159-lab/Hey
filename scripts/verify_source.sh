@@ -556,6 +556,7 @@ const options = fs.readFileSync('entry/src/main/ets/features/settings/SettingsOp
 const controller = fs.readFileSync('entry/src/main/ets/services/ConnectionController.ets', 'utf8');
 const config = fs.readFileSync('entry/src/main/ets/core/XrayConfig.ets', 'utf8');
 const coreSelection = fs.readFileSync('entry/src/main/ets/core/CoreSelection.ets', 'utf8');
+const settingsPage = fs.readFileSync('entry/src/main/ets/pages/Settings.ets', 'utf8');
 
 if (!catalog.includes("{ key: 'mode', titleKey: 'settings.mode', type: 'option' }")) {
   throw new Error('runtime mode selector is missing from settings');
@@ -571,6 +572,24 @@ if (!coreSelection.includes('normalizeAppRuntimeMode(runtimeMode) === APP_MODE_P
   !coreSelection.includes('return CORE_TYPE_XRAY;') ||
   !controller.includes('this.effectiveCoreType = resolveRuntimeCoreType(')) {
   throw new Error('local proxy standard nodes must stay on the main Xray core');
+}
+const coreLoadAt = coreSelection.indexOf('  static load(context: common.Context)');
+const coreSaveAt = coreSelection.indexOf('  static save(context: common.Context', coreLoadAt);
+const coreQueueAt = coreSelection.indexOf('  private static enqueueOperation', coreSaveAt);
+if (coreLoadAt < 0 || coreSaveAt < 0 || coreQueueAt < 0 ||
+  !coreSelection.slice(coreLoadAt, coreSaveAt).includes('return CoreSelectionStore.enqueueOperation(') ||
+  !coreSelection.slice(coreSaveAt, coreQueueAt).includes('return CoreSelectionStore.enqueueOperation(') ||
+  coreSelection.slice(coreLoadAt, coreQueueAt).includes('catch (') ||
+  !coreSelection.includes('private static operationTail: Promise<void> = Promise.resolve();') ||
+  !coreSelection.includes('CoreSelectionStore.operationTail = task.then(')) {
+  throw new Error('core selection storage is unordered or hides persistence failures');
+}
+if (!settingsPage.includes('private coreSaveGeneration: number = 0;') ||
+  !settingsPage.includes('const previousCoreType = this.settingCoreType;') ||
+  !settingsPage.includes('const saveGeneration = ++this.coreSaveGeneration;') ||
+  !settingsPage.includes('if (saveGeneration === this.coreSaveGeneration) {') ||
+  !settingsPage.includes('this.settingCoreType = previousCoreType;')) {
+  throw new Error('core selector UI does not isolate stale saves or roll back the latest failed choice');
 }
 
 const xrayStartMarker = '  async start(context: common.Context, profile: ProxyProfile, settings?: AppSettings)';

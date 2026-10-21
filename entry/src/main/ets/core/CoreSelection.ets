@@ -78,25 +78,35 @@ export function requiredCoreForProtocol(
 }
 
 export class CoreSelectionStore {
-  static async load(context: common.Context): Promise<CoreType> {
-    try {
+  private static operationTail: Promise<void> = Promise.resolve();
+
+  static load(context: common.Context): Promise<CoreType> {
+    return CoreSelectionStore.enqueueOperation(async (): Promise<CoreType> => {
       const store = await preferences.getPreferences(context, PREFERENCES_NAME);
       const raw = (await store.get(CORE_TYPE_KEY, DEFAULT_CORE_TYPE)).toString();
       return normalizeCoreType(raw);
-    } catch (error) {
-      return DEFAULT_CORE_TYPE;
-    }
+    });
   }
 
-  static async save(context: common.Context, coreType: CoreType): Promise<CoreType> {
+  static save(context: common.Context, coreType: CoreType): Promise<CoreType> {
     const normalized = normalizeCoreType(coreType);
-    try {
+    return CoreSelectionStore.enqueueOperation(async (): Promise<CoreType> => {
       const store = await preferences.getPreferences(context, PREFERENCES_NAME);
       await store.put(CORE_TYPE_KEY, normalized);
       await store.flush();
-    } catch (error) {
-      // ignore
-    }
-    return normalized;
+      return normalized;
+    });
+  }
+
+  private static enqueueOperation<T>(operation: () => Promise<T>): Promise<T> {
+    const task = CoreSelectionStore.operationTail.then(
+      (): Promise<T> => operation(),
+      (): Promise<T> => operation()
+    );
+    CoreSelectionStore.operationTail = task.then(
+      (): void => {},
+      (_error: Object): void => {}
+    );
+    return task;
   }
 }
