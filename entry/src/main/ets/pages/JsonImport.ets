@@ -307,15 +307,14 @@ struct JsonImportPage {
 
       const normalizedJson = validation.normalizedJson;
       const nodeName = resolveJsonConfigNodeName(normalizedJson, validation.configType);
-
-      const savedProfile = await NODES_CONTROLLER.saveProfile(context, normalizedJson, this.language, validation.configType);
-      if (savedProfile.profile === null) {
-        this.lastError = savedProfile.lastError;
+      const duplicate = await SubscriptionStore.findDuplicateNode(context, normalizedJson, validation.configType);
+      if (duplicate !== null) {
+        this.lastError = this.f1('scanner.duplicateNode', 'name', duplicate.name);
         return;
       }
 
-      await SubscriptionStore.addManualNode(context, nodeName, normalizedJson, validation.configType);
-      markRuntimeSettingsRestartNeeded();
+      // 新建完整配置仅保留为兼容路径；导入不改变当前选择或运行中的数据面。
+      await SubscriptionStore.addManualNode(context, nodeName, normalizedJson, validation.configType, false);
       SHARED_RUNTIME_CONTROLLER.appendLog(this.t('jsonImport.imported'));
       promptAction.showToast({ message: this.t('jsonImport.imported') });
       router.back();

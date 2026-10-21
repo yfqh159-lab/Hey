@@ -1195,14 +1195,23 @@ struct NodeEditPage {
         }
         promptAction.showToast({ message: this.t('nodeEdit.updated') });
       } else {
-        const saved = await NODES_CONTROLLER.saveProfile(context, validation.normalizedJson, this.language, validation.configType);
-        if (saved.profile === null) {
-          this.lastError = saved.lastError;
+        const duplicate = await SubscriptionStore.findDuplicateNode(
+          context,
+          validation.normalizedJson,
+          validation.configType
+        );
+        if (duplicate !== null) {
+          this.lastError = this.tf('scanner.duplicateNode', ['name'], [duplicate.name]);
           return;
         }
-
-        await SubscriptionStore.addManualNode(context, this.nodeName, validation.normalizedJson, validation.configType);
-        markRuntimeSettingsRestartNeeded();
+        // 新增只入库，不切换当前选择或重启现有连接；用户随后在首页显式选择节点。
+        await SubscriptionStore.addManualNode(
+          context,
+          this.nodeName,
+          validation.normalizedJson,
+          validation.configType,
+          false
+        );
         promptAction.showToast({ message: this.t('nodeEdit.saved') });
       }
       router.back();
