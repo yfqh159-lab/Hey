@@ -231,7 +231,7 @@ export class RuntimeController {
 
     const healthy = isPersistedVpnRuntimeHealthy(persisted, Date.now());
     if (this.status === ConnectionStatus.IDLE) {
-      if (await NetSceneStopFlag.wasStopped(context)) {
+      if (await NetSceneStopFlag.wasStopped(context, persisted.startedAt)) {
         return;
       }
       const snapshot = this.controller.reconcileRunning(persisted.startedAt, persisted.coreType);

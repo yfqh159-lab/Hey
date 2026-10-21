@@ -36,7 +36,7 @@ export class NetSceneStopFlag {
   }
 
   /** 主进程前台读取：本次启动后是否发生过后台自动断开。 */
-  static async wasStopped(context: common.Context): Promise<boolean> {
+  static async wasStopped(context: common.Context, sessionStartedAt: number = 0): Promise<boolean> {
     try {
       const path = flagPath(context);
       if (!fs.accessSync(path)) {
@@ -44,9 +44,14 @@ export class NetSceneStopFlag {
       }
       const raw = fs.readTextSync(path);
       const num = Number(raw.trim());
-      return !Number.isNaN(num) && num > 0;
+      return wasNetSceneStoppedAfter(num, sessionStartedAt);
     } catch (error) {
       return false;
     }
   }
+}
+
+export function wasNetSceneStoppedAfter(stoppedAt: number, sessionStartedAt: number): boolean {
+  return !Number.isNaN(stoppedAt) && stoppedAt > 0 &&
+    !Number.isNaN(sessionStartedAt) && stoppedAt > Math.max(0, sessionStartedAt);
 }

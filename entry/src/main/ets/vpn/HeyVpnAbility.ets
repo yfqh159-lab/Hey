@@ -112,6 +112,11 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       this.requestCleanup('VPN stop command received on create.', 'startId=0');
       return;
     }
+    // 新的用户启动会话必须废弃上一次可信网络自动断开的标志。恢复侧仍会按 startedAt
+    // 比较时间戳，双重避免 UI 进程在这里清零前被回收时拒绝接管健康的新会话。
+    NetSceneStopFlag.clear(this.context).catch(() => {
+      // 时间戳比较仍可隔离旧标志；清理失败不应阻断 VPN 启动。
+    });
     this.startVpn(want).catch((error: Object) => {
       this.emitError('VPN start task failed.', this.errorMessage(error));
     });

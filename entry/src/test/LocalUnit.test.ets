@@ -49,6 +49,7 @@ import { countLogLevels, filterLogEntries, filterLogItems, formatLogcatText, for
 import { LogEntry, logLevelLabel, normalizeLogLevel } from '../main/ets/features/logs/LogModel';
 import { parseCoreLog } from '../main/ets/services/CoreLogReader';
 import { isRuntimeHealthPort } from '../main/ets/services/RuntimeHealthProbe';
+import { wasNetSceneStoppedAfter } from '../main/ets/services/NetSceneStopFlag';
 import { PersistedVpnRuntimeState, VPN_RUNTIME_HEARTBEAT_STALE_MS, isPersistedVpnRuntimeHealthy, parsePersistedVpnRuntimeState, selectPersistedVpnRuntimeState } from '../main/ets/services/VpnRuntimeStateStore';
 import { buildAssetDownloadProxyPorts, resolveAssetDownloadProxyPort } from '../main/ets/features/assets/AssetsController';
 import {
@@ -2801,6 +2802,14 @@ export default function localUnitTest() {
       expect(parsePersistedVpnRuntimeState(JSON.stringify(healthy))).assertEqual(null);
       healthy.profileUpdatedAt = 123456;
       expect(parsePersistedVpnRuntimeState('{"active":true}')).assertEqual(null);
+    });
+
+    it('ignores stale network-scene stop flags from older vpn sessions', 0, () => {
+      expect(wasNetSceneStoppedAfter(0, 200)).assertFalse();
+      expect(wasNetSceneStoppedAfter(100, 200)).assertFalse();
+      expect(wasNetSceneStoppedAfter(200, 200)).assertFalse();
+      expect(wasNetSceneStoppedAfter(201, 200)).assertTrue();
+      expect(wasNetSceneStoppedAfter(Number.NaN, 200)).assertFalse();
     });
 
     it('prefers a complete pending VPN state and falls back from a partial write', 0, () => {
