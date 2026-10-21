@@ -69,6 +69,33 @@ if [[ "${actual_http_request_files}" != "${expected_http_request_files}" ]]; the
 fi
 printf 'ArkTS HTTP request allowlist verification passed\n'
 
+# Exit-IP verification is user-visible proof of the active egress. It must require a
+# valid loopback proxy and an authenticated HTTPS endpoint; neither an unavailable proxy
+# nor a custom plaintext endpoint may fall back to the physical network or claim success.
+node <<'NODE'
+const fs = require('fs');
+const source = fs.readFileSync('entry/src/main/ets/services/RemoteIpInfo.ets', 'utf8');
+const fetchAt = source.indexOf('export async function fetchRemoteIpInfo(');
+const fetchEnd = source.indexOf('\nexport function parseRemoteIpInfoContent(', fetchAt);
+const fetchBody = source.slice(fetchAt, fetchEnd);
+const normalizeAt = source.indexOf('export function normalizeIpApiUrl(');
+const normalizeEnd = source.indexOf('\nfunction responseBodyText(', normalizeAt);
+const normalizeBody = source.slice(normalizeAt, normalizeEnd);
+if (fetchAt < 0 || fetchEnd < 0 ||
+  !fetchBody.includes("return failedRemoteIpInfo('proxy-unavailable');") ||
+  !fetchBody.includes('usingProxy: {') ||
+  !fetchBody.includes('host: LOCAL_HTTP_PROXY_HOST') ||
+  !fetchBody.includes('port: proxyPort')) {
+  throw new Error('exit-IP check can bypass its required loopback runtime proxy');
+}
+if (normalizeAt < 0 || normalizeEnd < 0 ||
+  !normalizeBody.includes("target.toLowerCase().startsWith('https://')") ||
+  normalizeBody.includes("startsWith('http://')")) {
+  throw new Error('exit-IP verification accepts an unauthenticated plaintext endpoint');
+}
+NODE
+printf 'HTTPS-only proxied exit-IP verification passed\n'
+
 node <<'NODE'
 const fs = require('fs');
 const health = fs.readFileSync('entry/src/main/ets/core/RuntimeHealth.ets', 'utf8');

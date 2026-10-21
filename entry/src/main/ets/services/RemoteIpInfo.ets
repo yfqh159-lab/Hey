@@ -227,7 +227,9 @@ function parseIpv6Units(value: string): Array<number> | null {
 // 未填写地址时返回空串，调用方据此跳过请求；高级设置仍允许替换或关闭默认服务。
 export function normalizeIpApiUrl(ipApiUrl: string): string {
   const target = ipApiUrl.trim();
-  if (target.startsWith('http://') || target.startsWith('https://')) {
+  // The result is used as evidence that traffic reached the expected public egress.
+  // Plain HTTP can be altered in transit and must not be presented as verified state.
+  if (target.toLowerCase().startsWith('https://')) {
     return target;
   }
   return '';

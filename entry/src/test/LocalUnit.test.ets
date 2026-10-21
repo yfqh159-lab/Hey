@@ -3055,6 +3055,8 @@ export default function localUnitTest() {
       expect(DEFAULT_IP_API_URL).assertEqual('https://api.ipify.org?format=json');
       expect(normalizeIpApiUrl('')).assertEqual('');
       expect(normalizeIpApiUrl('ftp://example.com')).assertEqual('');
+      expect(normalizeIpApiUrl('http://example.com/ip')).assertEqual('');
+      expect(normalizeIpApiUrl(' HTTPS://example.com/ip ')).assertEqual('HTTPS://example.com/ip');
     });
 
     it('formats runtime values through shared helpers', 0, () => {
