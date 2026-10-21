@@ -489,9 +489,10 @@ const scannerAppearAt = scanner.indexOf('  aboutToAppear(): void');
 const scannerShowAt = scanner.indexOf('\n  onPageShow(): void', scannerAppearAt);
 const scannerAppear = scanner.slice(scannerAppearAt, scannerShowAt);
 const routeImmediateAt = scannerAppear.indexOf('this.startScanImmediate = this.routeStartScanImmediate;');
+const routeReturnAt = scannerAppear.indexOf('if (this.routeStartScanImmediate) {\n      return;\n    }', routeImmediateAt);
 const settingsLoadAt = scannerAppear.indexOf('this.loadState(pageGeneration);');
 if (scannerAppearAt < 0 || scannerShowAt < 0 || routeImmediateAt < 0 ||
-  settingsLoadAt < routeImmediateAt ||
+  routeReturnAt < routeImmediateAt || settingsLoadAt < routeReturnAt ||
   !scanner.includes('if (!this.startScanImmediate || this.hasAutoScanned) {') ||
   !scanner.includes('this.startScanImmediate = this.routeStartScanImmediate || settings.startScanImmediate;')) {
   throw new Error('explicit home scanner launches can still be blocked by settings or repeat after a late read');
