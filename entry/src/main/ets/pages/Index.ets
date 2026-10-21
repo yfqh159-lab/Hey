@@ -2629,6 +2629,8 @@ struct Index {
         return this.t(isProxyOnlyRuntimeMode(this.currentSettings.mode) ?
           'home.proxyConnectionUnverified' : 'home.connectionUnverified');
       }
+      return this.t(isProxyOnlyRuntimeMode(this.currentSettings.mode) ?
+        'home.proxyConnected' : 'home.tunConnected');
     }
     return this.t('status.' + this.status);
   }
