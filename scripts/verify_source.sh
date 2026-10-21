@@ -1559,6 +1559,22 @@ if (cleanupAt < 0 || cleanupEnd < 0 || unlockAt < 0 || boundaryRetryAt < unlockA
 NODE
 printf 'late VPN create cleanup verification passed\n'
 
+vpn_cancel_store="entry/src/main/ets/services/VpnStartCancellationStore.ets"
+if [[ ! -f "$vpn_cancel_store" ]] || \
+  ! grep -Fq "static markCancelled(context: common.Context, sessionId: string): boolean" "$vpn_cancel_store" || \
+  ! grep -Fq "static check(context: common.Context, sessionId: string): VpnStartCancellationCheck" "$vpn_cancel_store" || \
+  ! grep -Fq "VpnStartCancellationStore.markCancelled(context, targetSessionId)" \
+  "entry/src/main/ets/services/ConnectionController.ets" || \
+  ! grep -Fq "VpnStartCancellationStore.markCancelled(context, sessionId)" \
+  "entry/src/main/ets/services/ConnectionController.ets" || \
+  ! grep -Fq "VpnStartCancellationStore.check(this.context, this.sessionId)" \
+  "entry/src/main/ets/vpn/HeyVpnAbility.ets" || \
+  ! grep -Fq "VPN startup rejected before creating system resources." \
+  "entry/src/main/ets/vpn/HeyVpnAbility.ets"; then
+  throw_error "late system VPN start requests are not fenced by a cross-process session cancellation marker"
+fi
+printf 'late system VPN start cancellation verification passed\n'
+
 node <<'NODE'
 const fs = require('fs');
 const vpn = fs.readFileSync('entry/src/main/ets/vpn/HeyVpnAbility.ets', 'utf8');

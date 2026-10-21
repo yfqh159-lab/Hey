@@ -18,6 +18,7 @@ import { clearCoreLog, clearSingboxLog } from './CoreLogReader';
 import { OUTBOUND_DOMAIN_RESOLVER } from './OutboundDomainResolver';
 import { waitForRuntimeSocksHealth } from './RuntimeHealthProbe';
 import { assertGeoAssetsStableForCore } from './GeoCoreReadiness';
+import { VpnStartCancellationStore } from './VpnStartCancellationStore';
 import {
   VpnRuntimeStateStore,
   isPersistedVpnRuntimeSessionReady,
@@ -286,7 +287,7 @@ export class ConnectionController {
       this.lastError = redactDiagnosticText(`${action}：${businessError.message ?? JSON.stringify(error)}`);
       hilog.error(LOG_DOMAIN, LOG_TAG, 'connection start failed: %{public}s', this.lastError);
       if (vpnStartRequested) {
-        await this.stopFailedVpnStart();
+        await this.stopFailedVpnStart(context, vpnSessionId);
         // 系统 stop 调用成功只代表请求已受理，不等于 Extension 已完成 TUN/核心清理。
         // 由持久运行状态确认 cleanupComplete 前保持 fail-closed。
         this.cleanupRequired = true;
@@ -376,7 +377,7 @@ export class ConnectionController {
       this.lastError = redactDiagnosticText(`启动 sing-box 失败：${businessError.message ?? JSON.stringify(error)}`);
       hilog.error(LOG_DOMAIN, LOG_TAG, 'sing-box start failed: %{public}s', this.lastError);
       if (vpnStartRequested) {
-        await this.stopFailedVpnStart();
+        await this.stopFailedVpnStart(context, vpnSessionId);
         this.cleanupRequired = true;
       }
     }
@@ -610,6 +611,13 @@ export class ConnectionController {
       }
       hilog.info(LOG_DOMAIN, LOG_TAG, 'Calling startVpnExtensionAbility with stop command.');
       const targetSessionId = this.vpnSessionId;
+      const cancellationPersisted = targetSessionId.length > 0 &&
+        VpnStartCancellationStore.markCancelled(context, targetSessionId);
+      if (!cancellationPersisted) {
+        // 即使磁盘已满/损坏也必须继续实际停止。只是没有跨进程闩锁时无法排除原 start
+        // Want 稍后复活，因此完成清理后仍保留错误态，不得向用户宣称安全停止。
+        hilog.error(LOG_DOMAIN, LOG_TAG, 'VPN stop cancellation marker could not be persisted.');
+      }
       await this.withTimeout(vpnExtension.startVpnExtensionAbility(createStopCommandVpnWant(targetSessionId)),
         START_VPN_TIMEOUT_MS,
         '停止 VPN 超时：VPN 扩展没有响应停止命令。');
@@ -639,6 +647,9 @@ export class ConnectionController {
       } catch (stopError) {
         hilog.info(LOG_DOMAIN, LOG_TAG, 'idle VPN extension stop did not complete: %{public}s',
           redactDiagnosticText(JSON.stringify(stopError)));
+      }
+      if (!cancellationPersisted) {
+        throw new Error('VPN 已执行停止，但无法持久化防迟到启动标记；请修复存储后重试断开。');
       }
       this.status = ConnectionStatus.IDLE;
       this.startedAt = 0;
@@ -742,7 +753,10 @@ export class ConnectionController {
   // startVpnExtensionAbility 超时或扩展回写失败时，底层启动请求仍可能稍后成功。
   // 主进程既然已报告 ERROR，就必须撤销该请求，避免 UI 显示失败但系统 VPN 仍在运行。
   // 这里只调用系统 stop；VPN Extension 的 onDestroy 会执行幂等 native/TUN 清理。
-  private async stopFailedVpnStart(): Promise<void> {
+  private async stopFailedVpnStart(context: common.Context, sessionId: string): Promise<void> {
+    if (!VpnStartCancellationStore.markCancelled(context, sessionId)) {
+      hilog.error(LOG_DOMAIN, LOG_TAG, 'failed VPN start cancellation marker could not be persisted.');
+    }
     try {
       await this.withTimeout(vpnExtension.stopVpnExtensionAbility(createStopVpnWant()),
         START_VPN_TIMEOUT_MS,

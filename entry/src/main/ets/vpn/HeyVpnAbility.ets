@@ -52,6 +52,7 @@ import { CONTROL_CARD_MANAGER } from '../services/ControlCardManager';
 import { DEFAULT_LANGUAGE } from '../core/I18n';
 import { isVpnCleanupComplete } from '../core/RuntimeHealth';
 import { areGeoAssetsStableForCore, assertGeoAssetsStableForCore } from '../services/GeoCoreReadiness';
+import { VpnStartCancellationStore } from '../services/VpnStartCancellationStore';
 
 const LOG_DOMAIN: number = 0x0001;
 const LOG_TAG: string = 'HeyVpnAbility';
@@ -161,6 +162,15 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     this.netSceneTransportSignature = '';
     this.netSceneSeeded = false;
     this.netScenePollInFlight = false;
+    const cancellation = VpnStartCancellationStore.check(this.context, this.sessionId);
+    if (!cancellation.reliable || cancellation.cancelled) {
+      const reason = cancellation.cancelled ? 'the start session was cancelled' :
+        'the start cancellation state is unreadable';
+      this.emitError('VPN start failed.', `session=${this.sessionId}; error=${reason}.`);
+      this.requestCleanup('VPN startup rejected before creating system resources.',
+        `session=${this.sessionId}; reason=${reason}`);
+      return;
+    }
     // 新会话尚未完成核心 + TUN 启动，先覆盖上次可能残留的 active 心跳。只有完整数据面
     // 就绪后 startVpn 才会写 active=true，主进程重建时不会把“启动中”误接管为已连接。
     const initialized = VpnRuntimeStateStore.write(this.context,
