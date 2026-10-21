@@ -90,6 +90,10 @@ HevStartFunc g_hevStart = nullptr;
 HevQuitFunc g_hevQuit = nullptr;
 HevStatsFunc g_hevStats = nullptr;
 std::thread g_hevThread;
+// g_tunRunning 表示数据面已请求启动；Hev 的阻塞 main 在独立线程运行，必须另记
+// 工作线程是否仍在执行。配置解析或底层初始化失败时 main 会立即返回，健康状态应随即
+// 变为 false，而不是一直把已经退出的 Hev 误报为运行中。
+std::atomic_bool g_hevWorkerRunning(false);
 
 // 当前 TUN 数据面引擎：0=无，1=gvisor(tun2socks)，2=hev。stop/stats 据此分发。
 constexpr int TUN_ENGINE_NONE = 0;
@@ -1144,9 +1148,12 @@ napi_value GetStats(napi_env env, napi_callback_info info)
     // TUN 数据面运行时，用当前引擎的字节计数刷新流量统计（仅在已加载引擎的 VPN 扩展
     // 进程里命中；主进程指针为 null，自动跳过）。注：这只是兜底，真实分流量优先取
     // queryNativeTraffic（Xray metrics）。
-    if (g_tunRunning.load()) {
+    bool tunRunning = g_tunRunning.load();
+    if (tunRunning) {
         const int engine = g_tunEngine.load();
-        if (engine == TUN_ENGINE_HEV && g_hevStats != nullptr) {
+        if (engine == TUN_ENGINE_HEV && !g_hevWorkerRunning.load()) {
+            tunRunning = false;
+        } else if (engine == TUN_ENGINE_HEV && g_hevStats != nullptr) {
             // hev_socks5_tunnel_stats(tx_pkts, tx_bytes, rx_pkts, rx_bytes)，相对 TUN 网卡：
             // tx=从 TUN 收到上行、rx=回写 TUN 的下行。若真机方向相反，调换这两行即可。
             size_t txPackets = 0;
@@ -1164,7 +1171,7 @@ napi_value GetStats(napi_env env, napi_callback_info info)
     napi_set_named_property(env, result, "uploadBytes", CreateInt64(env, g_uploadBytes.load()));
     napi_set_named_property(env, result, "downloadBytes", CreateInt64(env, g_downloadBytes.load()));
     napi_set_named_property(env, result, "xrayRunning", CreateBool(env, g_xrayRunning.load() || g_singboxRunning.load()));
-    napi_set_named_property(env, result, "tunRunning", CreateBool(env, g_tunRunning.load()));
+    napi_set_named_property(env, result, "tunRunning", CreateBool(env, tunRunning));
     napi_set_named_property(env, result, "lastMessage", CreateString(env, g_lastMessage));
     return result;
 }
@@ -1254,9 +1261,11 @@ napi_value StartHevTun(napi_env env, napi_callback_info info)
         g_hevThread.join();
     }
     HevStartFunc start = g_hevStart;
+    g_hevWorkerRunning.store(true);
     g_hevThread = std::thread([start, configYaml, tunFd]() {
         start(reinterpret_cast<const unsigned char*>(configYaml.c_str()),
             static_cast<unsigned int>(configYaml.size()), tunFd);
+        g_hevWorkerRunning.store(false);
     });
     g_tunRunning.store(true);
     g_tunEngine.store(TUN_ENGINE_HEV);
@@ -1266,7 +1275,7 @@ napi_value StartHevTun(napi_env env, napi_callback_info info)
 napi_value StopTun2Socks(napi_env env, napi_callback_info info)
 {
     (void)info;
-    if (!g_tunRunning.load()) {
+    if (!g_tunRunning.load() && g_tunEngine.load() == TUN_ENGINE_NONE) {
         return CreateResult(env, true, "tun data plane already stopped.");
     }
     const int engine = g_tunEngine.exchange(TUN_ENGINE_NONE);
@@ -1279,6 +1288,7 @@ napi_value StopTun2Socks(napi_env env, napi_callback_info info)
         if (g_hevThread.joinable()) {
             g_hevThread.join();
         }
+        g_hevWorkerRunning.store(false);
         return CreateResult(env, true, "hev tun stop requested.");
     }
     // gvisor：engine.Stop() 可能阻塞，放到分离线程避免卡住 ArkTS 调用线程。
