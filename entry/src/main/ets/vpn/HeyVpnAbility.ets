@@ -545,14 +545,18 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       this.emitInfo('Net scene decision.', `kind=${ctx.kind}; action=${action}`);
       if (action === NET_ACTION_DISCONNECT) {
         this.emitInfo('Net scene: trusted network, auto-disconnecting.', `kind=${ctx.kind}`);
+        const stoppedAt = Date.now();
+        // 实际数据面清理优先于辅助 UI 标志。cleanup() 在首个系统 destroy await 前已
+        // 同步置停止闩锁、写 inactive 并停止核心/tun2socks；即使文件系统写标志卡顿，
+        // 也不能继续让代理承载流量。时间戳取触发时刻，迟到落盘不会命中新会话。
+        this.requestCleanup('Network scene auto-disconnect.', `session=${this.sessionId}`);
         // 写跨进程标志，供主进程回前台校正「运行中」滞留状态。
         try {
-          await NetSceneStopFlag.markStopped(this.context, Date.now());
+          await NetSceneStopFlag.markStopped(this.context, stoppedAt);
         } catch (error) {
           // 标志只辅助 UI 跨进程校正；落盘失败不能阻止实际 VPN 清理。
           this.emitInfo('Net scene stop flag write failed.', this.errorMessage(error));
         }
-        this.requestCleanup('Network scene auto-disconnect.', `session=${this.sessionId}`);
         return;
       }
       if (transportChanged && shouldReloadActiveCoreAfterNetworkChange(ctx, action)) {

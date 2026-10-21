@@ -1790,6 +1790,22 @@ printf 'bounded network observation verification passed\n'
 node <<'NODE'
 const fs = require('fs');
 const vpn = fs.readFileSync('entry/src/main/ets/vpn/HeyVpnAbility.ets', 'utf8');
+const decisionAt = vpn.indexOf('if (action === NET_ACTION_DISCONNECT) {');
+const decisionEnd = vpn.indexOf('\n      if (transportChanged', decisionAt);
+const decision = vpn.slice(decisionAt, decisionEnd);
+const timestampAt = decision.indexOf('const stoppedAt = Date.now();');
+const cleanupAt = decision.indexOf("this.requestCleanup('Network scene auto-disconnect.'");
+const flagAt = decision.indexOf('await NetSceneStopFlag.markStopped(this.context, stoppedAt);');
+if (decisionAt < 0 || decisionEnd < 0 || timestampAt < 0 || cleanupAt < timestampAt ||
+  flagAt < cleanupAt) {
+  throw new Error('trusted-network disconnect can wait on its auxiliary flag before cleaning the VPN data plane');
+}
+NODE
+printf 'trusted-network cleanup-first verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
+const vpn = fs.readFileSync('entry/src/main/ets/vpn/HeyVpnAbility.ets', 'utf8');
 if (!vpn.includes('this.healthProbeInFlight = false;') ||
   (vpn.match(/if \(sessionGeneration === this\.sessionGeneration\) \{\n\s+this\.netScenePollInFlight = false;/g) || []).length !== 1 ||
   (vpn.match(/if \(sessionGeneration === this\.sessionGeneration\) \{\n\s+this\.coreReloading = false;/g) || []).length !== 1 ||
