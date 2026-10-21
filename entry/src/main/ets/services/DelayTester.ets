@@ -35,6 +35,19 @@ interface DelayTcpTarget {
   port: number;
 }
 
+function withDelayTcpTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timerId = setTimeout(() => reject(new Error('delay TCP probe timed out')), timeoutMs);
+    promise.then((value: T) => {
+      clearTimeout(timerId);
+      resolve(value);
+    }, (error: Object) => {
+      clearTimeout(timerId);
+      reject(error);
+    });
+  });
+}
+
 function isCoreUnavailable(message: string): boolean {
   const lower = message.toLowerCase();
   return lower.indexOf('unavailable') >= 0 || lower.indexOf('failed to load') >= 0 || lower.indexOf('symbol missing') >= 0;
@@ -77,7 +90,8 @@ function runNativeDelayTest(outboundJson: string, datDir: string, url: string, t
 export class DelayTester {
   static async measureTcp(address: string, port: number, timeoutMs: number = 8000): Promise<DelayTestResult> {
     const target = address.trim();
-    if (target.length === 0 || port <= 0 || port > 65535) {
+    if (target.length === 0 || port <= 0 || port > 65535 ||
+      !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
       return {
         ok: false,
         delayMs: -1,
@@ -88,13 +102,19 @@ export class DelayTester {
     const startedAt = Date.now();
     const tcp = socket.constructTCPSocketInstance();
     try {
-      await tcp.connect({
-        address: {
-          address: target,
-          port
-        },
-        timeout: timeoutMs
-      });
+      // NetworkKit 的参数 timeout 在部分设备上不能保证 Promise 一定结算。外层截止时间
+      // 防止首页、订阅详情和批量测速永久停在进行中；这里只关闭本次独立 socket，
+      // 不会改变或重启正在运行的 Xray/VPN/TUN。
+      await withDelayTcpTimeout(
+        tcp.connect({
+          address: {
+            address: target,
+            port
+          },
+          timeout: timeoutMs
+        }),
+        timeoutMs
+      );
       return {
         ok: true,
         delayMs: Math.max(0, Date.now() - startedAt),
@@ -109,7 +129,7 @@ export class DelayTester {
       };
     } finally {
       try {
-        await tcp.close();
+        await withDelayTcpTimeout(tcp.close(), Math.min(500, timeoutMs));
       } catch (_) {
       }
     }

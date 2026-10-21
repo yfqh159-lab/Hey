@@ -1703,6 +1703,22 @@ if (tcpAt < 0 || waitAt < 0 ||
 NODE
 printf 'bounded runtime health probe verification passed\n'
 
+node <<'NODE'
+const fs = require('fs');
+const delay = fs.readFileSync('entry/src/main/ets/services/DelayTester.ets', 'utf8');
+const tcpAt = delay.indexOf('static async measureTcp(');
+const nextAt = delay.indexOf('\n  private static singboxOnlyTcpTarget(', tcpAt);
+const tcp = delay.slice(tcpAt, nextAt);
+if (tcpAt < 0 || nextAt < 0 ||
+  !tcp.includes('await withDelayTcpTimeout(') ||
+  !tcp.includes('tcp.connect({') ||
+  !tcp.includes('await withDelayTcpTimeout(tcp.close(), Math.min(500, timeoutMs));') ||
+  !delay.includes('function withDelayTcpTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T>')) {
+  throw new Error('node-delay TCP connect/close promises are not bounded');
+}
+NODE
+printf 'bounded node-delay TCP probe verification passed\n'
+
 vpn_ability_file="entry/src/main/ets/vpn/HeyVpnAbility.ets"
 if ! grep -q "const VPN_DESTROY_TIMEOUT_MS: number = 8000;" "$vpn_ability_file" || \
   ! grep -q "VPN connection destroy timed out\." "$vpn_ability_file" || \
