@@ -1369,7 +1369,9 @@ if ! grep -Fq "@Prop dataPlaneLabel: string = 'TUN';" "${runtime_panel}" || \
   ! grep -Fq "@Prop dataPlaneActive: boolean = false;" "${runtime_panel}" || \
   ! grep -Fq "dataPlaneLabel: isProxyOnlyRuntimeMode(this.runtimeMode) ? 'SOCKS/HTTP' : 'TUN'" \
   "${logs_page}" || \
-  ! grep -Fq "this.runtimeMode = state.runtimeMode;" "${logs_page}" || \
+  ! grep -Fq "this.selectedMode = normalizeAppRuntimeMode(settings.mode, APP_MODE_VPN);" "${logs_page}" || \
+  ! grep -Fq "state.status === ConnectionStatus.IDLE ? this.selectedMode : state.runtimeMode" \
+  "${logs_page}" || \
   grep -Fq "@Prop tunActive:" "${runtime_panel}"; then
   throw_error "runtime diagnostics do not distinguish optional TUN from local SOCKS/HTTP mode"
 fi

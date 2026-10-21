@@ -3,7 +3,7 @@ import { promptAction } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
-import { APP_MODE_VPN, AppLanguage, AppRuntimeMode, ConnectionStatus, RuntimeStats, isProxyOnlyRuntimeMode } from '../core/Profile';
+import { APP_MODE_VPN, AppLanguage, AppRuntimeMode, ConnectionStatus, RuntimeStats, isProxyOnlyRuntimeMode, normalizeAppRuntimeMode } from '../core/Profile';
 import { LogConsole } from '../features/logs/LogPanel';
 import { LogEntry, LogLevelFilter, logLevelLabel } from '../features/logs/LogModel';
 import { countLogLevels, filterLogEntries, formatLogEntriesText } from '../features/logs/LogOperations';
@@ -51,6 +51,7 @@ struct LogsPage {
   @State private stats: RuntimeStats = EMPTY_STATS;
   @State private speedEnabled: boolean = false;
   @State private runtimeMode: AppRuntimeMode = APP_MODE_VPN;
+  private selectedMode: AppRuntimeMode = APP_MODE_VPN;
   // 运行内核名,随所选内核显示 Xray / sing-box(预览)。
   @State private coreLabel: string = 'Xray';
 
@@ -241,6 +242,10 @@ struct LogsPage {
     const settings = await SETTINGS_CONTROLLER.load(context);
     this.language = settings.language;
     this.speedEnabled = settings.speedEnabled;
+    this.selectedMode = normalizeAppRuntimeMode(settings.mode, APP_MODE_VPN);
+    if (this.status === ConnectionStatus.IDLE) {
+      this.runtimeMode = this.selectedMode;
+    }
     await this.refreshRuntime();
   }
 
@@ -402,7 +407,8 @@ struct LogsPage {
 
   private applyRuntimeState(state: RuntimeViewState): void {
     this.status = state.status;
-    this.runtimeMode = state.runtimeMode;
+    // 运行/清理期间必须展示实际会话模式；彻底空闲后才展示设置里下次连接会使用的模式。
+    this.runtimeMode = state.status === ConnectionStatus.IDLE ? this.selectedMode : state.runtimeMode;
     this.elapsedText = state.elapsedText;
     this.stats = state.stats;
     // 暂停时冻结日志列表（状态条仍随刷新更新），恢复时再同步。
