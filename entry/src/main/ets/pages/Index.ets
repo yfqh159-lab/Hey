@@ -169,6 +169,8 @@ struct Index {
     await this.handlePendingDeepLink();
     await this.refreshDueSubscriptions();
     await this.syncSubscriptionBackgroundSchedule();
+    // 从后台或子页回到首页时重新确认真实出口。网络承载可能已经变化，旧 IP 不应继续显示。
+    await this.recheckCurrentEgressIp();
   }
 
   private onPendingExternalIntentChanged(): void {
@@ -952,6 +954,9 @@ struct Index {
     .borderRadius(Radius.pill)
     .border({ width: 1, color: AppColor.border })
     .visibility(this.isRunning() ? Visibility.Visible : Visibility.Hidden)
+    .onClick(() => {
+      this.recheckCurrentEgressIp();
+    })
   }
 
   private egressIpText(): string {
@@ -1005,6 +1010,16 @@ struct Index {
     this.connectionDelayTesting = true;
     const context = this.getUIContext().getHostContext() as common.Context;
     await SHARED_RUNTIME_CONTROLLER.measureCurrentConnectionDelay(context, this.language);
+    this.applyRuntimeState(SHARED_RUNTIME_CONTROLLER.snapshot());
+  }
+
+  // 出口胶囊可随时点按复测；先显示进行中，再由 RuntimeController 的会话保护写回结果。
+  private async recheckCurrentEgressIp(): Promise<void> {
+    if (!this.isRunning() || this.egressIpChecking) {
+      return;
+    }
+    this.egressIpChecking = true;
+    await SHARED_RUNTIME_CONTROLLER.recheckCurrentEgressIp(this.language);
     this.applyRuntimeState(SHARED_RUNTIME_CONTROLLER.snapshot());
   }
 

@@ -152,6 +152,10 @@ export class NetworkSceneManager {
         `[netscene] kind=${ctx.kind}; ssid=${ctx.ssid === undefined ? '<none>' : '<redacted>'}; running=${running}; action=${action}`);
       if (action === NET_ACTION_DISCONNECT) {
         await this.applyDisconnect(context);
+      } else if (SHARED_RUNTIME_CONTROLLER.isRunning()) {
+        // 未断开时数据面会继续使用新的默认承载；立即废弃旧出口并经当前代理复测。
+        // 不触发重连，也不改变用户手动启停意图。
+        await SHARED_RUNTIME_CONTROLLER.recheckCurrentEgressIp(this.currentLanguage());
       }
     } catch (error) {
       hilog.error(DOMAIN, TAG, 'evaluate failed: %{public}s', JSON.stringify(error));

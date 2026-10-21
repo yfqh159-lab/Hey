@@ -390,6 +390,29 @@ export class RuntimeController {
     await this.measureConnectionDelayInternal(context, profile, settings, language, this.startedAt);
   }
 
+  // 用户点按出口胶囊、页面重新回到前台或网络承载变化时复测。只使用本次运行会话保存的
+  // profile/settings，不启动或重连代理；已有检测进行中时幂等返回，避免重复访问 IP API。
+  async recheckCurrentEgressIp(language: AppLanguage): Promise<void> {
+    const profile = this.activeProfile;
+    const settings = this.activeSettings;
+    if (this.status !== ConnectionStatus.RUNNING || this.egressIpChecking ||
+      profile === null || settings === null || this.resolveRemoteIpProxyPort(profile, settings) <= 0) {
+      return;
+    }
+    const startedAt = this.startedAt;
+    this.egressIpChecking = true;
+    try {
+      await this.appendRemoteIpInfo(profile, settings, language, startedAt);
+    } catch (error) {
+      if (this.status === ConnectionStatus.RUNNING && this.startedAt === startedAt) {
+        // 请求异常也不能继续展示上一次承载网络留下的出口，失败态应明确可见。
+        this.egressIp = '';
+        this.egressIpChecking = false;
+        this.appendLog(formatOne(language, 'log.remoteIpInfoFailed', 'error', JSON.stringify(error)));
+      }
+    }
+  }
+
   // 测「当前连接」延迟并把结果写入状态与日志。期间会话变化（断开/热切换重连）时返回 null，
   // 不落任何状态——新会话的状态由 start() 的复位和它自己的自动测速负责。
   private async measureConnectionDelayInternal(
@@ -447,6 +470,8 @@ export class RuntimeController {
       this.egressIp = result.summary;
       this.appendLog(formatOne(language, 'log.remoteIpInfo', 'info', result.summary));
     } else {
+      // 复测失败时清除旧值，不能把上一网络/上一出口继续伪装成当前结果。
+      this.egressIp = '';
       this.appendLog(formatOne(language, 'log.remoteIpInfoFailed', 'error', result.status));
     }
   }
