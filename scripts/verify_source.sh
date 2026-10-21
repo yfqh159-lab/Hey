@@ -1188,6 +1188,20 @@ if (!subscriptionWorker.includes(
   !subscriptionWorker.includes('(vpnStateRead.state !== null && vpnStateRead.state.active)')) {
   throw new Error('background subscriptions can mix VPN state and validity from different filesystem snapshots');
 }
+const startWaitAt = connection.indexOf('  private async waitForVpnStartEvent(');
+const cleanupWaitAt = connection.indexOf('  private async waitForVpnCleanupEvent(', startWaitAt);
+const diagnosticFindAt = connection.indexOf('  private async findDiagnosticEvent(', cleanupWaitAt);
+const startWait = connection.slice(startWaitAt, cleanupWaitAt);
+const cleanupWait = connection.slice(cleanupWaitAt, diagnosticFindAt);
+if (startWaitAt < 0 || cleanupWaitAt < 0 || diagnosticFindAt < 0 ||
+  startWait.split('VpnRuntimeStateStore.readWithEvidence(context)').length - 1 < 2 ||
+  cleanupWait.split('VpnRuntimeStateStore.readWithEvidence(context)').length - 1 < 2 ||
+  startWait.split('persistedRead.authoritativeArtifactInvalid').length - 1 < 2 ||
+  cleanupWait.split('persistedRead.authoritativeArtifactInvalid').length - 1 < 2 ||
+  startWait.includes('VpnRuntimeStateStore.read(context)') ||
+  cleanupWait.includes('VpnRuntimeStateStore.read(context)')) {
+  throw new Error('VPN start/stop confirmation can trust a fallback state behind an untrusted artifact');
+}
 const cardReconcileAt = controlCardManager.indexOf('  private async loadReconciledState(');
 const cardReconcileEnd = controlCardManager.indexOf('\n  private async updateOne(', cardReconcileAt);
 const cardReconcile = controlCardManager.slice(cardReconcileAt, cardReconcileEnd);

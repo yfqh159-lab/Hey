@@ -750,9 +750,11 @@ export class ConnectionController {
         // older active snapshot is still awaiting cleanup.
         return event;
       }
-      const persisted = VpnRuntimeStateStore.read(context);
+      const persistedRead = VpnRuntimeStateStore.readWithEvidence(context);
+      const persisted = persistedRead.state;
       const now = Date.now();
-      if (isPersistedVpnRuntimeSessionReady(persisted, sessionId, requestedAt, now)) {
+      if (!persistedRead.authoritativeArtifactInvalid &&
+        isPersistedVpnRuntimeSessionReady(persisted, sessionId, requestedAt, now)) {
         hilog.info(LOG_DOMAIN, LOG_TAG,
           'VPN start confirmed from persisted data-plane state for session=%{public}s.', sessionId);
         return {
@@ -770,9 +772,11 @@ export class ConnectionController {
     if (event !== null) {
       return event;
     }
-    const persisted = VpnRuntimeStateStore.read(context);
+    const persistedRead = VpnRuntimeStateStore.readWithEvidence(context);
+    const persisted = persistedRead.state;
     const now = Date.now();
-    if (!isPersistedVpnRuntimeSessionReady(persisted, sessionId, requestedAt, now)) {
+    if (persistedRead.authoritativeArtifactInvalid ||
+      !isPersistedVpnRuntimeSessionReady(persisted, sessionId, requestedAt, now)) {
       return null;
     }
     return {
@@ -799,9 +803,11 @@ export class ConnectionController {
       if (event !== null) {
         return event;
       }
-      const persisted = VpnRuntimeStateStore.read(context);
+      const persistedRead = VpnRuntimeStateStore.readWithEvidence(context);
+      const persisted = persistedRead.state;
       const now = Date.now();
-      if (isPersistedVpnRuntimeSessionStopped(persisted, sessionId)) {
+      if (!persistedRead.authoritativeArtifactInvalid &&
+        isPersistedVpnRuntimeSessionStopped(persisted, sessionId)) {
         return {
           at: persisted?.heartbeatAt ?? now,
           level: 'info',
@@ -820,8 +826,10 @@ export class ConnectionController {
     if (event !== null) {
       return event;
     }
-    const persisted = VpnRuntimeStateStore.read(context);
-    if (!isPersistedVpnRuntimeSessionStopped(persisted, sessionId)) {
+    const persistedRead = VpnRuntimeStateStore.readWithEvidence(context);
+    const persisted = persistedRead.state;
+    if (persistedRead.authoritativeArtifactInvalid ||
+      !isPersistedVpnRuntimeSessionStopped(persisted, sessionId)) {
       return null;
     }
     return {
