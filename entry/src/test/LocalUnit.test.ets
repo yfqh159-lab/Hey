@@ -46,7 +46,7 @@ import { BROWSER_DIALER_MODE_OPTIONS, CORE_LOG_LEVEL_OPTIONS, DEFAULT_BROWSER_DI
 import { countLogLevels, filterLogEntries, filterLogItems, formatLogcatText, formatLogEntriesText } from '../main/ets/features/logs/LogOperations';
 import { LogEntry, logLevelLabel, normalizeLogLevel } from '../main/ets/features/logs/LogModel';
 import { parseCoreLog } from '../main/ets/services/CoreLogReader';
-import { PersistedVpnRuntimeState, VPN_RUNTIME_HEARTBEAT_STALE_MS, isPersistedVpnRuntimeHealthy, parsePersistedVpnRuntimeState } from '../main/ets/services/VpnRuntimeStateStore';
+import { PersistedVpnRuntimeState, VPN_RUNTIME_HEARTBEAT_STALE_MS, isPersistedVpnRuntimeHealthy, parsePersistedVpnRuntimeState, selectPersistedVpnRuntimeState } from '../main/ets/services/VpnRuntimeStateStore';
 import { buildAssetDownloadProxyPorts } from '../main/ets/features/assets/AssetsController';
 import {
   applyDelayTestPostActionsToGroups,
@@ -2619,6 +2619,31 @@ export default function localUnitTest() {
       healthy.heartbeatAt = now - 1000;
       expect(parsePersistedVpnRuntimeState(JSON.stringify(healthy))?.sessionId).assertEqual('session-1');
       expect(parsePersistedVpnRuntimeState('{"active":true}')).assertEqual(null);
+    });
+
+    it('prefers committed VPN runtime state and falls back from a partial write', 0, () => {
+      const active = JSON.stringify({
+        sessionId: 'active-session',
+        active: true,
+        startedAt: 100,
+        heartbeatAt: 200,
+        coreType: 'xray',
+        xrayRunning: true,
+        tunRunning: true
+      });
+      const stopped = JSON.stringify({
+        sessionId: 'active-session',
+        active: false,
+        startedAt: 100,
+        heartbeatAt: 300,
+        coreType: 'xray',
+        xrayRunning: false,
+        tunRunning: false
+      });
+      expect(selectPersistedVpnRuntimeState('{', active)?.active).assertTrue();
+      expect(selectPersistedVpnRuntimeState(stopped, active)?.active).assertFalse();
+      expect(selectPersistedVpnRuntimeState(active, stopped)?.active).assertTrue();
+      expect(selectPersistedVpnRuntimeState(null, null)).assertEqual(null);
     });
 
     it('filters nodes by regex or literal fallback', 0, () => {
