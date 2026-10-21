@@ -44,6 +44,9 @@ struct ScannerPage {
   private immediateScanTimerId: number = -1;
   private pageActive: boolean = false;
   private pageGeneration: number = 0;
+  // 只有与当前原文完全一致的有效预览才能进入保存。这个值不展示，
+  // 离页时与其他敏感导入状态一起清除。
+  private previewedImportValue: string = '';
   // 相机、相册和剪贴板内容可能包含 UUID、密码或订阅 Token。原文只保存在页面实例内，
   // 默认不绑定到可截图的 TextArea；确认导入仍使用这份原始值。
   private pendingSensitiveImport: string = '';
@@ -326,7 +329,7 @@ struct ScannerPage {
                   .color(AppColor.onBrand)
                   .margin({ right: 8 })
               }
-              Text(this.t('action.importResult'))
+              Text(this.t(this.hasCurrentValidPreview() ? 'action.importResult' : 'import.parseButton'))
                 .fontSize(16)
                 .fontWeight(FontWeight.Bold)
                 .fontColor(this.isImportEnabled() ? AppColor.onBrand : AppColor.textTertiary)
@@ -393,6 +396,7 @@ struct ScannerPage {
     this.pendingSensitiveImport = '';
     this.hasPendingSensitiveImport = false;
     this.importBuffer = '';
+    this.previewedImportValue = '';
     this.lastError = '';
     this.updateImportPreview('');
   }
@@ -589,6 +593,17 @@ struct ScannerPage {
     if (value.length === 0) {
       this.lastError = this.t('error.emptyImport');
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
+      return;
+    }
+
+    // 手动输入可能是只有 native 兼容解析器才识别的格式。第一次点击
+    // 只允许生成脱敏预览；必须再次点击才保存。相机、相册和专用粘贴
+    // 入口已经为同一原文建立预览，所以它们仍是“扫描 -> 确认”两步。
+    if (!this.hasCurrentValidPreview()) {
+      this.updateImportPreview(value, true);
+      if (this.hasCurrentValidPreview()) {
+        promptAction.showToast({ message: this.t('scanner.reviewBeforeImport') });
+      }
       return;
     }
 
@@ -798,6 +813,7 @@ struct ScannerPage {
 
   private updateImportPreview(value: string, allowNativeFallback: boolean = false): void {
     const input = value.trim();
+    this.previewedImportValue = '';
     if (input.length === 0) {
       this.previewTitle = '';
       this.previewDetail = '';
@@ -816,6 +832,7 @@ struct ScannerPage {
       this.previewTitle = this.t('scanner.previewSubscription');
       this.previewDetail = this.t('scanner.previewSubscriptionDetail');
       this.previewValid = true;
+      this.previewedImportValue = input;
       return;
     }
     const validation = NODES_CONTROLLER.validateConfig(input, this.language);
@@ -830,6 +847,7 @@ struct ScannerPage {
           'scanner.previewEndpoint', 'endpoint', redactDiagnosticText(endpointText))}`;
       }
       this.previewValid = true;
+      this.previewedImportValue = input;
       return;
     }
     const parsedNodes = SubscriptionManager.parseSubscriptionContent(input, '');
@@ -837,6 +855,7 @@ struct ScannerPage {
       this.previewTitle = this.f1('scanner.previewNodes', 'count', parsedNodes.length.toString());
       this.previewDetail = this.t('scanner.previewNodesDetail');
       this.previewValid = true;
+      this.previewedImportValue = input;
       return;
     }
     // libXray accepts a few compatibility formats beyond the ArkTS parser. A
@@ -849,12 +868,18 @@ struct ScannerPage {
         this.previewTitle = this.f1('scanner.previewNodes', 'count', nativeResult.outbounds.length.toString());
         this.previewDetail = this.t('scanner.previewNodesDetail');
         this.previewValid = true;
+        this.previewedImportValue = input;
         return;
       }
     }
     this.previewTitle = this.t('scanner.previewInvalid');
     this.previewDetail = redactDiagnosticText(validation.message);
     this.previewValid = false;
+  }
+
+  private hasCurrentValidPreview(): boolean {
+    const value = this.importValue();
+    return value.length > 0 && this.previewValid && this.previewedImportValue === value;
   }
 
   private async addManualNodeIfUnique(

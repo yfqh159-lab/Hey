@@ -1286,6 +1286,29 @@ printf 'scanner invalid-payload confirmation guard passed\n'
 
 node <<'NODE'
 const fs = require('fs');
+const source = fs.readFileSync('entry/src/main/ets/pages/Scanner.ets', 'utf8');
+const importStart = source.indexOf('  private async importResult(): Promise<void> {');
+const previewStart = source.indexOf('\n  private updateImportPreview(', importStart);
+const previewEnd = source.indexOf('\n  private async addManualNodeIfUnique(', previewStart);
+if (importStart < 0 || previewStart < 0 || previewEnd < 0) {
+  throw new Error('Scanner confirmation methods could not be inspected');
+}
+const importBody = source.slice(importStart, previewStart);
+const previewBody = source.slice(previewStart, previewEnd);
+const guardAt = importBody.indexOf('if (!this.hasCurrentValidPreview()) {');
+const busyAt = importBody.indexOf('this.isBusy = true;');
+if (!source.includes("this.hasCurrentValidPreview() ? 'action.importResult' : 'import.parseButton'") ||
+  guardAt < 0 || busyAt < 0 || guardAt > busyAt ||
+  !importBody.includes('this.updateImportPreview(value, true);') ||
+  !importBody.includes("promptAction.showToast({ message: this.t('scanner.reviewBeforeImport') });") ||
+  !previewBody.includes("this.previewedImportValue = input;")) {
+  throw new Error('manual Scanner native fallback can bypass preview confirmation');
+}
+NODE
+printf 'scanner manual native preview confirmation passed\n'
+
+node <<'NODE'
+const fs = require('fs');
 const source = fs.readFileSync('entry/src/main/cpp/napi_init.cpp', 'utf8');
 
 function functionBody(name) {
