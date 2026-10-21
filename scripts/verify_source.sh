@@ -109,6 +109,18 @@ if ! grep -Fq "private pendingSensitiveImport: string = '';" "${scanner_source}"
 fi
 printf 'scanner external payload privacy verification passed\n'
 
+# User-facing documentation must not promise that camera/share/clipboard payloads are
+# shown in full. That would contradict the screenshot-safe confirmation UI and can make
+# reviewers treat a credential disclosure as intended behavior.
+if grep -Fq '都会先完整展示目标内容' README.zh-CN.md ||
+  grep -Fq 'display the full target' README.md ||
+  ! grep -Fq 'UUID、密码和订阅 Token 默认不显示' README.zh-CN.md ||
+  ! grep -Fq 'Full share links, UUIDs, passwords, and' README.md; then
+  printf 'external import privacy documentation is inconsistent\n' >&2
+  exit 1
+fi
+printf 'external import privacy documentation verification passed\n'
+
 # libXray conversion failures are shown by scanner, link import, and system-share
 # paths. The native message may echo the original share link, so sanitize it once
 # at the shared service boundary before any caller can render or log it.

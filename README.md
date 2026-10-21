@@ -49,9 +49,10 @@ endpoint routed through the proxy to avoid falling back to the physical-network
 resolver; it can be replaced in advanced settings. Other DNS fields are empty. Exit-IP
 checks use an HTTPS endpoint that returns only the public address, run only
 after the user starts a proxy, and can be disabled or replaced in advanced
-settings. Deep links,
-shared text, and scanned codes always show what they contain and wait for an
-explicit confirmation before anything is added or fetched.
+settings. Deep links, shared text, scanned codes, and clipboard imports show a
+redacted protocol, count, or masked-endpoint summary and wait for explicit
+confirmation before anything is added. Full share links, UUIDs, passwords, and
+subscription tokens are hidden by default, and previews never fetch a source.
 
 [`CONTRIBUTING.md`](CONTRIBUTING.md) carries the full list of things that will
 never be implemented, and `./scripts/compliance_scan.sh` enforces the wording
@@ -111,11 +112,13 @@ traffic stats.
   text, and share links for `vless://`, `vmess://`, `trojan://`, `ss://`,
   `socks://`, `socks4://`, `socks5://`, `http://`, `https://`,
   `wireguard://`, `hysteria2://`, `hy2://`, `anytls://`, and `tuic://`.
-  External entry points — `hey://` deep links, system share, and QR scan —
-  display the full target and require an explicit confirmation; none of them
-  add a source or issue a request on their own. Confirming a subscription URL
-  from any of these entry points saves only the source; downloading remains a
-  separate, explicit action on the Subscriptions page. Imported nodes are
+  External entry points — `hey://` deep links, system share, QR scan, and
+  clipboard import — display a redacted protocol, count, or masked-endpoint
+  summary and require explicit confirmation; full credentials are hidden, and
+  none of these entry points add a source or issue a request on their own.
+  Confirming a subscription URL from any of these entry points saves only the
+  source; downloading remains a separate, explicit action on the Subscriptions
+  page. Imported nodes are
   deduplicated and do not replace the active selection while a connection is
   running.
 - Exports: node share links for the protocols implemented by
