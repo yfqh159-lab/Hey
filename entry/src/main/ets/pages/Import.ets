@@ -1,6 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { router, promptAction } from '@kit.ArkUI';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { resolveImportedNodeName } from '../core/ImportedNodeNames';
 import { AppLanguage, XrayConfigType } from '../core/Profile';
 import { NODES_CONTROLLER } from '../features/nodes/NodesController';
@@ -339,7 +340,7 @@ struct ImportPage {
       const context = this.getUIContext().getHostContext() as common.Context;
       this.language = (await SETTINGS_CONTROLLER.load(context)).language;
     } catch (error) {
-      this.lastError = this.f1('import.loadStateFailed', 'error', JSON.stringify(error));
+      this.lastError = this.f1('import.loadStateFailed', 'error', redactDiagnosticText(JSON.stringify(error)));
     }
   }
 
@@ -426,7 +427,7 @@ struct ImportPage {
       }
       this.getUIContext().getRouter().back();
     } catch (error) {
-      this.lastError = this.f1('import.parseFailed', 'error', JSON.stringify(error));
+      this.lastError = this.f1('import.parseFailed', 'error', redactDiagnosticText(JSON.stringify(error)));
     } finally {
       this.isBusy = false;
     }

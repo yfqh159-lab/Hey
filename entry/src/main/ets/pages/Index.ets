@@ -396,7 +396,7 @@ struct Index {
         SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('log.deepLinkConfig', 'name', nodeName));
       }
     } catch (error) {
-      this.lastError = this.f1('error.deepLinkImport', 'error', JSON.stringify(error));
+      this.lastError = this.f1('error.deepLinkImport', 'error', redactDiagnosticText(JSON.stringify(error)));
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
     }
   }
@@ -478,7 +478,7 @@ struct Index {
         }
       }
     } catch (error) {
-      this.lastError = this.f1('error.deepLinkImport', 'error', JSON.stringify(error));
+      this.lastError = this.f1('error.deepLinkImport', 'error', redactDiagnosticText(JSON.stringify(error)));
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
     }
   }
@@ -1712,7 +1712,7 @@ struct Index {
         this.allGroupsSelected = false;
       }
     } catch (error) {
-      this.lastError = this.f1('error.loadSettings', 'error', JSON.stringify(error));
+      this.lastError = this.f1('error.loadSettings', 'error', redactDiagnosticText(JSON.stringify(error)));
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
     }
   }
@@ -1722,7 +1722,7 @@ struct Index {
       const context = this.getUIContext().getHostContext() as common.Context;
       this.applyNodesState(await NODES_CONTROLLER.load(context, this.language));
     } catch (error) {
-      this.lastError = this.f1('error.loadSubscription', 'error', JSON.stringify(error));
+      this.lastError = this.f1('error.loadSubscription', 'error', redactDiagnosticText(JSON.stringify(error)));
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
     }
   }
@@ -1745,7 +1745,7 @@ struct Index {
       SHARED_RUNTIME_CONTROLLER.appendLog(result.state.subscriptionMessage);
       this.applyNodesState(await NODES_CONTROLLER.load(context, this.language));
     } catch (error) {
-      this.lastError = this.f1('error.updateSubscription', 'error', JSON.stringify(error));
+      this.lastError = this.f1('error.updateSubscription', 'error', redactDiagnosticText(JSON.stringify(error)));
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
     } finally {
       this.subscriptionUpdating = false;
@@ -1757,7 +1757,9 @@ struct Index {
       const context = this.getUIContext().getHostContext() as common.Context;
       await SubscriptionBackgroundScheduler.sync(context);
     } catch (error) {
-      SHARED_RUNTIME_CONTROLLER.appendLog(`Subscription background schedule sync failed: ${JSON.stringify(error)}`);
+      SHARED_RUNTIME_CONTROLLER.appendLog(
+        `Subscription background schedule sync failed: ${redactDiagnosticText(JSON.stringify(error))}`
+      );
     }
   }
 
@@ -1838,7 +1840,7 @@ struct Index {
       return state.status === ConnectionStatus.RUNNING;
     } catch (error) {
       this.status = ConnectionStatus.ERROR;
-      this.lastError = this.f1('vpn.startFailed', 'error', JSON.stringify(error));
+      this.lastError = this.f1('vpn.startFailed', 'error', redactDiagnosticText(JSON.stringify(error)));
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
       return false;
     }
@@ -1884,7 +1886,7 @@ struct Index {
       return state.status === ConnectionStatus.IDLE;
     } catch (error) {
       this.status = ConnectionStatus.ERROR;
-      this.lastError = this.f1('vpn.stopFailed', 'error', JSON.stringify(error));
+      this.lastError = this.f1('vpn.stopFailed', 'error', redactDiagnosticText(JSON.stringify(error)));
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
       return false;
     }
@@ -2153,7 +2155,7 @@ struct Index {
       }
       await this.applyPostTestActions(context, targets);
     } catch (error) {
-      this.lastError = this.f1('error.delayTest', 'error', JSON.stringify(error));
+      this.lastError = this.f1('error.delayTest', 'error', redactDiagnosticText(JSON.stringify(error)));
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
     } finally {
       this.delayTesting = false;
@@ -2395,7 +2397,7 @@ struct Index {
       this.applyRuntimeState(state);
       this.scheduleHomeAutoDelayTest();
     } catch (error) {
-      this.lastError = JSON.stringify(error);
+      this.lastError = redactDiagnosticText(JSON.stringify(error));
     }
   }
 
@@ -2570,7 +2572,7 @@ struct Index {
     };
     const context = this.getUIContext().getHostContext() as common.Context;
     TrafficTotalsStore.save(context, totals).catch((error: Error) => {
-      SHARED_RUNTIME_CONTROLLER.appendLog(JSON.stringify(error));
+      SHARED_RUNTIME_CONTROLLER.appendLog(redactDiagnosticText(JSON.stringify(error)));
     });
   }
 
@@ -2578,7 +2580,7 @@ struct Index {
     const context = this.getUIContext().getHostContext() as common.Context;
     SPEED_NOTIFICATION_MANAGER.sync(context, this.status, this.speedEnabled, this.stats, this.elapsedText, this.language)
       .catch((error: Error) => {
-        SHARED_RUNTIME_CONTROLLER.appendLog(JSON.stringify(error));
+        SHARED_RUNTIME_CONTROLLER.appendLog(redactDiagnosticText(JSON.stringify(error)));
       });
   }
 
@@ -2593,7 +2595,7 @@ struct Index {
       SHARED_RUNTIME_CONTROLLER.isVpnRunning()
     )
       .catch((error: Error) => {
-        SHARED_RUNTIME_CONTROLLER.appendLog(JSON.stringify(error));
+        SHARED_RUNTIME_CONTROLLER.appendLog(redactDiagnosticText(JSON.stringify(error)));
       });
   }
 
@@ -2846,7 +2848,7 @@ struct Index {
       }
       SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('log.exportCopied', 'count', targets.length.toString()));
     } catch (error) {
-      const message = this.f1('export.copyFailed', 'error', JSON.stringify(error));
+      const message = this.f1('export.copyFailed', 'error', redactDiagnosticText(JSON.stringify(error)));
       try {
         this.getUIContext().getPromptAction().showToast({ message: message });
       } catch (err) {

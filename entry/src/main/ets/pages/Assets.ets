@@ -918,7 +918,7 @@ struct AssetsPage {
       }
       this.openImportTypeSheet(uris[0]);
     } catch (error) {
-      this.toast(this.f1('assets.openPickerFailed', 'error', JSON.stringify(error)));
+      this.toast(this.f1('assets.openPickerFailed', 'error', redactDiagnosticText(JSON.stringify(error))));
     }
   }
 
@@ -992,7 +992,7 @@ struct AssetsPage {
       if (isScanCancelled(error)) {
         return;
       }
-      this.toast(this.f1('assets.scanFailed', 'error', JSON.stringify(error)));
+      this.toast(this.f1('assets.scanFailed', 'error', redactDiagnosticText(JSON.stringify(error))));
     }
   }
 
@@ -1043,7 +1043,7 @@ struct AssetsPage {
         () => {}
       );
     } catch (error) {
-      this.toast(this.f1('assets.reimportLocalFailed', 'error', JSON.stringify(error)));
+      this.toast(this.f1('assets.reimportLocalFailed', 'error', redactDiagnosticText(JSON.stringify(error))));
     }
   }
 

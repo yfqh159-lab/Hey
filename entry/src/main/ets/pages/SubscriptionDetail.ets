@@ -1,5 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { shouldExposeLocalHttpProxy } from '../core/LocalProxy';
 import { AppLanguage, ProxyNode, SubscriptionGroup } from '../core/Profile';
 import { LOCAL_HTTP_PROXY_PORT } from '../core/XrayConfig';
@@ -401,7 +402,9 @@ struct SubscriptionDetailPage {
     } catch (error) {
       if (!isScanCancelled(error)) {
         try {
-          this.getUIContext().getPromptAction().showToast({ message: this.f1('scanner.scanFailed', 'error', JSON.stringify(error)) });
+          this.getUIContext().getPromptAction().showToast({
+            message: this.f1('scanner.scanFailed', 'error', redactDiagnosticText(JSON.stringify(error)))
+          });
         } catch (err) {
           // ignore
         }
