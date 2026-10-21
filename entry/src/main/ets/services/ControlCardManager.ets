@@ -7,7 +7,7 @@ import {
   buildControlCardFormData,
   isControlCardLocalProxyRunning
 } from '../core/ControlCard';
-import { LOCAL_HTTP_PROXY_PORT } from '../core/XrayConfig';
+import { LOCAL_HTTP_PROXY_PORT, VPN_DATA_SOCKS_PORT } from '../core/XrayConfig';
 import { ControlCardStore } from '../storage/ControlCardStore';
 import { DiagnosticLog } from './DiagnosticLog';
 import { isPersistedVpnCleanupIncomplete, isPersistedVpnRuntimeHealthy, VpnRuntimeStateStore } from './VpnRuntimeStateStore';
@@ -106,9 +106,42 @@ export class ControlCardManager {
     if (!state.vpnBacked || state.primaryActionUri !== CONTROL_CARD_STOP_URI) {
       return state;
     }
-    const persisted = VpnRuntimeStateStore.read(context);
+    let persisted = VpnRuntimeStateStore.read(context);
     if (persisted !== null && isPersistedVpnRuntimeHealthy(persisted, Date.now())) {
-      return state;
+      const expectedSessionId = persisted.sessionId;
+      const expectedStartedAt = persisted.startedAt;
+      const probe = await probeRuntimeTcpHealth(VPN_DATA_SOCKS_PORT);
+      const confirmed = VpnRuntimeStateStore.read(context);
+      if (confirmed !== null && confirmed.sessionId === expectedSessionId &&
+        confirmed.startedAt === expectedStartedAt && isPersistedVpnRuntimeHealthy(confirmed, Date.now())) {
+        if (probe.ok) {
+          return state;
+        }
+        // 单次端口抖动只影响本次卡片渲染，不持久化 cleanupRequired。下次系统刷新会
+        // 重新核对；但当前不能继续显示“运行中”或暴露启动动作叠加另一条数据面。
+        return buildControlCardFormData(
+          state.language,
+          ConnectionStatus.ERROR,
+          '',
+          translate(state.language, 'runtime.vpnHealthLost'),
+          false,
+          APP_MODE_VPN,
+          true
+        );
+      }
+      // 探针期间状态可能已经停止或换成新会话；旧探针结果不得确认新会话。
+      persisted = confirmed;
+      if (persisted !== null && isPersistedVpnRuntimeHealthy(persisted, Date.now())) {
+        return buildControlCardFormData(
+          state.language,
+          ConnectionStatus.ERROR,
+          '',
+          translate(state.language, 'runtime.vpnHealthLost'),
+          false,
+          APP_MODE_VPN,
+          true
+        );
+      }
     }
     if (persisted !== null && isPersistedVpnCleanupIncomplete(persisted)) {
       return ControlCardStore.saveState(

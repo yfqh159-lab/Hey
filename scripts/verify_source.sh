@@ -1154,6 +1154,7 @@ const connection = fs.readFileSync('entry/src/main/ets/services/ConnectionContro
 const health = fs.readFileSync('entry/src/main/ets/core/RuntimeHealth.ets', 'utf8');
 const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeController.ets', 'utf8');
 const runtimeStateStore = fs.readFileSync('entry/src/main/ets/services/VpnRuntimeStateStore.ets', 'utf8');
+const controlCardManager = fs.readFileSync('entry/src/main/ets/services/ControlCardManager.ets', 'utf8');
 const vpn = fs.readFileSync('entry/src/main/ets/vpn/HeyVpnAbility.ets', 'utf8');
 if (!connection.includes('vpnSessionId: string;') ||
   !connection.includes('vpnSessionId: this.vpnSessionId')) {
@@ -1165,6 +1166,22 @@ if (!health.includes('expectedSessionId: string') || !health.includes('eventDeta
 }
 if (!runtimeStateStore.includes('(!value.active && (value.xrayRunning || value.tunRunning))')) {
   throw new Error('an inactive VPN state can still claim running core/TUN resources');
+}
+const cardReconcileAt = controlCardManager.indexOf('  private async loadReconciledState(');
+const cardReconcileEnd = controlCardManager.indexOf('\n  private async updateOne(', cardReconcileAt);
+const cardReconcile = controlCardManager.slice(cardReconcileAt, cardReconcileEnd);
+const cardProbeAt = cardReconcile.indexOf('await probeRuntimeTcpHealth(VPN_DATA_SOCKS_PORT)');
+const cardRereadAt = cardReconcile.indexOf('VpnRuntimeStateStore.read(context)', cardProbeAt);
+const cardHealthyReturnAt = cardReconcile.indexOf('return state;', cardRereadAt);
+if (cardReconcileAt < 0 || cardReconcileEnd < 0 || cardProbeAt < 0 ||
+  cardRereadAt < cardProbeAt || cardHealthyReturnAt < cardRereadAt ||
+  !cardReconcile.includes('confirmed.sessionId === expectedSessionId') ||
+  !cardReconcile.includes('confirmed.startedAt === expectedStartedAt') ||
+  !cardReconcile.includes('ConnectionStatus.ERROR') ||
+  !cardReconcile.includes("translate(state.language, 'runtime.vpnHealthLost')") ||
+  !cardReconcile.includes('APP_MODE_VPN,\n          true') ||
+  cardReconcile.includes('ControlCardStore.saveState(\n          context,\n          buildControlCardFormData(\n          state.language,\n          ConnectionStatus.ERROR')) {
+  throw new Error('control card can trust a stale VPN heartbeat without a session-bound data-plane probe');
 }
 const applyAt = runtime.indexOf('  private async applyDiagnosticError(');
 const apply = runtime.slice(applyAt);
