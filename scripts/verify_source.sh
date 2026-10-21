@@ -229,6 +229,18 @@ if (customDownloadAt < 0 || customDeleteEnd < 0 ||
   !customMutations.includes('if (fileExisted && !this.assetFileExists(targetPath)) {')) {
   throw new Error('custom Geo file changes can remain invisible to an already running core');
 }
+const customNameInputAt = page.indexOf("TextInput({ text: this.editName, placeholder: 'e.g. custom_geo' })");
+const customNameInputEnd = page.indexOf("Text(this.t('assets.urlAddress'))", customNameInputAt);
+const customNameInput = page.slice(customNameInputAt, customNameInputEnd);
+const saveCustomAt = page.indexOf('  private async saveCustomAsset(): Promise<void>');
+const deleteCustomPageAt = page.indexOf('  private async deleteCustomAsset(', saveCustomAt);
+const saveCustom = page.slice(saveCustomAt, deleteCustomPageAt);
+if (customNameInputAt < 0 || customNameInputEnd < 0 || saveCustomAt < 0 || deleteCustomPageAt < 0 ||
+  !customNameInput.includes('.enabled(this.editId.length === 0)') ||
+  !saveCustom.includes('if (this.customAssets[index].id === this.editId)') ||
+  !saveCustom.includes('trimmedName = existingName;')) {
+  throw new Error('editing a custom Geo source can rename its record without migrating the .dat file');
+}
 const deleteCustomAt = controller.indexOf('  async deleteCustomAsset(');
 const deleteCustomEnd = controller.indexOf('\n  private removeStandaloneAssetFiles(', deleteCustomAt);
 const deleteCustom = controller.slice(deleteCustomAt, deleteCustomEnd);

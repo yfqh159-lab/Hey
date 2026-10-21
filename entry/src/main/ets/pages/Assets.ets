@@ -722,6 +722,10 @@ struct AssetsPage {
         .placeholderColor(AppColor.textTertiary)
         .backgroundColor(AppColor.surfaceAlt)
         .borderRadius(Radius.md)
+        // 文件名同时是 Xray Geo loader 使用的稳定资源标识。已保存来源若直接改名，
+        // 还需跨 Preferences 与文件系统迁移；本阶段锁定名称，避免列表与 .dat 分叉。
+        .enabled(this.editId.length === 0)
+        .opacity(this.editId.length === 0 ? 1.0 : 0.65)
         .onChange((value: string) => { this.editName = value; })
 
       Text(this.t('assets.urlAddress'))
@@ -1080,8 +1084,24 @@ struct AssetsPage {
   }
 
   private async saveCustomAsset(): Promise<void> {
-    const trimmedName = this.editName.trim();
+    let trimmedName = this.editName.trim();
     const trimmedUrl = this.editUrl.trim();
+
+    if (this.editId.length > 0) {
+      let existingName = '';
+      for (let index = 0; index < this.customAssets.length; index++) {
+        if (this.customAssets[index].id === this.editId) {
+          existingName = this.customAssets[index].name;
+          break;
+        }
+      }
+      if (existingName.length === 0) {
+        this.toast(this.t('assets.sourceMissing'));
+        return;
+      }
+      // 不信任仅由 disabled TextInput 提供的 UI 约束；保存边界始终恢复持久名称。
+      trimmedName = existingName;
+    }
 
     if (trimmedName.length === 0) {
       this.toast(this.t('assets.urlNameEmpty'));
