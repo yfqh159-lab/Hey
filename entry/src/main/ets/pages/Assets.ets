@@ -1043,7 +1043,7 @@ struct AssetsPage {
       url,
       this.language,
       () => { this.downloadingFile = name; },
-      () => {},
+      () => this.notifyGeoReloadRequiredIfRunning(),
       () => {},
       () => {
         this.downloadingFile = '';
@@ -1068,7 +1068,10 @@ struct AssetsPage {
         uris[0],
         `${item.name}.dat`,
         this.language,
-        () => this.refreshCustomStatuses(),
+        () => {
+          this.refreshCustomStatuses();
+          this.notifyGeoReloadRequiredIfRunning();
+        },
         () => {}
       );
     } catch (error) {
@@ -1102,6 +1105,7 @@ struct AssetsPage {
     const context = this.getUIContext().getHostContext() as common.Context;
 
     // 本地导入：先把暂存的 URI 拷贝为 {name}.dat
+    let localFileChanged = false;
     if (isLocalImport && this.tempImportUri.length > 0) {
       const copySuccess = await ASSETS_CONTROLLER.copyLocalFileToAssets(
         context,
@@ -1114,6 +1118,7 @@ struct AssetsPage {
       if (!copySuccess) {
         return;
       }
+      localFileChanged = true;
       this.tempImportUri = '';
     }
 
@@ -1133,6 +1138,11 @@ struct AssetsPage {
     try {
       await AssetStore.save(context, nextAssets);
     } catch (error) {
+      if (localFileChanged) {
+        // 文件已经通过安全替换落盘；即使来源记录保存失败，运行中的核心仍需要重连
+        // 才能观察到新内容，不能因元数据错误漏掉真实文件变更提示。
+        this.notifyGeoReloadRequiredIfRunning();
+      }
       this.toast(this.f1('assets.saveFailed', 'error', redactDiagnosticText(JSON.stringify(error))));
       return;
     }
@@ -1141,13 +1151,29 @@ struct AssetsPage {
     // 从主视图触发的自定义导入，保存后带用户进入列表看到结果
     this.showCustomUrls = true;
     this.closeSheet();
+    if (localFileChanged) {
+      this.notifyGeoReloadRequiredIfRunning();
+    }
     this.toast(this.t('assets.saveSuccess'));
   }
 
   private async deleteCustomAsset(item: CustomAssetUrl): Promise<void> {
     const context = this.getUIContext().getHostContext() as common.Context;
+    const targetPath = `${context.filesDir}/${item.name}.dat`;
+    const fileExisted = this.assetFileExists(targetPath);
     this.customAssets = await ASSETS_CONTROLLER.deleteCustomAsset(context, item, this.customAssets, this.language);
     this.refreshCustomStatuses();
+    if (fileExisted && !this.assetFileExists(targetPath)) {
+      this.notifyGeoReloadRequiredIfRunning();
+    }
+  }
+
+  private assetFileExists(path: string): boolean {
+    try {
+      return fs.accessSync(path);
+    } catch (error) {
+      return false;
+    }
   }
 
   // ===================== 状态读取 =====================

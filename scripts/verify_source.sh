@@ -219,6 +219,16 @@ if (applyVerifiedAt < 0 || applyVerifiedEnd < 0 ||
   !applyVerified.includes('assets: result.assets')) {
   throw new Error('verified Geo controller results are not preserved when metadata display reload fails');
 }
+const customDownloadAt = page.indexOf('  private async downloadCustomAsset(');
+const customDeleteEnd = page.indexOf('\n  // ===================== 状态读取', customDownloadAt);
+const customMutations = page.slice(customDownloadAt, customDeleteEnd);
+if (customDownloadAt < 0 || customDeleteEnd < 0 ||
+  !customMutations.includes('() => this.notifyGeoReloadRequiredIfRunning(),') ||
+  !customMutations.includes('localFileChanged = true;') ||
+  customMutations.split('this.notifyGeoReloadRequiredIfRunning();').length - 1 < 4 ||
+  !customMutations.includes('if (fileExisted && !this.assetFileExists(targetPath)) {')) {
+  throw new Error('custom Geo file changes can remain invisible to an already running core');
+}
 const updateCatchAt = update.indexOf('    } catch (error) {');
 const updateCatch = update.slice(updateCatchAt);
 if (updateCatchAt < 0 || !updateCatch.includes('const message = redactDiagnosticText(') ||
