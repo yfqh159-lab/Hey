@@ -421,6 +421,7 @@ for (const [file, marker] of [
   }
 }
 const scanner = fs.readFileSync('entry/src/main/ets/pages/Scanner.ets', 'utf8');
+const manualImport = fs.readFileSync('entry/src/main/ets/pages/Import.ets', 'utf8');
 const disappearAt = scanner.indexOf('  aboutToDisappear(): void');
 const buildAt = scanner.indexOf('\n  build()', disappearAt);
 const disappear = scanner.slice(disappearAt, buildAt);
@@ -453,6 +454,26 @@ if (importAt < 0 || importEnd < 0 ||
   importGenerationChecks < 7 ||
   !importBody.includes('if (this.isCurrentPage(pageGeneration)) {\n        this.isBusy = false;')) {
   throw new Error('scanner confirmed import can navigate or update a disposed page from a late continuation');
+}
+const manualDisappearAt = manualImport.indexOf('  aboutToDisappear(): void');
+const manualBuildAt = manualImport.indexOf('\n  build()', manualDisappearAt);
+const manualLoadAt = manualImport.indexOf('  private async loadState(pageGeneration: number)');
+const manualImportAt = manualImport.indexOf('  private async importLink(): Promise<void>');
+const manualImportEnd = manualImport.indexOf('\n  private isCurrentPage(', manualImportAt);
+const manualImportBody = manualImport.slice(manualImportAt, manualImportEnd);
+const manualGenerationChecks =
+  (manualImportBody.match(/this[.]isCurrentPage[(]pageGeneration[)]/g) ?? []).length;
+if (!manualImport.includes('private pageActive: boolean = false;') ||
+  !manualImport.includes('private pageGeneration: number = 0;') ||
+  manualDisappearAt < 0 || manualBuildAt < 0 ||
+  !manualImport.slice(manualDisappearAt, manualBuildAt).includes('this.pageGeneration++;') ||
+  manualLoadAt < 0 ||
+  !manualImport.slice(manualLoadAt, manualImportAt).includes('this.isCurrentPage(pageGeneration)') ||
+  manualImportAt < 0 || manualImportEnd < 0 ||
+  !manualImportBody.includes('const pageGeneration = this.pageGeneration;') ||
+  manualGenerationChecks < 5 ||
+  !manualImportBody.includes('if (this.isCurrentPage(pageGeneration)) {\n        this.isBusy = false;')) {
+  throw new Error('manual link page can apply late loads, navigation, or import UI after disposal');
 }
 for (const [method, next, minimumChecks] of [
   ['  private async loadState(', '\n  private tryStartImmediateScan(', 2],

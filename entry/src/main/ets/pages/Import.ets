@@ -27,9 +27,18 @@ struct ImportPage {
   @State private linkPreviewValid: boolean = false;
   // 只有用户看到当前输入对应的脱敏摘要后，下一次点击才允许入库。输入一旦变化立即失效。
   private previewedImportValue: string = '';
+  private pageActive: boolean = false;
+  private pageGeneration: number = 0;
 
   aboutToAppear(): void {
-    this.loadState();
+    this.pageActive = true;
+    this.isBusy = false;
+    this.loadState(++this.pageGeneration);
+  }
+
+  aboutToDisappear(): void {
+    this.pageActive = false;
+    this.pageGeneration++;
   }
 
   build() {
@@ -368,12 +377,17 @@ struct ImportPage {
     .borderRadius(Radius.lg)
     .clip(true)  }
 
-  private async loadState(): Promise<void> {
+  private async loadState(pageGeneration: number): Promise<void> {
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
-      this.language = (await SETTINGS_CONTROLLER.load(context)).language;
+      const settings = await SETTINGS_CONTROLLER.load(context);
+      if (this.isCurrentPage(pageGeneration)) {
+        this.language = settings.language;
+      }
     } catch (error) {
-      this.lastError = this.f1('import.loadStateFailed', 'error', redactDiagnosticText(JSON.stringify(error)));
+      if (this.isCurrentPage(pageGeneration)) {
+        this.lastError = this.f1('import.loadStateFailed', 'error', redactDiagnosticText(JSON.stringify(error)));
+      }
     }
   }
 
@@ -388,6 +402,7 @@ struct ImportPage {
     }
 
     this.isBusy = true;
+    const pageGeneration = this.pageGeneration;
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
       if (value.toLowerCase().startsWith('http://') || value.toLowerCase().startsWith('https://')) {
@@ -437,6 +452,10 @@ struct ImportPage {
           importedCount++;
         }
 
+        if (!this.isCurrentPage(pageGeneration)) {
+          return;
+        }
+
         if (importedCount === 0) {
           this.lastError = duplicateCount > 0 ?
             this.f1('scanner.duplicateNodes', 'count', duplicateCount.toString()) :
@@ -463,7 +482,13 @@ struct ImportPage {
         validation.normalizedJson,
         validation.configType
       )) {
+        if (!this.isCurrentPage(pageGeneration)) {
+          return;
+        }
         this.lastError = this.f1('scanner.duplicateNode', 'name', redactDiagnosticText(nodeName));
+        return;
+      }
+      if (!this.isCurrentPage(pageGeneration)) {
         return;
       }
       try {
@@ -474,10 +499,18 @@ struct ImportPage {
       this.clearManualImportValue();
       this.getUIContext().getRouter().back();
     } catch (error) {
-      this.lastError = this.f1('import.parseFailed', 'error', redactDiagnosticText(JSON.stringify(error)));
+      if (this.isCurrentPage(pageGeneration)) {
+        this.lastError = this.f1('import.parseFailed', 'error', redactDiagnosticText(JSON.stringify(error)));
+      }
     } finally {
-      this.isBusy = false;
+      if (this.isCurrentPage(pageGeneration)) {
+        this.isBusy = false;
+      }
     }
+  }
+
+  private isCurrentPage(pageGeneration: number): boolean {
+    return this.pageActive && pageGeneration === this.pageGeneration;
   }
 
   private previewLink(): void {
