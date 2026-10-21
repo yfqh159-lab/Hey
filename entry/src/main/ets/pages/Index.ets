@@ -1814,7 +1814,10 @@ struct Index {
   private async syncSubscriptionBackgroundSchedule(): Promise<void> {
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
-      await SubscriptionBackgroundScheduler.sync(context);
+      const result = await SubscriptionBackgroundScheduler.sync(context);
+      if (!result.ok) {
+        SHARED_RUNTIME_CONTROLLER.appendLog(redactDiagnosticText(result.message));
+      }
     } catch (error) {
       SHARED_RUNTIME_CONTROLLER.appendLog(
         `Subscription background schedule sync failed: ${redactDiagnosticText(JSON.stringify(error))}`

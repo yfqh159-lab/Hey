@@ -88,6 +88,7 @@ import { APP_HTTP_USER_AGENT } from '../main/ets/core/HttpDefaults';
 import { normalizeIpApiUrl, parseRemoteIpInfoContent } from '../main/ets/services/RemoteIpInfo';
 import { canMeasureRuntimeDelayProfile, resolveRuntimeDelayTestUrls } from '../main/ets/services/RuntimeDelay';
 import { SubscriptionManager } from '../main/ets/services/SubscriptionManager';
+import { SubscriptionBackgroundScheduler } from '../main/ets/services/SubscriptionBackgroundScheduler';
 import { buildTextShareWant } from '../main/ets/services/SystemShare';
 import { DEFAULT_APP_SETTINGS, SettingsStore } from '../main/ets/storage/SettingsStore';
 import { formatBytes, formatDuration } from '../main/ets/utils/Formatters';
@@ -486,6 +487,26 @@ export default function localUnitTest() {
       const empty = ControlCardStore.selectStoredFormIds('', '');
       expect(empty.source).assertEqual('empty');
       expect(empty.ids?.length ?? -1).assertEqual(0);
+    });
+
+    it('recovers the persisted subscription background task index', 0, () => {
+      const raw = '[{"groupId":"group-a","workId":261001},{"groupId":"group-b","workId":261002}]';
+      const primary = SubscriptionBackgroundScheduler.selectStoredWorks(raw, '{broken');
+      expect(primary.source).assertEqual('primary');
+      expect(primary.records?.length ?? 0).assertEqual(2);
+
+      const recovered = SubscriptionBackgroundScheduler.selectStoredWorks('{broken', raw);
+      expect(recovered.source).assertEqual('backup');
+      expect(recovered.records?.[1].groupId ?? '').assertEqual('group-b');
+
+      const invalidRecord = '[{"groupId":"group-a","workId":"261001"}]';
+      expect(SubscriptionBackgroundScheduler.selectStoredWorks(invalidRecord, '{}').source)
+        .assertEqual('invalid');
+      expect(SubscriptionBackgroundScheduler.selectStoredWorks('{}', '{broken').records === null).assertTrue();
+
+      const empty = SubscriptionBackgroundScheduler.selectStoredWorks('', '');
+      expect(empty.source).assertEqual('empty');
+      expect(empty.records?.length ?? -1).assertEqual(0);
     });
 
     it('recovers custom Geo sources and verified update metadata independently', 0, () => {

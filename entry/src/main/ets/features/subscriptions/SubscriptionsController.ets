@@ -447,9 +447,12 @@ export class SubscriptionsController {
 
   private async syncBackgroundSchedule(context: common.Context): Promise<void> {
     try {
-      await SubscriptionBackgroundScheduler.sync(context);
+      const result = await SubscriptionBackgroundScheduler.sync(context);
+      if (!result.ok) {
+        console.error(`Subscription background schedule sync failed: ${redactDiagnosticText(result.message)}`);
+      }
     } catch (error) {
-      console.error(`Subscription background schedule sync failed: ${JSON.stringify(error)}`);
+      console.error(`Subscription background schedule sync failed: ${redactDiagnosticText(JSON.stringify(error))}`);
     }
   }
 

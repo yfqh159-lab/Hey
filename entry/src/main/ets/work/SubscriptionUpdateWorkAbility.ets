@@ -47,10 +47,10 @@ export default class SubscriptionUpdateWorkAbility extends WorkSchedulerExtensio
       const schedule = await SubscriptionBackgroundScheduler.sync(context);
       DiagnosticLog.append(context, {
         at: Date.now(),
-        level: result.failedCount > 0 ? 'warn' : 'info',
+        level: result.failedCount > 0 || !schedule.ok ? 'warn' : 'info',
         source: 'subscription-work',
         message: `Subscription background update completed: ${result.updatedCount} success, ${result.failedCount} failed.`,
-        details: `workId=${work.workId}; groupId=${groupId}; scheduled=${schedule.scheduled}; repeatCycleTimeMs=${schedule.repeatCycleTimeMs}`
+        details: `workId=${work.workId}; groupId=${groupId}; scheduleOk=${schedule.ok}; scheduled=${schedule.scheduled}; repeatCycleTimeMs=${schedule.repeatCycleTimeMs}; scheduleMessage=${schedule.message}`
       });
     } catch (error) {
       DiagnosticLog.append(context, {
