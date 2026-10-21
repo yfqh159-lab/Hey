@@ -1295,6 +1295,13 @@ node <<'NODE'
 const fs = require('fs');
 const ability = fs.readFileSync('entry/src/main/ets/entryability/EntryAbility.ets', 'utf8');
 const index = fs.readFileSync('entry/src/main/ets/pages/Index.ets', 'utf8');
+if (!ability.includes('const ABILITY_SETTINGS_READ_TIMEOUT_MS: number = 5000;') ||
+  !ability.includes('private settingsLoadInFlight: Promise<AppSettings> | null = null;') ||
+  ability.split('withAbilitySettingsTimeout(this.loadSettingsSingleFlight())').length - 1 !== 2 ||
+  !ability.includes('this.releaseSettingsLoad(promise)') ||
+  !ability.includes("windowStage.loadContent('pages/Index'")) {
+  throw new Error('a stalled Ability settings read can permanently block the first page or accumulate on foreground');
+}
 const newWantAt = ability.indexOf('  onNewWant(');
 const newWantEnd = ability.indexOf('\n  // Stash a deep-link', newWantAt);
 const newWant = ability.slice(newWantAt, newWantEnd);

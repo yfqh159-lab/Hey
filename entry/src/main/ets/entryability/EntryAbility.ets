@@ -4,7 +4,7 @@ import { window } from '@kit.ArkUI';
 import { applyColorMode } from '../core/ColorMode';
 import { setupImmersive } from '../core/Immersive';
 import { deepLinkUriFromWant } from '../core/DeepLink';
-import { UI_MODE_NIGHT_SYSTEM } from '../core/Profile';
+import { AppSettings, UI_MODE_NIGHT_SYSTEM } from '../core/Profile';
 import { extractSharedTextFromWant } from '../core/SharedTextImport';
 import { APP_LANGUAGE_STORAGE_KEY, DEFAULT_LANGUAGE } from '../core/I18n';
 import { SettingsStore } from '../storage/SettingsStore';
@@ -14,8 +14,27 @@ import { ASSETS_CONTROLLER } from '../features/assets/AssetsController';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 
 const DOMAIN = 0x0000;
+const ABILITY_SETTINGS_READ_TIMEOUT_MS: number = 5000;
+
+function withAbilitySettingsTimeout(promise: Promise<AppSettings>): Promise<AppSettings> {
+  return new Promise<AppSettings>((resolve, reject) => {
+    const timerId = setTimeout(() => reject(new Error('ability settings read timed out')),
+      ABILITY_SETTINGS_READ_TIMEOUT_MS);
+    promise.then((settings: AppSettings) => {
+      clearTimeout(timerId);
+      resolve(settings);
+    }, (error: Object) => {
+      clearTimeout(timerId);
+      reject(error);
+    });
+  });
+}
 
 export default class EntryAbility extends UIAbility {
+  // onCreate 主题初始化、首屏语言和 onForeground 可能同时读取设置。ArkData 永久
+  // pending 时复用同一底层任务；各调用方有独立 5 秒截止时间并可安全使用默认外观。
+  private settingsLoadInFlight: Promise<AppSettings> | null = null;
+
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     // Geo 双文件事务或高级单文件替换可能因上次进程被杀而中断。必须先同步恢复，
     // 再初始化 XRAY_LOCATION_ASSET/加载 Go runtime，避免核心观察到半新半旧或缺失的数据文件。
@@ -110,7 +129,7 @@ export default class EntryAbility extends UIAbility {
   }
 
   private seedLanguageThenLoad(windowStage: window.WindowStage): void {
-    SettingsStore.load(this.context).then((settings) => {
+    withAbilitySettingsTimeout(this.loadSettingsSingleFlight()).then((settings) => {
       AppStorage.setOrCreate(APP_LANGUAGE_STORAGE_KEY, settings.language);
       // 全屏沉浸 + 采集安全区 + 系统栏配色，须在首帧加载前就绪
       setupImmersive(windowStage, this.context, settings.uiModeNight);
@@ -162,7 +181,7 @@ export default class EntryAbility extends UIAbility {
   }
 
   private applyStoredColorMode(): void {
-    SettingsStore.load(this.context).then((settings) => {
+    withAbilitySettingsTimeout(this.loadSettingsSingleFlight()).then((settings) => {
       applyColorMode(this.context, settings.uiModeNight);
     }).catch((err: Error) => {
       hilog.error(DOMAIN, 'testTag', 'Failed to load colorMode. Cause: %{public}s',
@@ -174,5 +193,24 @@ export default class EntryAbility extends UIAbility {
           redactDiagnosticText(JSON.stringify(fallbackErr)));
       }
     });
+  }
+
+  private loadSettingsSingleFlight(): Promise<AppSettings> {
+    if (this.settingsLoadInFlight !== null) {
+      return this.settingsLoadInFlight;
+    }
+    const promise = SettingsStore.load(this.context);
+    this.settingsLoadInFlight = promise;
+    promise.then(
+      (_settings: AppSettings): void => this.releaseSettingsLoad(promise),
+      (_error: Object): void => this.releaseSettingsLoad(promise)
+    );
+    return promise;
+  }
+
+  private releaseSettingsLoad(promise: Promise<AppSettings>): void {
+    if (this.settingsLoadInFlight === promise) {
+      this.settingsLoadInFlight = null;
+    }
   }
 }
