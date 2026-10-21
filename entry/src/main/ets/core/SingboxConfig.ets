@@ -115,6 +115,7 @@ interface SbDns {
 }
 
 interface SbRouteRule {
+  inbound?: Array<string>;
   protocol?: string;
   outbound?: string;
   ip_is_private?: boolean;
@@ -597,6 +598,9 @@ export function buildSingboxConfig(outboundJson: string, settings?: AppSettings,
 
   const route: SbRoute = {
     rules: [
+      // Hey 自身显式使用该回环入口，是为了让被 VPN 排除的应用进程仍经当前节点联网。
+      // 必须早于私网直连等普通流量规则，避免自定义 Geo/IP 检查目标绕过节点。
+      { inbound: ['internal-http-in'], outbound: 'proxy' },
       { protocol: 'dns', outbound: 'dns-out' },
       { ip_is_private: true, outbound: 'direct' }
     ],

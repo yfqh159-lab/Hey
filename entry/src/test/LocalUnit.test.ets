@@ -358,6 +358,28 @@ export default function localUnitTest() {
       expect(result.configJson).assertContain('"security": "reality"');
     });
 
+    it('forces the internal vpn http inbound through the selected xray node', 0, () => {
+      const settings = buildSettingsFixture();
+      settings.trafficMode = 'direct';
+      const result = buildXrayConfigWithSettings(VLESS_REALITY_OUTBOUND, settings);
+      expect(hasInboundOutboundRule(result.configJson, 'vpn-http-in', 'proxy')).assertTrue();
+      const rules = routingRulesFromConfig(result.configJson);
+      let internalRuleIndex = -1;
+      let directAllRuleIndex = -1;
+      for (let index = 0; index < rules.length; index++) {
+        if (hasRoutingInboundTag(rules[index], 'vpn-http-in')) {
+          internalRuleIndex = index;
+        }
+        if ((rules[index].outboundTag as string) === 'direct' &&
+          (rules[index].network as string) === 'tcp,udp') {
+          directAllRuleIndex = index;
+        }
+      }
+      expect(internalRuleIndex >= 0).assertTrue();
+      expect(directAllRuleIndex >= 0).assertTrue();
+      expect(internalRuleIndex < directAllRuleIndex).assertTrue();
+    });
+
     it('validates full custom xray config json', 0, () => {
       const directValidation = validateFullConfigJson(FULL_XRAY_CONFIG);
       expect(directValidation.valid).assertTrue();
@@ -3483,6 +3505,12 @@ export default function localUnitTest() {
       expect(generated.configJson).assertContain('"insecure":true');
       expect(generated.configJson).assertContain('"tag":"internal-http-in"');
       expect(generated.configJson).assertContain(`"listen_port":${VPN_INTERNAL_HTTP_PROXY_PORT}`);
+      const config = JSON.parse(generated.configJson) as Record<string, Object>;
+      const route = config.route as Record<string, Object>;
+      const rules = route.rules as Array<Record<string, Object>>;
+      const internalRule = rules[0];
+      expect((internalRule.inbound as Array<string>)[0]).assertEqual('internal-http-in');
+      expect(internalRule.outbound as string).assertEqual('proxy');
     });
 
     it('flags anytls/tuic as sing-box-only so the Xray core path forces a switch', 0, () => {
