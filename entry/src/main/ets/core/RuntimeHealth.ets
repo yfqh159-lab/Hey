@@ -94,3 +94,22 @@ export function shouldApplyVpnDiagnosticError(
   const marker = `session=${expectedSessionId}`;
   return eventDetails === marker || eventDetails.startsWith(`${marker};`);
 }
+
+/**
+ * Flow/core statistics are state, not merely log text. Accept them only from the exact active
+ * VPN session; timestamps alone are insufficient when the wall clock changes or an old append
+ * becomes visible after a mode/session switch.
+ */
+export function shouldApplyVpnDiagnosticStats(
+  mode: string | undefined,
+  status: ConnectionStatus,
+  startedAt: number,
+  eventAt: number,
+  eventSource: string,
+  expectedSessionId: string,
+  eventSessionId: string | undefined
+): boolean {
+  return normalizeAppRuntimeMode(mode) === APP_MODE_VPN && status === ConnectionStatus.RUNNING &&
+    startedAt > 0 && eventAt >= startedAt && eventSource === 'vpn-stats' &&
+    expectedSessionId.length > 0 && eventSessionId === expectedSessionId;
+}

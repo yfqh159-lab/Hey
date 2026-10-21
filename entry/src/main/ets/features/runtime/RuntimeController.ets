@@ -5,6 +5,7 @@ import {
   isProxyOnlyRuntimeUnhealthy,
   runtimeMayOwnNetwork,
   shouldApplyVpnDiagnosticError,
+  shouldApplyVpnDiagnosticStats,
   shouldCleanupUnhealthyVpnRuntimeState
 } from '../../core/RuntimeHealth';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppLanguage, AppRuntimeMode, AppSettings, ConnectionStatus, normalizeAppRuntimeMode, ProxyProfile, RuntimeStats } from '../../core/Profile';
@@ -953,12 +954,21 @@ export class RuntimeController {
   }
 
   private applyDiagnosticStats(events: Array<DiagnosticEvent>): void {
+    const connection = this.controller.getSnapshot();
     for (let index = 0; index < events.length; index++) {
       const event = events[index];
       if (event.uploadBytes !== undefined || event.downloadBytes !== undefined) {
-        // 运行态只接受本次启动请求之后的心跳，避免上一会话的最后一条记录
-        // 暂时把新会话渲染成已停止。
-        if (this.status === ConnectionStatus.RUNNING && event.at < this.startedAt) {
+        // 运行态只接受当前 VPN Extension 会话明确归属的心跳。仅比较时间戳无法抵御
+        // 系统时钟回拨、旧日志迟到或切换到本地代理后的状态污染。
+        if (!shouldApplyVpnDiagnosticStats(
+          this.runtimeMode,
+          this.status,
+          this.startedAt,
+          event.at,
+          event.source,
+          connection.vpnSessionId,
+          event.sessionId
+        )) {
           continue;
         }
         this.stats = {

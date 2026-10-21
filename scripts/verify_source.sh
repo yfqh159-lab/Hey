@@ -1731,6 +1731,7 @@ const connection = fs.readFileSync('entry/src/main/ets/services/ConnectionContro
 const health = fs.readFileSync('entry/src/main/ets/core/RuntimeHealth.ets', 'utf8');
 const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeController.ets', 'utf8');
 const runtimeStateStore = fs.readFileSync('entry/src/main/ets/services/VpnRuntimeStateStore.ets', 'utf8');
+const diagnosticLog = fs.readFileSync('entry/src/main/ets/services/DiagnosticLog.ets', 'utf8');
 const controlCardManager = fs.readFileSync('entry/src/main/ets/services/ControlCardManager.ets', 'utf8');
 const subscriptionWorker = fs.readFileSync('entry/src/main/ets/work/SubscriptionUpdateWorkAbility.ets', 'utf8');
 const indexPage = fs.readFileSync('entry/src/main/ets/pages/Index.ets', 'utf8');
@@ -1768,6 +1769,17 @@ if (connectionStartAt < 0 || connectionGeoFenceAt < connectionStartAt ||
 if (!health.includes('expectedSessionId: string') || !health.includes('eventDetails: string | undefined') ||
   !health.includes('eventDetails.startsWith(`${marker};`)')) {
   throw new Error('VPN diagnostic errors are not matched to the exact active session');
+}
+if (!health.includes('export function shouldApplyVpnDiagnosticStats(') ||
+  !health.includes("eventSource === 'vpn-stats'") ||
+  !health.includes('eventSessionId === expectedSessionId') ||
+  !diagnosticLog.includes('sessionId?: string;') ||
+  !diagnosticLog.includes('sanitized.sessionId = redactDiagnosticText(event.sessionId);') ||
+  !vpn.includes('sessionId: this.sessionId,') ||
+  !runtime.includes('shouldApplyVpnDiagnosticStats(') ||
+  !runtime.includes('connection.vpnSessionId,') ||
+  !runtime.includes('event.sessionId')) {
+  throw new Error('VPN diagnostic stats are not bound to the exact active session');
 }
 if (!runtimeStateStore.includes('(!value.active && (value.xrayRunning || value.tunRunning))')) {
   throw new Error('an inactive VPN state can still claim running core/TUN resources');

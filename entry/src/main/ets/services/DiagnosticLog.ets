@@ -26,6 +26,7 @@ export interface DiagnosticEvent {
   level: string;
   source: string;
   message: string;
+  sessionId?: string;
   details?: string;
   uploadBytes?: number;
   downloadBytes?: number;
@@ -118,6 +119,9 @@ export class DiagnosticLog {
     };
     if (event.details !== undefined) {
       sanitized.details = redactDiagnosticText(event.details);
+    }
+    if (event.sessionId !== undefined) {
+      sanitized.sessionId = redactDiagnosticText(event.sessionId);
     }
     sanitized.uploadBytes = event.uploadBytes;
     sanitized.downloadBytes = event.downloadBytes;

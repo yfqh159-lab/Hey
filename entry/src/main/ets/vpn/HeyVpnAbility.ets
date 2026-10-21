@@ -961,6 +961,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       level: 'info',
       source: 'vpn-stats',
       message: 'Native bridge stats.',
+      sessionId: this.sessionId,
       details: stats.lastMessage,
       uploadBytes,
       downloadBytes,

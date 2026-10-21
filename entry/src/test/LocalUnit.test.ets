@@ -42,6 +42,7 @@ import {
   isVpnCleanupComplete,
   runtimeMayOwnNetwork,
   shouldApplyVpnDiagnosticError,
+  shouldApplyVpnDiagnosticStats,
   shouldCleanupUnhealthyVpnRuntimeState
 } from '../main/ets/core/RuntimeHealth';
 import { proxyConfigDedupeKey } from '../main/ets/core/NodeDedupe';
@@ -3159,6 +3160,30 @@ export default function localUnitTest() {
       expect(shouldApplyVpnDiagnosticError(
         APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 101, 'error', 'vpn', 'current',
         undefined)).assertFalse();
+    });
+
+    it('only applies diagnostic stats from the exact active VPN session', 0, () => {
+      expect(shouldApplyVpnDiagnosticStats(
+        APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 101, 'vpn-stats', 'current', 'current'))
+        .assertTrue();
+      expect(shouldApplyVpnDiagnosticStats(
+        APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 101, 'vpn-stats', 'current', 'previous'))
+        .assertFalse();
+      expect(shouldApplyVpnDiagnosticStats(
+        APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 101, 'vpn-stats', 'current', undefined))
+        .assertFalse();
+      expect(shouldApplyVpnDiagnosticStats(
+        APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 99, 'vpn-stats', 'current', 'current'))
+        .assertFalse();
+      expect(shouldApplyVpnDiagnosticStats(
+        APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 101, 'vpn', 'current', 'current'))
+        .assertFalse();
+      expect(shouldApplyVpnDiagnosticStats(
+        APP_MODE_PROXY_ONLY, ConnectionStatus.RUNNING, 100, 101, 'vpn-stats', 'current', 'current'))
+        .assertFalse();
+      expect(shouldApplyVpnDiagnosticStats(
+        APP_MODE_VPN, ConnectionStatus.IDLE, 100, 101, 'vpn-stats', 'current', 'current'))
+        .assertFalse();
     });
 
     it('parses current connection IP API responses', 0, () => {
