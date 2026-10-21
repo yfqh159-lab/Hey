@@ -6,7 +6,6 @@ import { resolveImportedNodeName } from '../core/ImportedNodeNames';
 import { AppLanguage, XrayConfigType } from '../core/Profile';
 import { NODES_CONTROLLER } from '../features/nodes/NodesController';
 import { extractNodeEndpoint, formatEndpointDescription } from '../features/nodes/NodeOperations';
-import { SETTINGS_CONTROLLER } from '../features/settings/SettingsController';
 import { AppRoute } from '../shell/AppRoute';
 import { SectionHeader } from '../components/SectionHeader';
 import { PageHeader } from '../shell/PageHeader';
@@ -33,7 +32,7 @@ struct ImportPage {
   aboutToAppear(): void {
     this.pageActive = true;
     this.isBusy = false;
-    this.loadState(++this.pageGeneration);
+    this.pageGeneration++;
   }
 
   aboutToDisappear(): void {
@@ -379,20 +378,6 @@ struct ImportPage {
     .backgroundColor(AppColor.surface)
     .borderRadius(Radius.lg)
     .clip(true)  }
-
-  private async loadState(pageGeneration: number): Promise<void> {
-    try {
-      const context = this.getUIContext().getHostContext() as common.Context;
-      const settings = await SETTINGS_CONTROLLER.load(context);
-      if (this.isCurrentPage(pageGeneration)) {
-        this.language = settings.language;
-      }
-    } catch (error) {
-      if (this.isCurrentPage(pageGeneration)) {
-        this.lastError = this.f1('import.loadStateFailed', 'error', redactDiagnosticText(JSON.stringify(error)));
-      }
-    }
-  }
 
   private async importLink(): Promise<void> {
     if (this.isBusy) {

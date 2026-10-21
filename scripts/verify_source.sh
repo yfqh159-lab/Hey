@@ -675,7 +675,6 @@ const manualBuildAt = manualImport.indexOf('\n  build()', manualDisappearAt);
 const clearManualAt = manualImport.indexOf('  private clearManualImportValue(): void');
 const clearManualEnd = manualImport.indexOf('\n  private t(', clearManualAt);
 const clearManual = manualImport.slice(clearManualAt, clearManualEnd);
-const manualLoadAt = manualImport.indexOf('  private async loadState(pageGeneration: number)');
 const manualImportAt = manualImport.indexOf('  private async importLink(): Promise<void>');
 const manualImportEnd = manualImport.indexOf('\n  private isCurrentPage(', manualImportAt);
 const manualImportBody = manualImport.slice(manualImportAt, manualImportEnd);
@@ -690,8 +689,9 @@ if (!manualImport.includes('private pageActive: boolean = false;') ||
   !clearManual.includes("this.importBuffer = '';") ||
   !clearManual.includes("this.lastError = '';") ||
   !clearManual.includes('this.clearLinkPreview();') ||
-  manualLoadAt < 0 ||
-  !manualImport.slice(manualLoadAt, manualImportAt).includes('this.isCurrentPage(pageGeneration)') ||
+  manualImport.includes("from '../features/settings/SettingsController'") ||
+  manualImport.includes('SETTINGS_CONTROLLER.load(') ||
+  !manualImport.includes('this.pageGeneration++;') ||
   manualImportAt < 0 || manualImportEnd < 0 ||
   !manualImportBody.includes('const pageGeneration = this.pageGeneration;') ||
   manualGenerationChecks < 5 ||
