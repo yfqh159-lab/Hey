@@ -154,6 +154,20 @@ if grep -Fq 'markRuntimeSettingsRestartNeeded' "${network_scenario_source}" ||
 fi
 printf 'trusted-network no-restart verification passed\n'
 
+# General settings are persisted from many immediate UI callbacks. Keep those writes
+# single-flight and reject stale normalized snapshots so rapid edits cannot be reverted.
+settings_page_source='entry/src/main/ets/pages/Settings.ets'
+if ! grep -Fq 'private settingsSaveInFlight: boolean = false;' "${settings_page_source}" ||
+  ! grep -Fq 'private settingsEditGeneration: number = 0;' "${settings_page_source}" ||
+  ! grep -Fq 'while (this.settingsSavePending)' "${settings_page_source}" ||
+  ! grep -Fq 'generation === this.settingsEditGeneration && !this.settingsSavePending' "${settings_page_source}" ||
+  ! grep -Fq 'shouldRestartRuntimeForSettingsChange(baseline, finalSaved)' "${settings_page_source}" ||
+  ! grep -Fq 'shouldRestartRuntimeForSettingsChange(previous, latestSaved)' "${settings_page_source}"; then
+  printf 'general settings writes are not serialized against stale UI rollback\n' >&2
+  exit 1
+fi
+printf 'general settings save serialization verification passed\n'
+
 # External deep links and shared text can contain subscription tokens, UUIDs and
 # passwords. Confirmation dialogs must use a derived redacted summary, never interpolate
 # the raw payload into a screenshot-visible message.

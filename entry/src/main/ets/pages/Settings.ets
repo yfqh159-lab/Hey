@@ -10,6 +10,7 @@ import {
   APP_MODE_PROXY_ONLY,
   APP_MODE_VPN,
   AppLanguage,
+  AppSettings,
   DEFAULT_DELAY_TEST_URL,
   DEFAULT_HEV_TUN_LOG_LEVEL,
   DEFAULT_HEV_TUN_RW_TIMEOUT,
@@ -130,6 +131,10 @@ struct SettingsPage {
   @State private sheetUnit: string = '';
   @State private sheetRange: string = '';
   @State private sheetDefault: string = '';
+  private settingsSaveInFlight: boolean = false;
+  private settingsSavePending: boolean = false;
+  private settingsSaveShowMessage: boolean = false;
+  private settingsEditGeneration: number = 0;
 
   aboutToAppear(): void {
     this.loadState();
@@ -672,27 +677,70 @@ struct SettingsPage {
     }
   }
 
-  private async persistSettings(showMessage: boolean): Promise<void> {
+  private persistSettings(showMessage: boolean): void {
+    this.settingsEditGeneration++;
+    this.settingsSavePending = true;
+    this.settingsSaveShowMessage = this.settingsSaveShowMessage || showMessage;
+    if (this.settingsSaveInFlight) {
+      return;
+    }
+    this.drainSettingsSaves();
+  }
+
+  private async drainSettingsSaves(): Promise<void> {
+    this.settingsSaveInFlight = true;
+    let previous: AppSettings | null = null;
+    let latestSaved: AppSettings | null = null;
+    let latestSavedGeneration = -1;
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
-      const previous = await SETTINGS_CONTROLLER.load(context);
-      const saved = await SETTINGS_CONTROLLER.save(context, this.buildDraft());
-      applyColorMode(context, saved.uiModeNight);
-      this.applyDraft(SETTINGS_CONTROLLER.toDraft(saved));
-      if (shouldRestartRuntimeForSettingsChange(previous, saved)) {
+      // 用本批开始时的真实落盘值和最终值比较重启需求。中间快速切换又撤销时不应
+      // 因某个过渡快照无故拆掉健康数据面。
+      const baseline = await SETTINGS_CONTROLLER.load(context);
+      previous = baseline;
+      let finalSaved = baseline;
+      while (this.settingsSavePending) {
+        this.settingsSavePending = false;
+        const generation = this.settingsEditGeneration;
+        const draft = this.buildDraft();
+        finalSaved = await SETTINGS_CONTROLLER.save(context, draft);
+        latestSaved = finalSaved;
+        latestSavedGeneration = generation;
+        // 保存期间若又有编辑，旧规范化结果不得覆盖刚刚操作的界面；下一轮会直接
+        // 从当前 UI 构造最新快照。
+        if (generation === this.settingsEditGeneration && !this.settingsSavePending) {
+          this.applyDraft(SETTINGS_CONTROLLER.toDraft(finalSaved));
+        }
+      }
+      applyColorMode(context, finalSaved.uiModeNight);
+      if (latestSavedGeneration >= 0 && shouldRestartRuntimeForSettingsChange(baseline, finalSaved)) {
         markRuntimeSettingsRestartNeeded();
       }
       // 观察底层网络的监听始终保留；开关只控制可信网络是否自动断开。强制补判让设置
       // 立即生效，同时允许关闭自动化时继续刷新出口状态。
       NETWORK_SCENE_MANAGER.ensureStarted(context);
       NETWORK_SCENE_MANAGER.refreshNow(true);
-      if (showMessage) {
+      if (this.settingsSaveShowMessage) {
         SHARED_RUNTIME_CONTROLLER.appendLog(this.t('log.settingsSaved'));
       }
+      this.settingsSaveShowMessage = false;
       this.lastError = '';
     } catch (error) {
+      // 本批可能已有较早快照成功落盘、随后最新快照才失败。此时仍要按最后一次
+      // 成功值标记数据面重启，不能让磁盘配置和当前隧道静默不一致。
+      if (previous !== null && latestSaved !== null && latestSavedGeneration >= 0 &&
+        shouldRestartRuntimeForSettingsChange(previous, latestSaved)) {
+        markRuntimeSettingsRestartNeeded();
+      }
       this.lastError = this.f1('error.saveSettings', 'error', redactDiagnosticText(JSON.stringify(error)));
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
+      this.settingsSaveShowMessage = false;
+    } finally {
+      this.settingsSaveInFlight = false;
+      // 异常处理或批次收尾时到达的新编辑由下一批串行保存。
+      if (this.settingsSavePending) {
+        this.persistSettings(false);
+      }
     }
   }
 
