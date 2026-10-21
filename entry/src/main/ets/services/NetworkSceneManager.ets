@@ -145,7 +145,8 @@ export class NetworkSceneManager {
         cellularTrusted: settings.netAutomationCellularTrusted
       };
       // 后台可能已由 VPN 扩展自动断开，本进程状态滞留「运行中」；据跨进程标志校正。
-      if (SHARED_RUNTIME_CONTROLLER.isRunning() && await NetSceneStopFlag.wasStopped(context)) {
+      if (SHARED_RUNTIME_CONTROLLER.isRunning() &&
+        await NetSceneStopFlag.wasStopped(context, SHARED_RUNTIME_CONTROLLER.runtimeStartedAt())) {
         SHARED_RUNTIME_CONTROLLER.reconcileStopped();
       }
       // 此自动化只管理系统 VPN/TUN。仅代理模式没有系统隧道，切换可信网络
