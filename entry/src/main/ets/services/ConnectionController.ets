@@ -411,6 +411,10 @@ export class ConnectionController {
       message: 'Proxy-only start requested.',
       details: `configBytes=${this.generatedConfig.configJson.length}`
     });
+    // start() 入口较早做过一次检查，但节点解析、域名预解析和配置构建都可能 await。
+    // 本地资源更新与这里同属 UI 进程；在连续的同步 preflight/start 前重查一次后，
+    // 同一事件循环不能再把 rename 插入两次原生调用之间。
+    assertGeoAssetsStableForCore(context.filesDir);
     const validation = testNativeXrayConfig(this.generatedConfig.configJson, context.filesDir);
     if (!validation.ok) {
       throw new Error(validation.message);
@@ -488,6 +492,9 @@ export class ConnectionController {
       const fallbackLogLevel = normalizeCoreLogLevel(resolvedSettings?.logLevel ?? '');
       nextConfig.configJson = injectXrayLogFile(nextConfig.configJson, coreLogPath, fallbackLogLevel);
 
+      // 域名解析是异步的，期间用户可能开始 Geo 替换。必须在停止仍健康的旧核心前
+      // 重新确认资源稳定；否则一次普通换网会把可用本地代理停在半替换窗口里。
+      assertGeoAssetsStableForCore(context.filesDir);
       const stopResult = stopNativeXray();
       if (!stopResult.ok) {
         throw new Error(stopResult.message);

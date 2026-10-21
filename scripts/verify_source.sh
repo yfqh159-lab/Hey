@@ -1866,9 +1866,17 @@ if (!connection.includes('vpnSessionId: string;') ||
   throw new Error('runtime snapshots no longer expose the owning VPN session for diagnostic matching');
 }
 const vpnStartAt = vpn.indexOf('  private async startVpn(');
+const vpnStartEnd = vpn.indexOf('\n  private async resolveStartSettings', vpnStartAt);
+const vpnStartBody = vpn.slice(vpnStartAt, vpnStartEnd);
 const vpnConnectionCreateAt = vpn.indexOf('vpnExtension.createVpnConnection(this.context)', vpnStartAt);
 const geoFenceAt = vpn.indexOf('assertGeoAssetsStableForCore(this.context.filesDir);', vpnStartAt);
+const vpnCoreStartAt = vpnStartBody.indexOf('const coreResult = useSingbox');
+const vpnCoreStartEndAt = vpnStartBody.indexOf("this.ensureStartAllowed('core startup'", vpnCoreStartAt);
+const vpnCoreFenceCount = (vpnStartBody.match(/assertGeoAssetsStableForCore\(this[.]context[.]filesDir\);/g) ?? []).length;
 if (vpnStartAt < 0 || geoFenceAt < vpnStartAt || vpnConnectionCreateAt < geoFenceAt ||
+  vpnStartEnd < 0 || vpnCoreStartAt < 0 || vpnCoreStartEndAt < vpnCoreStartAt || vpnCoreFenceCount < 3 ||
+  !vpnStartBody.slice(0, vpnCoreStartAt).endsWith('assertGeoAssetsStableForCore(this.context.filesDir);\n      ') ||
+  !vpnStartBody.slice(vpnCoreStartAt, vpnCoreStartEndAt).includes('assertGeoAssetsStableForCore(this.context.filesDir);') ||
   !geoReadiness.includes('return !hasPendingGeoReplacementArtifacts(names);')) {
   throw new Error('VPN Extension can load a core while a Geo replacement transaction is incomplete');
 }
@@ -1876,8 +1884,12 @@ const vpnReloadAt = vpn.indexOf('  private async reloadCoreAfterNetworkChange(')
 const vpnReloadStopAt = vpn.indexOf("this.activeCoreType === 'singbox' ? stopNativeSingbox() : stopNativeXray()", vpnReloadAt);
 const vpnReloadGeoAt = vpn.indexOf('if (!areGeoAssetsStableForCore(this.context.filesDir))', vpnReloadAt);
 const vpnReloadRetrySignatureAt = vpn.indexOf("this.netSceneSignature = '';", vpnReloadGeoAt);
+const vpnReloadStartAt = vpn.indexOf('const startResult = this.activeCoreType', vpnReloadStopAt);
+const vpnReloadStartGuardAt = vpn.indexOf("this.ensureStartAllowed('network handover core start'", vpnReloadStartAt);
 if (vpnReloadAt < 0 || vpnReloadGeoAt < vpnReloadAt || vpnReloadRetrySignatureAt < vpnReloadGeoAt ||
-  vpnReloadStopAt < vpnReloadRetrySignatureAt) {
+  vpnReloadStopAt < vpnReloadRetrySignatureAt || vpnReloadStartAt < vpnReloadStopAt ||
+  !vpn.slice(vpnReloadStopAt, vpnReloadStartAt).includes('assertGeoAssetsStableForCore(this.context.filesDir);') ||
+  !vpn.slice(vpnReloadStartAt, vpnReloadStartGuardAt).includes('assertGeoAssetsStableForCore(this.context.filesDir);')) {
   throw new Error('VPN handover core reload can race a cross-process Geo replacement or lose its retry');
 }
 const connectionStartAt = connection.indexOf(
@@ -1889,6 +1901,19 @@ const connectionGeoFenceAt = connection.indexOf(
 if (connectionStartAt < 0 || connectionGeoFenceAt < connectionStartAt ||
   connectionValidationAt < connectionGeoFenceAt) {
   throw new Error('proxy-only startup can reach config/core preparation before the Geo transaction fence');
+}
+const proxyStartAt = connection.indexOf('  private async startProxyOnly(');
+const proxyStartEnd = connection.indexOf('\n  /**', proxyStartAt);
+const proxyStartBody = connection.slice(proxyStartAt, proxyStartEnd);
+const proxyPreflightAt = proxyStartBody.indexOf('const validation = testNativeXrayConfig(');
+const proxyImmediateFenceAt = proxyStartBody.indexOf('assertGeoAssetsStableForCore(context.filesDir);');
+const proxyReloadAt = connection.indexOf('  async reloadProxyOnlyAfterNetworkChange(');
+const proxyReloadStopAt = connection.indexOf('const stopResult = stopNativeXray();', proxyReloadAt);
+const proxyReloadFenceAt = connection.lastIndexOf('assertGeoAssetsStableForCore(context.filesDir);', proxyReloadStopAt);
+if (proxyStartAt < 0 || proxyStartEnd < 0 || proxyImmediateFenceAt < 0 || proxyPreflightAt < proxyImmediateFenceAt ||
+  proxyReloadAt < 0 || proxyReloadStopAt < proxyReloadAt || proxyReloadFenceAt < proxyReloadAt ||
+  proxyReloadFenceAt > proxyReloadStopAt) {
+  throw new Error('proxy-only startup or handover can cross an asynchronous Geo replacement window');
 }
 if (!health.includes('expectedSessionId: string') || !health.includes('eventDetails: string | undefined') ||
   !health.includes('eventDetails.startsWith(`${marker};`)')) {

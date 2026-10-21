@@ -346,12 +346,18 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       // 两个内核统一走 tun2socks 数据面：内核在 127.0.0.1:VPN_DATA_SOCKS_PORT 起本地
       // SOCKS 入站，再把 Harmony TUN fd 的流量转发进去。sing-box 因此不需要把 tun fd
       // 交给核心（无 OpenTun / gvisor tun 栈），与 Xray 路径一致。
+      // 首次检查之后已经经过设置读取、网络探测和系统 VPN 创建；UI 进程可能在这些
+      // await 期间开始 Geo rename，因此在真正进入原生核心前必须再次 fail-closed。
+      assertGeoAssetsStableForCore(this.context.filesDir);
       const coreResult = useSingbox
         ? startNativeSingbox(configJson, this.context.filesDir)
         : startNativeXray(configJson, this.context.filesDir);
       if (!coreResult.ok) {
         throw new Error(coreResult.message);
       }
+      // UI 更新与 Extension 位于不同进程，事务也可能恰好在上一次检查后开始。若核心
+      // 启动返回时仍可见替换工件，立即走启动失败清理，绝不报告 VPN 已连接。
+      assertGeoAssetsStableForCore(this.context.filesDir);
       this.ensureStartAllowed('core startup', sessionGeneration);
       this.emitInfo(`${useSingbox ? 'sing-box' : 'Xray'} started.`, coreResult.message);
 
@@ -625,12 +631,16 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         throw new Error(stopResult.message);
       }
       this.ensureStartAllowed('network handover core stop', sessionGeneration);
+      // 另一个进程可能在前一次目录检查后才开始 rename。旧核心已经停止时只能继续
+      // fail-closed，不能让新核心读取一半旧、一半新的规则文件。
+      assertGeoAssetsStableForCore(this.context.filesDir);
       const startResult = this.activeCoreType === 'singbox'
         ? startNativeSingbox(this.activeHandoverConfigJson, this.context.filesDir)
         : startNativeXray(this.activeHandoverConfigJson, this.context.filesDir);
       if (!startResult.ok) {
         throw new Error(startResult.message);
       }
+      assertGeoAssetsStableForCore(this.context.filesDir);
       this.ensureStartAllowed('network handover core start', sessionGeneration);
       if (this.runtimeHealthProbePort <= 0) {
         throw new Error('VPN data-plane SOCKS health port is missing after network handover.');
