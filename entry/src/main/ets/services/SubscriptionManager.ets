@@ -34,6 +34,22 @@ export interface SubscriptionParseOutcome {
 // 拉取远程配置源时声明的 User-Agent。只声明本应用自身身份；
 // 部分服务端会依据 UA 返回不同格式，每条配置源可在编辑页自行覆盖此值。
 export const DEFAULT_SUBSCRIPTION_USER_AGENT: string = APP_HTTP_USER_AGENT;
+const MAX_SUBSCRIPTION_RESPONSE_BYTES: number = 16 * 1024 * 1024;
+const SUBSCRIPTION_HTTP_DEADLINE_MS: number = 45000;
+
+function withSubscriptionRequestTimeout<T>(promise: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timerId = setTimeout(() => reject(new Error('subscription request timed out')),
+      SUBSCRIPTION_HTTP_DEADLINE_MS);
+    promise.then((value: T) => {
+      clearTimeout(timerId);
+      resolve(value);
+    }, (error: Object) => {
+      clearTimeout(timerId);
+      reject(error);
+    });
+  });
+}
 
 export interface SubscriptionRequestHeader {
   'User-Agent': string;
@@ -441,6 +457,7 @@ export class SubscriptionManager {
       const options: http.HttpRequestOptions = {
         method: http.RequestMethod.GET,
         expectDataType: http.HttpDataType.STRING,
+        maxLimit: MAX_SUBSCRIPTION_RESPONSE_BYTES,
         readTimeout: 30000,
         connectTimeout: 15000,
         usingCache: false,
@@ -454,7 +471,9 @@ export class SubscriptionManager {
         };
         options.usingProxy = proxy;
       }
-      const response = await request.request(requestUrl, options);
+      // 参数超时不足以保证部分设备的 NetworkKit Promise 结算。外层截止时间释放
+      // 手动/后台更新队列；运行态代理入口失败时仍原样失败，不降级携带凭据直连。
+      const response = await withSubscriptionRequestTimeout(request.request(requestUrl, options));
       const responseCode = Number(response.responseCode);
       if (SubscriptionManager.isRedirectCode(responseCode)) {
         const redirectUrl = SubscriptionManager.redirectUrl(requestUrl, JSON.stringify(response.header));
@@ -471,14 +490,26 @@ export class SubscriptionManager {
         throw new Error(`HTTP ${response.responseCode}`);
       }
       if (typeof response.result === 'string') {
+        if (response.result.length > MAX_SUBSCRIPTION_RESPONSE_BYTES) {
+          throw new Error('subscription response is too large');
+        }
         return response.result;
       }
       if (response.result instanceof ArrayBuffer) {
+        if (response.result.byteLength > MAX_SUBSCRIPTION_RESPONSE_BYTES) {
+          throw new Error('subscription response is too large');
+        }
         const decoder = util.TextDecoder.create('utf-8');
         return decoder.decodeToString(new Uint8Array(response.result));
       }
       const objectText = JSON.stringify(response.result);
-      return objectText === undefined ? '' : objectText;
+      if (objectText === undefined) {
+        return '';
+      }
+      if (objectText.length > MAX_SUBSCRIPTION_RESPONSE_BYTES) {
+        throw new Error('subscription response is too large');
+      }
+      return objectText;
     } catch (err) {
       throw err as Error;
     } finally {

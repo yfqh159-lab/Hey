@@ -322,6 +322,17 @@ if ! grep -Fq "function withAssetRequestTimeout<T>(promise: Promise<T>, timeoutM
 fi
 printf 'bounded Geo and egress HTTP promise verification passed\n'
 
+subscription_manager="entry/src/main/ets/services/SubscriptionManager.ets"
+if ! grep -Fq "const MAX_SUBSCRIPTION_RESPONSE_BYTES: number = 16 * 1024 * 1024;" "${subscription_manager}" || \
+  ! grep -Fq "const SUBSCRIPTION_HTTP_DEADLINE_MS: number = 45000;" "${subscription_manager}" || \
+  ! grep -Fq "function withSubscriptionRequestTimeout<T>(promise: Promise<T>): Promise<T>" "${subscription_manager}" || \
+  ! grep -Fq "maxLimit: MAX_SUBSCRIPTION_RESPONSE_BYTES" "${subscription_manager}" || \
+  ! grep -Fq "withSubscriptionRequestTimeout(request.request(requestUrl, options))" "${subscription_manager}" || \
+  ! grep -Fq "response.result.byteLength > MAX_SUBSCRIPTION_RESPONSE_BYTES" "${subscription_manager}"; then
+  throw_error "subscription HTTP promises and response sizes must be bounded"
+fi
+printf 'bounded subscription HTTP verification passed\n'
+
 geo_page="entry/src/main/ets/pages/Assets.ets"
 geo_urls="entry/src/main/ets/core/AssetUrls.ets"
 if ! grep -q 'const normalizedUrl = normalizeGeoAssetDownloadUrl(url)' "${geo_controller}" ||
