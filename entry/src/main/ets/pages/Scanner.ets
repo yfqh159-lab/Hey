@@ -586,6 +586,7 @@ struct ScannerPage {
 
     this.isBusy = true;
     this.lastError = '';
+    const pageGeneration = this.pageGeneration;
     try {
       const context = getContext(this) as common.Context;
       // 判定是否是订阅地址
@@ -598,9 +599,15 @@ struct ScannerPage {
         }
 
         const existingProfile = await SubscriptionStore.load(context);
+        if (!this.isCurrentPage(pageGeneration)) {
+          return;
+        }
         const existingGroup = SubscriptionStore.findGroupByUrl(existingProfile.groups, value);
         if (existingGroup !== null) {
           await SUBSCRIPTIONS_CONTROLLER.selectGroup(context, existingGroup, this.language);
+          if (!this.isCurrentPage(pageGeneration)) {
+            return;
+          }
           const duplicateMessage = this.t('scanner.subscriptionAlreadyAdded');
           SHARED_RUNTIME_CONTROLLER.appendLog(duplicateMessage);
           promptAction.showToast({ message: duplicateMessage });
@@ -620,6 +627,9 @@ struct ScannerPage {
           false,
           this.language
         );
+        if (!this.isCurrentPage(pageGeneration)) {
+          return;
+        }
         if (SubscriptionStore.findGroupByUrl(state.subscriptionGroups, value) === null) {
           this.lastError = redactDiagnosticText(state.subscriptionMessage);
           SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
@@ -666,6 +676,9 @@ struct ScannerPage {
             } else {
               duplicateCount++;
             }
+          }
+          if (!this.isCurrentPage(pageGeneration)) {
+            return;
           }
           if (importedCount === 0) {
             this.lastError = duplicateCount > 0 ?
@@ -717,6 +730,10 @@ struct ScannerPage {
           importedCount++;
         }
 
+        if (!this.isCurrentPage(pageGeneration)) {
+          return;
+        }
+
         if (importedCount === 0) {
           this.lastError = duplicateCount > 0 ?
             this.f1('scanner.duplicateNodes', 'count', duplicateCount.toString()) :
@@ -744,8 +761,14 @@ struct ScannerPage {
         validation.normalizedJson,
         validation.configType
       )) {
+        if (!this.isCurrentPage(pageGeneration)) {
+          return;
+        }
         this.lastError = this.f1('scanner.duplicateNode', 'name', redactDiagnosticText(nodeName));
         SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
+        return;
+      }
+      if (!this.isCurrentPage(pageGeneration)) {
         return;
       }
       SHARED_RUNTIME_CONTROLLER.appendLog(this.t('log.profileSaved'));
@@ -753,10 +776,15 @@ struct ScannerPage {
       this.clearImportValue();
       router.back();
     } catch (error) {
-      this.lastError = this.f1('error.saveProfile', 'error', redactDiagnosticText(JSON.stringify(error)));
-      SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
+      const message = this.f1('error.saveProfile', 'error', redactDiagnosticText(JSON.stringify(error)));
+      SHARED_RUNTIME_CONTROLLER.appendLog(message);
+      if (this.isCurrentPage(pageGeneration)) {
+        this.lastError = message;
+      }
     } finally {
-      this.isBusy = false;
+      if (this.isCurrentPage(pageGeneration)) {
+        this.isBusy = false;
+      }
     }
   }
 

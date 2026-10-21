@@ -443,6 +443,17 @@ if (pasteAt < 0 || pasteEnd < 0 || !paste.includes('if (this.isBusy) {') ||
   !paste.includes('this.isBusy = false;')) {
   throw new Error('scanner clipboard reads are not single-flight or page-generation safe');
 }
+const importAt = scanner.indexOf('  private async importResult(): Promise<void>');
+const importEnd = scanner.indexOf('\n  private updateImportPreview(', importAt);
+const importBody = scanner.slice(importAt, importEnd);
+const importGenerationChecks =
+  (importBody.match(/this[.]isCurrentPage[(]pageGeneration[)]/g) ?? []).length;
+if (importAt < 0 || importEnd < 0 ||
+  !importBody.includes('const pageGeneration = this.pageGeneration;') ||
+  importGenerationChecks < 7 ||
+  !importBody.includes('if (this.isCurrentPage(pageGeneration)) {\n        this.isBusy = false;')) {
+  throw new Error('scanner confirmed import can navigate or update a disposed page from a late continuation');
+}
 for (const [method, next, minimumChecks] of [
   ['  private async loadState(', '\n  private tryStartImmediateScan(', 2],
   ['  private async startCameraScan(', '\n  private async selectPhotoQr(', 4],
