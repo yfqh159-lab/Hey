@@ -133,6 +133,25 @@ export class RuntimeController {
     return this.start(context, profile, settings, language);
   }
 
+  // UI 进程重建后，reconcilePersistedVpnState() 只接管仍存活的 VPN 会话；这里再补回当前
+  // 节点/设置上下文，恢复延迟与出口 IP 观测。不会调用 start/stop，也不会改变隧道。
+  attachRecoveredSession(
+    context: common.Context,
+    profile: ProxyProfile,
+    settings: AppSettings,
+    language: AppLanguage
+  ): RuntimeViewState {
+    if (this.status !== ConnectionStatus.RUNNING || this.activeProfile !== null) {
+      return this.snapshot();
+    }
+    this.activeProfile = profile;
+    this.activeSettings = settings;
+    this.resetConnectionDelay();
+    this.resetEgressIp();
+    this.scheduleRuntimeConnectivityInfo(context, profile, settings, language, this.startedAt);
+    return this.snapshot();
+  }
+
   async refresh(context: common.Context, language: AppLanguage): Promise<RuntimeViewState> {
     await this.reconcilePersistedVpnState(context, language);
     this.stats = this.controller.getStats();

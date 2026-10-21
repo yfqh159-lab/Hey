@@ -5,7 +5,7 @@ import { IconButton } from '../components/IconButton';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { BOTTOM_SAFE_HEIGHT_KEY, TOP_SAFE_HEIGHT_KEY } from '../core/Immersive';
 import { shouldExposeLocalHttpProxy } from '../core/LocalProxy';
-import { AppLanguage, AppSettings, ConnectionStatus, normalizeHomeDelayTestInterval, normalizeRealPingConcurrency, ProxyNode, resolveDelayTestUrl, RuntimeStats, SubscriptionGroup, SubscriptionProfile } from '../core/Profile';
+import { AppLanguage, AppSettings, ConnectionStatus, normalizeHomeDelayTestInterval, normalizeRealPingConcurrency, ProxyNode, ProxyProfile, resolveDelayTestUrl, RuntimeStats, SubscriptionGroup, SubscriptionProfile, XrayConfigType } from '../core/Profile';
 import { CoreSelectionStore, requiredCoreForProtocol, CORE_TYPE_SINGBOX } from '../core/CoreSelection';
 import { DELAY_TEST_BATCH_PORT_BASE, LOCAL_HTTP_PROXY_PORT, normalizeOutboundInput } from '../core/XrayConfig';
 import { DeepLinkControlAction, DeepLinkIntent, parseDeepLink, subscriptionNameFromDeepLink } from '../core/DeepLink';
@@ -85,6 +85,7 @@ struct Index {
   @StorageProp(TOP_SAFE_HEIGHT_KEY) private topSafe: number = 0;
   @StorageProp(BOTTOM_SAFE_HEIGHT_KEY) private bottomSafe: number = 0;
   @State private outboundJson: string = '';
+  private configType: XrayConfigType = 'outbound';
   @State private validationMessage: string = translate(DEFAULT_LANGUAGE, 'validation.initial');
   @State private validationOk: boolean = false;
   @State private lastError: string = '';
@@ -1628,7 +1629,7 @@ struct Index {
 
   private async startConnectionInternal(): Promise<boolean> {
     const context = this.getUIContext().getHostContext() as common.Context;
-    const saved = await NODES_CONTROLLER.saveProfile(context, this.outboundJson, this.language);
+    const saved = await NODES_CONTROLLER.saveProfile(context, this.outboundJson, this.language, this.configType);
     this.applySaveProfileResult(saved);
     if (saved.profile === null) {
       SHARED_RUNTIME_CONTROLLER.appendLog(saved.lastError);
@@ -2187,7 +2188,17 @@ struct Index {
   private async refreshRuntime(): Promise<void> {
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
-      this.applyRuntimeState(await SHARED_RUNTIME_CONTROLLER.refresh(context, this.language));
+      let state = await SHARED_RUNTIME_CONTROLLER.refresh(context, this.language);
+      if (state.status === ConnectionStatus.RUNNING && this.outboundJson.trim().length > 0) {
+        const profile: ProxyProfile = {
+          outboundJson: this.outboundJson,
+          updatedAt: this.profileUpdatedAtValue,
+          configType: this.configType
+        };
+        state = SHARED_RUNTIME_CONTROLLER.attachRecoveredSession(
+          context, profile, this.currentSettings, this.language);
+      }
+      this.applyRuntimeState(state);
       this.scheduleHomeAutoDelayTest();
     } catch (error) {
       this.lastError = JSON.stringify(error);
@@ -2221,6 +2232,7 @@ struct Index {
 
   private applyNodesState(state: NodesControllerState): void {
     this.outboundJson = state.outboundJson;
+    this.configType = state.configType;
     this.validationOk = state.validationOk;
     this.validationMessage = state.validationMessage;
     this.profileUpdatedAt = state.profileUpdatedAt;
@@ -2238,6 +2250,7 @@ struct Index {
 
   private applySaveProfileResult(result: SaveProfileResult): void {
     this.outboundJson = result.outboundJson;
+    this.configType = result.configType;
     this.validationOk = result.validationOk;
     this.validationMessage = result.validationMessage;
     if (result.profile !== null) {
