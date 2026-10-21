@@ -212,6 +212,10 @@ struct BackupPage {
   }
 
   private confirmImport(backup: ConfigBackup): void {
+    if (SHARED_RUNTIME_CONTROLLER.mayOwnNetwork()) {
+      promptAction.showToast({ message: this.t('backup.import.disconnectFirst') });
+      return;
+    }
     const detail = this.f1('backup.import.confirmMessage', 'count', this.countNodes(backup).toString());
     AlertDialog.show({
       title: this.t('backup.import.confirmTitle'),
@@ -239,6 +243,13 @@ struct BackupPage {
 
   private async applyImport(backup: ConfigBackup): Promise<void> {
     if (this.busy) {
+      return;
+    }
+    // The confirmation dialog can remain open while another entry point starts a runtime.
+    // Re-check at execution time so the ordinary UI flow cannot restore over a session that
+    // became active while the dialog was visible.
+    if (SHARED_RUNTIME_CONTROLLER.mayOwnNetwork()) {
+      promptAction.showToast({ message: this.t('backup.import.disconnectFirst') });
       return;
     }
     this.busy = true;

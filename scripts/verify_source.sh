@@ -1053,13 +1053,23 @@ const manager = fs.readFileSync('entry/src/main/ets/services/BackupManager.ets',
 const applyAt = page.indexOf('  private async applyImport(backup: ConfigBackup): Promise<void>');
 const applyEnd = page.indexOf('\n  private summaryValue(', applyAt);
 const apply = page.slice(applyAt, applyEnd);
+const confirmAt = page.indexOf('  private confirmImport(backup: ConfigBackup): void');
+const confirmEnd = page.indexOf('\n  private async applyImport(', confirmAt);
+const confirm = page.slice(confirmAt, confirmEnd);
 if (applyAt < 0 || applyEnd < 0 ||
   !apply.includes('if (this.busy) {') ||
+  !apply.includes('if (SHARED_RUNTIME_CONTROLLER.mayOwnNetwork()) {') ||
+  !apply.includes("this.t('backup.import.disconnectFirst')") ||
   !apply.includes('this.writeFilesDirFile(context, PRE_IMPORT_BACKUP_FILE, serializeConfigBackup(current));') ||
   !apply.includes('await BackupManager.applyBackup(context, backup);') ||
   apply.indexOf('this.writeFilesDirFile(') > apply.indexOf('await BackupManager.applyBackup(') ||
   apply.includes('安全副本失败不阻断恢复')) {
   throw new Error('backup import can overwrite stores before a durable safety copy exists');
+}
+if (confirmAt < 0 || confirmEnd < 0 ||
+  !confirm.includes('if (SHARED_RUNTIME_CONTROLLER.mayOwnNetwork()) {') ||
+  !confirm.includes("this.t('backup.import.disconnectFirst')")) {
+  throw new Error('backup restore confirmation can be opened while a runtime may own the network');
 }
 
 const writeAt = page.indexOf('  private writeFilesDirFile(');
