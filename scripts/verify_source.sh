@@ -187,6 +187,60 @@ printf 'optional TUN/runtime mode separation verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');
+
+const app = JSON.parse(fs.readFileSync('AppScope/app.json5', 'utf8'));
+const bundleName = app?.app?.bundleName;
+if (typeof bundleName !== 'string' || bundleName.length === 0) {
+  throw new Error('AppScope bundleName is missing');
+}
+
+function declaredString(file, constantName) {
+  const source = fs.readFileSync(file, 'utf8');
+  const pattern = new RegExp(`(?:export\\s+)?const\\s+${constantName}\\s*:\\s*string\\s*=\\s*'([^']+)'`);
+  const match = source.match(pattern);
+  if (match === null) throw new Error(`${file}: ${constantName} was not found`);
+  return match[1];
+}
+
+const runtimeDeclarations = [
+  ['entry/src/main/ets/vpn/VpnConstants.ets', 'BUNDLE_NAME'],
+  ['entry/src/main/ets/services/SpeedNotificationManager.ets', 'APP_BUNDLE_NAME'],
+  ['entry/src/main/ets/core/SubscriptionSchedulerPlan.ets', 'SUBSCRIPTION_AUTO_UPDATE_WORK_BUNDLE_NAME'],
+  ['entry/src/main/ets/pages/PerApp.ets', 'SELF_BUNDLE_NAME']
+];
+for (const [file, constantName] of runtimeDeclarations) {
+  const declared = declaredString(file, constantName);
+  if (declared !== bundleName) {
+    throw new Error(`${file}: ${constantName}=${declared} does not match AppScope bundleName=${bundleName}`);
+  }
+}
+
+const shortcuts = JSON.parse(fs.readFileSync('entry/src/main/resources/base/profile/shortcuts_config.json', 'utf8'));
+const shortcutItems = shortcuts?.shortcuts;
+if (!Array.isArray(shortcutItems) || shortcutItems.length === 0) {
+  throw new Error('shortcut declarations are missing');
+}
+for (const shortcut of shortcutItems) {
+  if (!Array.isArray(shortcut?.wants) || shortcut.wants.length === 0) {
+    throw new Error('shortcut want declarations are missing');
+  }
+  for (const want of shortcut.wants) {
+    if (want?.bundleName !== bundleName) {
+      throw new Error('shortcut bundleName does not match AppScope bundleName');
+    }
+  }
+}
+
+const vpnConstants = fs.readFileSync('entry/src/main/ets/vpn/VpnConstants.ets', 'utf8');
+if (!vpnConstants.includes('blockedApps = [selfBundle];') ||
+  !vpnConstants.includes('const selectedApps = appList.filter(app => app !== selfBundle);')) {
+  throw new Error('VPN config no longer guarantees self-bundle exclusion from the TUN');
+}
+NODE
+printf 'bundle identity/self-VPN exclusion verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
 const path = require('path');
 
 function etsFiles(dir) {
