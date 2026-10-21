@@ -19,65 +19,76 @@ export interface StoredFormIdsSelection {
 }
 
 export class ControlCardStore {
-  static async loadFormIds(context: common.Context): Promise<Array<string>> {
-    const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-    const primaryRaw = (await store.get(FORM_IDS_KEY, '')).toString();
-    const backupRaw = (await store.get(FORM_IDS_BACKUP_KEY, '')).toString();
-    const selection = ControlCardStore.selectStoredFormIds(primaryRaw, backupRaw);
-    if (selection.ids !== null && selection.source !== 'backup') {
-      return selection.ids;
-    }
-    if (selection.ids !== null) {
-      try {
-        await store.put(FORM_IDS_KEY, JSON.stringify(selection.ids));
-        await store.flush();
-      } catch (_error) {
-        // keep recovered in-memory value
+  private static operationTail: Promise<void> = Promise.resolve();
+  private static formMutationTail: Promise<void> = Promise.resolve();
+
+  static loadFormIds(context: common.Context): Promise<Array<string>> {
+    return ControlCardStore.enqueueOperation(async (): Promise<Array<string>> => {
+      const store = await preferences.getPreferences(context, PREFERENCES_NAME);
+      const primaryRaw = (await store.get(FORM_IDS_KEY, '')).toString();
+      const backupRaw = (await store.get(FORM_IDS_BACKUP_KEY, '')).toString();
+      const selection = ControlCardStore.selectStoredFormIds(primaryRaw, backupRaw);
+      if (selection.ids !== null && selection.source !== 'backup') {
+        return selection.ids;
       }
-      return selection.ids;
-    }
-    throw new Error('Stored control card identifiers are unreadable.');
-  }
-
-  static async addFormId(context: common.Context, formId: string): Promise<Array<string>> {
-    if (formId.length === 0) {
-      return ControlCardStore.loadFormIds(context);
-    }
-    const ids = await ControlCardStore.loadFormIds(context);
-    if (ids.indexOf(formId) < 0) {
-      ids.push(formId);
-      await ControlCardStore.saveFormIds(context, ids);
-    }
-    return ids;
-  }
-
-  static async removeFormId(context: common.Context, formId: string): Promise<Array<string>> {
-    const ids = await ControlCardStore.loadFormIds(context);
-    const next = ids.filter((id: string) => id !== formId);
-    if (next.length !== ids.length) {
-      await ControlCardStore.saveFormIds(context, next);
-    }
-    return next;
-  }
-
-  static async loadState(context: common.Context): Promise<ControlCardFormData> {
-    const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-    const primaryRaw = (await store.get(STATE_KEY, '')).toString();
-    const backupRaw = (await store.get(STATE_BACKUP_KEY, '')).toString();
-    const selection = ControlCardStore.selectStoredState(primaryRaw, backupRaw);
-    if (selection.state !== null && selection.source !== 'backup') {
-      return selection.state;
-    }
-    if (selection.state !== null) {
-      try {
-        await store.put(STATE_KEY, JSON.stringify(selection.state));
-        await store.flush();
-      } catch (_error) {
-        // keep recovered in-memory value
+      if (selection.ids !== null) {
+        try {
+          await store.put(FORM_IDS_KEY, JSON.stringify(selection.ids));
+          await store.flush();
+        } catch (_error) {
+          // keep recovered in-memory value
+        }
+        return selection.ids;
       }
-      return selection.state;
-    }
-    throw new Error('Stored control card runtime state is unreadable.');
+      throw new Error('Stored control card identifiers are unreadable.');
+    });
+  }
+
+  static addFormId(context: common.Context, formId: string): Promise<Array<string>> {
+    return ControlCardStore.enqueueFormMutation(async (): Promise<Array<string>> => {
+      if (formId.length === 0) {
+        return ControlCardStore.loadFormIds(context);
+      }
+      const ids = await ControlCardStore.loadFormIds(context);
+      if (ids.indexOf(formId) < 0) {
+        ids.push(formId);
+        await ControlCardStore.saveFormIds(context, ids);
+      }
+      return ids;
+    });
+  }
+
+  static removeFormId(context: common.Context, formId: string): Promise<Array<string>> {
+    return ControlCardStore.enqueueFormMutation(async (): Promise<Array<string>> => {
+      const ids = await ControlCardStore.loadFormIds(context);
+      const next = ids.filter((id: string) => id !== formId);
+      if (next.length !== ids.length) {
+        await ControlCardStore.saveFormIds(context, next);
+      }
+      return next;
+    });
+  }
+
+  static loadState(context: common.Context): Promise<ControlCardFormData> {
+    return ControlCardStore.enqueueOperation(async (): Promise<ControlCardFormData> => {
+      const store = await preferences.getPreferences(context, PREFERENCES_NAME);
+      const primaryRaw = (await store.get(STATE_KEY, '')).toString();
+      const backupRaw = (await store.get(STATE_BACKUP_KEY, '')).toString();
+      const selection = ControlCardStore.selectStoredState(primaryRaw, backupRaw);
+      if (selection.state !== null && selection.source !== 'backup') {
+        return selection.state;
+      }
+      if (selection.state !== null) {
+        try {
+          await store.put(STATE_KEY, JSON.stringify(selection.state));
+          await store.flush();
+        } catch (_error) {
+          // keep recovered in-memory value
+        }
+        return selection.state;
+      }
+      throw new Error('Stored control card runtime state is unreadable.');
+    });
   }
 
   static selectStoredState(primaryRaw: string, backupRaw: string): StoredControlCardStateSelection {
@@ -110,39 +121,68 @@ export class ControlCardStore {
     return { ids: null, source: 'invalid' };
   }
 
-  static async saveState(context: common.Context, state: ControlCardFormData): Promise<ControlCardFormData> {
+  static saveState(context: common.Context, state: ControlCardFormData): Promise<ControlCardFormData> {
     const normalized = normalizeControlCardFormData(state);
-    const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-    const nextRaw = JSON.stringify(normalized);
-    const currentRaw = (await store.get(STATE_KEY, '')).toString();
-    const current = ControlCardStore.parseState(currentRaw);
-    if (current !== null && !ControlCardStore.sameRuntimeRoutingState(current, normalized)) {
-      await store.put(STATE_BACKUP_KEY, currentRaw);
-    } else if (current === null) {
-      const backupRaw = (await store.get(STATE_BACKUP_KEY, '')).toString();
-      if (ControlCardStore.parseState(backupRaw) === null) {
-        await store.put(STATE_BACKUP_KEY, nextRaw);
+    return ControlCardStore.enqueueOperation(async (): Promise<ControlCardFormData> => {
+      const store = await preferences.getPreferences(context, PREFERENCES_NAME);
+      const nextRaw = JSON.stringify(normalized);
+      const currentRaw = (await store.get(STATE_KEY, '')).toString();
+      const current = ControlCardStore.parseState(currentRaw);
+      if (current !== null && !ControlCardStore.sameRuntimeRoutingState(current, normalized)) {
+        await store.put(STATE_BACKUP_KEY, currentRaw);
+      } else if (current === null) {
+        const backupRaw = (await store.get(STATE_BACKUP_KEY, '')).toString();
+        if (ControlCardStore.parseState(backupRaw) === null) {
+          await store.put(STATE_BACKUP_KEY, nextRaw);
+        }
       }
-    }
-    await store.put(STATE_KEY, nextRaw);
-    await store.flush();
-    return normalized;
+      await store.put(STATE_KEY, nextRaw);
+      await store.flush();
+      return normalized;
+    });
   }
 
-  private static async saveFormIds(context: common.Context, ids: Array<string>): Promise<void> {
-    const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-    const nextRaw = JSON.stringify(ControlCardStore.uniqueIds(ids));
-    const currentRaw = (await store.get(FORM_IDS_KEY, '')).toString();
-    if (ControlCardStore.parseIds(currentRaw) !== null) {
-      await store.put(FORM_IDS_BACKUP_KEY, currentRaw);
-    } else {
-      const backupRaw = (await store.get(FORM_IDS_BACKUP_KEY, '')).toString();
-      if (ControlCardStore.parseIds(backupRaw) === null) {
-        await store.put(FORM_IDS_BACKUP_KEY, nextRaw);
+  private static saveFormIds(context: common.Context, ids: Array<string>): Promise<void> {
+    const idsSnapshot = ControlCardStore.uniqueIds(ids);
+    return ControlCardStore.enqueueOperation(async (): Promise<void> => {
+      const store = await preferences.getPreferences(context, PREFERENCES_NAME);
+      const nextRaw = JSON.stringify(idsSnapshot);
+      const currentRaw = (await store.get(FORM_IDS_KEY, '')).toString();
+      if (ControlCardStore.parseIds(currentRaw) !== null) {
+        await store.put(FORM_IDS_BACKUP_KEY, currentRaw);
+      } else {
+        const backupRaw = (await store.get(FORM_IDS_BACKUP_KEY, '')).toString();
+        if (ControlCardStore.parseIds(backupRaw) === null) {
+          await store.put(FORM_IDS_BACKUP_KEY, nextRaw);
+        }
       }
-    }
-    await store.put(FORM_IDS_KEY, nextRaw);
-    await store.flush();
+      await store.put(FORM_IDS_KEY, nextRaw);
+      await store.flush();
+    });
+  }
+
+  private static enqueueOperation<T>(operation: () => Promise<T>): Promise<T> {
+    const task = ControlCardStore.operationTail.then(
+      (): Promise<T> => operation(),
+      (): Promise<T> => operation()
+    );
+    ControlCardStore.operationTail = task.then(
+      (): void => {},
+      (_error: Object): void => {}
+    );
+    return task;
+  }
+
+  private static enqueueFormMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const task = ControlCardStore.formMutationTail.then(
+      (): Promise<T> => operation(),
+      (): Promise<T> => operation()
+    );
+    ControlCardStore.formMutationTail = task.then(
+      (): void => {},
+      (_error: Object): void => {}
+    );
+    return task;
   }
 
   private static parseState(raw: string): ControlCardFormData | null {

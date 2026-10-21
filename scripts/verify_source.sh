@@ -352,6 +352,41 @@ for (const file of [
 NODE
 printf 'subscription mutation transaction verification passed\n'
 
+# Control-card runtime state and registered form IDs share one Preferences file. Physical
+# recovery/saves must be ordered, while add/remove keep their full read-modify-write transaction
+# in a second queue so concurrent form lifecycle callbacks cannot lose an identifier.
+node <<'NODE'
+const fs = require('fs');
+const store = fs.readFileSync('entry/src/main/ets/storage/ControlCardStore.ets', 'utf8');
+for (const name of ['loadFormIds', 'loadState', 'saveState']) {
+  const methodAt = store.indexOf(`  static ${name}(`);
+  const nextMethodAt = store.indexOf('\n  static ', methodAt + 1);
+  const body = store.slice(methodAt, nextMethodAt < 0 ? store.length : nextMethodAt);
+  if (methodAt < 0 || !body.includes('return ControlCardStore.enqueueOperation(')) {
+    throw new Error(`${name} bypasses serialized control-card storage`);
+  }
+}
+for (const name of ['addFormId', 'removeFormId']) {
+  const methodAt = store.indexOf(`  static ${name}(`);
+  const nextMethodAt = store.indexOf('\n  static ', methodAt + 1);
+  const body = store.slice(methodAt, nextMethodAt < 0 ? store.length : nextMethodAt);
+  if (methodAt < 0 || !body.includes('return ControlCardStore.enqueueFormMutation(')) {
+    throw new Error(`${name} is outside the form-ID mutation queue`);
+  }
+}
+const saveIdsAt = store.indexOf('  private static saveFormIds(');
+const operationAt = store.indexOf('  private static enqueueOperation', saveIdsAt);
+if (!store.slice(saveIdsAt, operationAt).includes('return ControlCardStore.enqueueOperation(') ||
+  !store.includes('private static operationTail: Promise<void> = Promise.resolve();') ||
+  !store.includes('private static formMutationTail: Promise<void> = Promise.resolve();') ||
+  !store.includes('ControlCardStore.operationTail = task.then(') ||
+  !store.includes('ControlCardStore.formMutationTail = task.then(') ||
+  !store.includes('const idsSnapshot = ControlCardStore.uniqueIds(ids);')) {
+  throw new Error('control-card operation queues or form-ID input snapshot are missing');
+}
+NODE
+printf 'control-card storage transaction verification passed\n'
+
 # Manual link entry is a separate daily add path from camera/photo scanning. It must
 # parse into a redacted summary on the first action and require a second action for the
 # exact unchanged input before any node-store write.
