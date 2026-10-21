@@ -2959,22 +2959,29 @@ export default function localUnitTest() {
     });
 
     it('parses current connection IP API responses', 0, () => {
-      const ipSb = parseRemoteIpInfoContent('{"ip":"203.0.113.8","country_code":"US"}');
+      const ipSb = parseRemoteIpInfoContent('{"ip":"8.8.4.4","country_code":"US"}');
       expect(ipSb.ok).assertTrue();
-      expect(ipSb.summary).assertEqual('203.0.113.8');
+      expect(ipSb.summary).assertEqual('8.8.4.4');
 
       // 只回报出口 IP，不解析地理归属字段。
-      const alt = parseRemoteIpInfoContent('{"query":"198.51.100.9","location":{"country_code":"JP"}}');
+      const alt = parseRemoteIpInfoContent('{"query":"1.0.0.1","location":{"country_code":"JP"}}');
       expect(alt.ok).assertTrue();
-      expect(alt.summary).assertEqual('198.51.100.9');
+      expect(alt.summary).assertEqual('1.0.0.1');
 
       expect(parseRemoteIpInfoContent('{').ok).assertFalse();
       expect(parseRemoteIpInfoContent('{}').status).assertEqual('missing-ip');
       expect(parseRemoteIpInfoContent('{"ip":"not-an-ip"}').status).assertEqual('invalid-ip');
-      expect(parseRemoteIpInfoContent('{"ip":"2001:db8::1"}').ok).assertTrue();
-      expect(parseRemoteIpInfoContent('{"ip":"2001:db8:0:1:2:3:4:5"}').ok).assertTrue();
-      expect(parseRemoteIpInfoContent('{"ip":"::ffff:192.0.2.1"}').ok).assertTrue();
-      expect(parseRemoteIpInfoContent('{"ip":"::"}').ok).assertTrue();
+      expect(parseRemoteIpInfoContent('{"ip":"2606:4700:4700::1111"}').ok).assertTrue();
+      expect(parseRemoteIpInfoContent('{"ip":"2606:4700:4700:0:0:0:0:1111"}').ok).assertTrue();
+      expect(parseRemoteIpInfoContent('{"ip":"::ffff:8.8.4.4"}').ok).assertTrue();
+      expect(parseRemoteIpInfoContent('{"ip":"::"}').status).assertEqual('invalid-ip');
+      expect(parseRemoteIpInfoContent('{"ip":"::1"}').status).assertEqual('invalid-ip');
+      expect(parseRemoteIpInfoContent('{"ip":"10.0.0.1"}').status).assertEqual('invalid-ip');
+      expect(parseRemoteIpInfoContent('{"ip":"192.168.1.1"}').status).assertEqual('invalid-ip');
+      expect(parseRemoteIpInfoContent('{"ip":"203.0.113.8"}').status).assertEqual('invalid-ip');
+      expect(parseRemoteIpInfoContent('{"ip":"fc00::1"}').status).assertEqual('invalid-ip');
+      expect(parseRemoteIpInfoContent('{"ip":"fe80::1"}').status).assertEqual('invalid-ip');
+      expect(parseRemoteIpInfoContent('{"ip":"2001:db8::1"}').status).assertEqual('invalid-ip');
       expect(parseRemoteIpInfoContent('{"ip":"::::"}').status).assertEqual('invalid-ip');
       expect(parseRemoteIpInfoContent('{"ip":"abcd:"}').status).assertEqual('invalid-ip');
       expect(parseRemoteIpInfoContent('{"ip":"1:2:3:4:5:6:7:8::"}').status).assertEqual('invalid-ip');
