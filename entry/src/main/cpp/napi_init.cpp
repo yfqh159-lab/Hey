@@ -27,6 +27,8 @@ constexpr const char* XRAY_CONFIG_FILE = "hey-xray-config.json";
 constexpr const char* XRAY_CORE_LIB = "libxray.so";
 constexpr const char* PING_CONFIG_FILE = "hey-ping-config.json";
 constexpr const char* TEST_CONFIG_FILE = "hey-xray-test-config.json";
+constexpr const char* NATIVE_FAILURE_LOG = "Native operation failed; details returned to ArkTS.";
+constexpr const char* NATIVE_PING_FAILURE_LOG = "Native outbound probe failed; details returned to ArkTS.";
 
 using CGoPingFunc = char* (*)(char*);
 using CGoStringFunc = char* (*)(char*);
@@ -232,7 +234,10 @@ napi_value CreateResult(napi_env env, bool ok, const std::string& message)
     if (ok) {
         LogInfo(message);
     } else {
-        LogError(message);
+        // Xray errors may contain a private node host, IP or credential. Preserve the full
+        // message for the ArkTS caller (which applies DiagnosticRedaction), but never publish
+        // it directly through native hilog.
+        LogError(NATIVE_FAILURE_LOG);
     }
     return result;
 }
@@ -678,7 +683,7 @@ napi_value CreatePingResult(napi_env env, bool ok, int64_t delayMs, const std::s
     if (ok) {
         LogInfo(message);
     } else {
-        LogWarn(message);
+        LogWarn(NATIVE_PING_FAILURE_LOG);
     }
     return result;
 }
