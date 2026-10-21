@@ -29,6 +29,7 @@ import { AppColor } from '../theme/Theme';
 struct ScannerPage {
   @StorageProp('appLanguage') private language: AppLanguage = DEFAULT_LANGUAGE;
   @State private importBuffer: string = '';
+  @State private hasPendingSensitiveImport: boolean = false;
   @State private lastError: string = '';
   @State private previewTitle: string = '';
   @State private previewDetail: string = '';
@@ -41,6 +42,9 @@ struct ScannerPage {
   private startScanImmediate: boolean = false;
   private routeStartScanImmediate: boolean = false;
   private immediateScanTimerId: number = -1;
+  // 相机、相册和剪贴板内容可能包含 UUID、密码或订阅 Token。原文只保存在页面实例内，
+  // 默认不绑定到可截图的 TextArea；确认导入仍使用这份原始值。
+  private pendingSensitiveImport: string = '';
 
   aboutToAppear(): void {
     try {
@@ -191,7 +195,7 @@ struct ScannerPage {
                     this.pasteFromClipboard();
                   })
 
-                if (this.importBuffer.length > 0) {
+                if (this.hasImportValue()) {
                   Button(this.t('action.clear'))
                     .fontSize(12)
                     .fontColor(AppColor.danger)
@@ -200,9 +204,7 @@ struct ScannerPage {
                     .padding({ left: 10, right: 10 })
                     .borderRadius(6)
                     .onClick(() => {
-                      this.importBuffer = '';
-                      this.lastError = '';
-                      this.updateImportPreview('');
+                      this.clearImportValue();
                     })
                 }
               }
@@ -211,16 +213,22 @@ struct ScannerPage {
             .alignItems(VerticalAlign.Center)
 
             TextArea({
-              placeholder: this.t('placeholder.scannerPayload'),
+              placeholder: this.hasPendingSensitiveImport ?
+                this.t('scanner.reviewBeforeImport') : this.t('placeholder.scannerPayload'),
               text: this.importBuffer
             })
               .height(160)
               .fontSize(13)
               .fontColor(AppColor.textPrimary)
               .backgroundColor(AppColor.surfaceAlt)
+              .enabled(!this.hasPendingSensitiveImport)
+              .opacity(this.hasPendingSensitiveImport ? 0.72 : 1.0)
               .borderRadius(10)
               .padding(12)
               .onChange((value: string) => {
+                if (this.hasPendingSensitiveImport) {
+                  return;
+                }
                 this.importBuffer = value;
                 // 输入已经变化，上一轮导入错误不再描述当前内容；当前有效性由下方预览即时展示。
                 this.lastError = '';
@@ -343,7 +351,29 @@ struct ScannerPage {
   }
 
   private isImportEnabled(): boolean {
-    return this.importBuffer.trim().length > 0 && !this.isBusy;
+    return this.hasImportValue() && !this.isBusy;
+  }
+
+  private hasImportValue(): boolean {
+    return this.pendingSensitiveImport.length > 0 || this.importBuffer.trim().length > 0;
+  }
+
+  private importValue(): string {
+    return this.pendingSensitiveImport.length > 0 ? this.pendingSensitiveImport : this.importBuffer.trim();
+  }
+
+  private setSensitiveImportValue(value: string): void {
+    this.pendingSensitiveImport = value.trim();
+    this.hasPendingSensitiveImport = this.pendingSensitiveImport.length > 0;
+    this.importBuffer = '';
+  }
+
+  private clearImportValue(): void {
+    this.pendingSensitiveImport = '';
+    this.hasPendingSensitiveImport = false;
+    this.importBuffer = '';
+    this.lastError = '';
+    this.updateImportPreview('');
   }
 
   private async loadState(): Promise<void> {
@@ -442,12 +472,12 @@ struct ScannerPage {
       }
       return;
     }
-    this.importBuffer = value.trim();
+    this.setSensitiveImportValue(value);
     this.lastError = '';
     // A completed camera/photo result is stable input, so it is safe to run the
     // native compatibility fallback once. Do not do that for every keystroke.
-    this.updateImportPreview(this.importBuffer, true);
-    // 扫码/相册只负责识别并展示原文。必须由用户检查内容后再次点击导入，
+    this.updateImportPreview(this.pendingSensitiveImport, true);
+    // 扫码/相册只负责识别并展示脱敏摘要。必须由用户检查摘要后再次点击导入，
     // 才允许保存节点或订阅来源；订阅内容仍需在订阅页由用户主动更新。
     promptAction.showToast({ message: this.t('scanner.reviewBeforeImport') });
   }
@@ -464,9 +494,9 @@ struct ScannerPage {
         const pasteData = await systemPasteboard.getData();
         const text = pasteData.getPrimaryText();
         if (text && text.trim().length > 0) {
-          this.importBuffer = text.trim();
+          this.setSensitiveImportValue(text);
           this.lastError = '';
-          this.updateImportPreview(this.importBuffer, true);
+          this.updateImportPreview(this.pendingSensitiveImport, true);
           promptAction.showToast({ message: this.t('prompt.pastedConfig') });
         } else {
           promptAction.showToast({ message: this.t('prompt.clipboardTextEmpty') });
@@ -480,7 +510,7 @@ struct ScannerPage {
   }
 
   private async importResult(): Promise<void> {
-    const value = this.importBuffer.trim();
+    const value = this.importValue();
     if (value.length === 0) {
       this.lastError = this.t('error.emptyImport');
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
@@ -554,7 +584,7 @@ struct ScannerPage {
               parsedNode.configType
             );
             if (!imported.valid) {
-              lastValidationError = imported.message;
+              lastValidationError = redactDiagnosticText(imported.message);
               continue;
             }
             if (await this.addManualNodeIfUnique(
@@ -571,7 +601,7 @@ struct ScannerPage {
           if (importedCount === 0) {
             this.lastError = duplicateCount > 0 ?
               this.f1('scanner.duplicateNodes', 'count', duplicateCount.toString()) :
-              (lastValidationError.length > 0 ? lastValidationError : validation.message);
+              (lastValidationError.length > 0 ? lastValidationError : redactDiagnosticText(validation.message));
             SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
             return;
           }
@@ -589,7 +619,8 @@ struct ScannerPage {
         const nativeResult = convertNativeShareTextToOutbounds(value);
         if (!nativeResult.ok) {
           this.lastError = nativeResult.message.length > 0 ?
-            `${validation.message}\n${nativeResult.message}` : validation.message;
+            redactDiagnosticText(`${validation.message}\n${nativeResult.message}`) :
+            redactDiagnosticText(validation.message);
           SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
           return;
         }
@@ -601,7 +632,7 @@ struct ScannerPage {
           const outbound = nativeResult.outbounds[index];
           const imported = NODES_CONTROLLER.validateConfig(outbound.outboundJson, this.language, 'outbound');
           if (!imported.valid) {
-            lastValidationError = imported.message;
+            lastValidationError = redactDiagnosticText(imported.message);
             continue;
           }
           if (!await this.addManualNodeIfUnique(
@@ -619,7 +650,7 @@ struct ScannerPage {
         if (importedCount === 0) {
           this.lastError = duplicateCount > 0 ?
             this.f1('scanner.duplicateNodes', 'count', duplicateCount.toString()) :
-            (lastValidationError.length > 0 ? lastValidationError : validation.message);
+            (lastValidationError.length > 0 ? lastValidationError : redactDiagnosticText(validation.message));
           SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
           return;
         }
@@ -687,7 +718,8 @@ struct ScannerPage {
       this.previewTitle = this.f1('scanner.previewNode', 'name', name);
       this.previewDetail = this.f1('scanner.previewProtocol', 'protocol', validation.protocol.toUpperCase());
       if (endpointText.length > 0) {
-        this.previewDetail += `\n${this.f1('scanner.previewEndpoint', 'endpoint', endpointText)}`;
+        this.previewDetail += `\n${this.f1(
+          'scanner.previewEndpoint', 'endpoint', redactDiagnosticText(endpointText))}`;
       }
       this.previewValid = true;
       return;
@@ -713,7 +745,7 @@ struct ScannerPage {
       }
     }
     this.previewTitle = this.t('scanner.previewInvalid');
-    this.previewDetail = validation.message;
+    this.previewDetail = redactDiagnosticText(validation.message);
     this.previewValid = false;
   }
 

@@ -90,6 +90,22 @@ if grep -Fq '${intent.payload}' entry/src/main/ets/pages/Index.ets ||
 fi
 printf 'external import confirmation redaction verification passed\n'
 
+# Camera, photo, and clipboard results are often complete share links containing UUIDs,
+# passwords, or subscription tokens. Keep the raw value only in page memory for the
+# explicit confirmation action; the screenshot-visible TextArea and preview receive no
+# unredacted external payload.
+scanner_source='entry/src/main/ets/pages/Scanner.ets'
+if ! grep -Fq "private pendingSensitiveImport: string = '';" "${scanner_source}" ||
+  ! grep -Fq 'this.setSensitiveImportValue(value);' "${scanner_source}" ||
+  ! grep -Fq 'this.setSensitiveImportValue(text);' "${scanner_source}" ||
+  ! grep -Fq "'scanner.previewEndpoint', 'endpoint', redactDiagnosticText(endpointText)" "${scanner_source}" ||
+  grep -Fq 'this.importBuffer = value.trim();' "${scanner_source}" ||
+  grep -Fq 'this.importBuffer = text.trim();' "${scanner_source}"; then
+  printf 'scanner external payload privacy guard failed\n' >&2
+  exit 1
+fi
+printf 'scanner external payload privacy verification passed\n'
+
 # libXray conversion failures are shown by scanner, link import, and system-share
 # paths. The native message may echo the original share link, so sanitize it once
 # at the shared service boundary before any caller can render or log it.
