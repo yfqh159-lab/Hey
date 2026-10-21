@@ -291,10 +291,9 @@ if (!runtime.includes('private runtimeStartGeneration: number = 0;') ||
   throw new Error('runtime start continuations are not generation-isolated from cancellation');
 }
 const runningBranch = start.indexOf('if (this.status === ConnectionStatus.RUNNING)', applySnapshot);
-const flagClear = start.indexOf('NetSceneStopFlag.clear(context)', runningBranch);
 const connectivity = start.indexOf('this.scheduleRuntimeConnectivityInfo(', runningBranch);
 const errorBranch = start.indexOf('else if (this.status === ConnectionStatus.ERROR)', runningBranch);
-if (runningBranch < 0 || flagClear < runningBranch || connectivity < flagClear ||
+if (runningBranch < 0 || connectivity < runningBranch || start.includes('NetSceneStopFlag.clear(context)') ||
   errorBranch < connectivity || start.indexOf('log.vpnStartIncomplete', errorBranch) < errorBranch) {
   throw new Error('cancelled starts may still clear flags, schedule probes, or report a false failure');
 }
@@ -307,7 +306,7 @@ const vpn = fs.readFileSync('entry/src/main/ets/vpn/HeyVpnAbility.ets', 'utf8');
 const createAt = vpn.indexOf('const creatingConnection = vpnExtension.createVpnConnection(this.context);');
 const createAwait = vpn.indexOf('await creatingConnection.create(vpnConfig);', createAt);
 const reclaimAt = vpn.indexOf('if (this.stopRequested && this.vpnConnection === null)', createAwait);
-const startGuard = vpn.indexOf("this.ensureStartAllowed('VPN interface creation');", createAwait);
+const startGuard = vpn.indexOf("this.ensureStartAllowed('VPN interface creation', sessionGeneration);", createAwait);
 if (createAt < 0 || createAwait < createAt || reclaimAt < createAwait || startGuard < reclaimAt ||
   !vpn.slice(reclaimAt, startGuard).includes('this.vpnConnection = creatingConnection;') ||
   !vpn.slice(reclaimAt, startGuard).includes('this.cleanupAgainRequested = true;')) {
@@ -325,6 +324,59 @@ if (cleanupAt < 0 || cleanupEnd < 0 || unlockAt < 0 || boundaryRetryAt < unlockA
 }
 NODE
 printf 'late VPN create cleanup verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
+const vpn = fs.readFileSync('entry/src/main/ets/vpn/HeyVpnAbility.ets', 'utf8');
+const onRequestAt = vpn.indexOf('  onRequest(want: Want, startId: number): void');
+const onDestroyAt = vpn.indexOf('\n  onDestroy(): void', onRequestAt);
+const onRequest = vpn.slice(onRequestAt, onDestroyAt);
+if (!vpn.includes('private pendingStartWant: Want | null = null;') ||
+  !vpn.includes('private lastCleanupComplete: boolean = false;') ||
+  !vpn.includes('private vpnCreateInFlight: boolean = false;') ||
+  !onRequest.includes('if (this.destroying || !this.stopRequested)') ||
+  !onRequest.includes('this.pendingStartWant = want;') ||
+  !onRequest.includes('this.cleaningUp || this.vpnCreateInFlight || !this.lastCleanupComplete') ||
+  !onRequest.includes('this.startPendingSessionIfReady();')) {
+  throw new Error('a cleaned but still-live VPN Extension cannot accept an explicit new start request');
+}
+const beginAt = vpn.indexOf('  private beginSession(want: Want): void');
+const requestAt = vpn.indexOf('\n  onRequest(want: Want, startId: number): void', beginAt);
+const begin = vpn.slice(beginAt, requestAt);
+if (!begin.includes('this.stopRequested = false;') ||
+  !begin.includes('this.lastCleanupComplete = false;') ||
+  !begin.includes('const sessionGeneration = ++this.sessionGeneration;') ||
+  !begin.includes('this.startVpn(want, sessionGeneration).catch(')) {
+  throw new Error('reused VPN Extension sessions do not reset cancellation/cleanup state before start');
+}
+if (!vpn.includes('private ensureStartAllowed(stage: string, sessionGeneration: number)') ||
+  !vpn.includes('if (sessionGeneration !== this.sessionGeneration)') ||
+  !vpn.includes('if (this.stopRequested)') ||
+  !vpn.includes('await NetSceneStopFlag.clear(this.context);') ||
+  !vpn.includes("this.ensureStartAllowed('network scene stop flag reset', sessionGeneration);") ||
+  !vpn.includes('private async pollNetScene(sessionGeneration: number)') ||
+  !vpn.includes('private async recordStats(sessionGeneration: number)') ||
+  !vpn.includes('sessionGeneration === this.sessionGeneration && !this.stopRequested && !this.cleaningUp')) {
+  throw new Error('old VPN session continuations are not generation-isolated from a reused Extension session');
+}
+const cleanupAt = vpn.indexOf('  private async cleanup(): Promise<void>');
+const cleanupEnd = vpn.indexOf('\n  private async cancelSpeedNotificationSafely', cleanupAt);
+const cleanup = vpn.slice(cleanupAt, cleanupEnd);
+if (!cleanup.includes('&& !this.vpnCreateInFlight;') ||
+  !cleanup.includes('createPending=${this.vpnCreateInFlight}')) {
+  throw new Error('VPN cleanup may attest completion while system TUN creation is still pending');
+}
+const pendingStartAt = vpn.indexOf('  private startPendingSessionIfReady(): void');
+const pendingStartEnd = vpn.indexOf('\n  private async cancelSpeedNotificationSafely', pendingStartAt);
+const pendingStart = vpn.slice(pendingStartAt, pendingStartEnd);
+if (pendingStartAt < 0 || pendingStartEnd < 0 ||
+  !pendingStart.includes('this.vpnCreateInFlight') || !pendingStart.includes('!this.lastCleanupComplete') ||
+  !pendingStart.includes('this.pendingStartWant = null;') ||
+  !pendingStart.includes('this.beginSession(want);')) {
+  throw new Error('pending VPN starts are not gated on confirmed cleanup or consumed exactly once');
+}
+NODE
+printf 'reused VPN Extension start verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');

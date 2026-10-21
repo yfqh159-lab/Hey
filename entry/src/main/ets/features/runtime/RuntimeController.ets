@@ -127,12 +127,6 @@ export class RuntimeController {
     }
     this.applySnapshot(snapshot, language);
     if (this.status === ConnectionStatus.RUNNING) {
-      // 只让已经落地的当前会话清除后台自动断开标志。被取消的旧 start 不能在 stop
-      // 之后迟到清除新写入的标志；会话开始时间仍负责隔离历史标志。
-      NetSceneStopFlag.clear(context).catch(() => {
-        // 清理失败不应把成功的数据面改成启动失败。
-        this.appendLog('Network scene stop flag reset failed.');
-      });
       this.appendLog(this.runtimeMode === APP_MODE_PROXY_ONLY ?
         translate(language, 'log.proxyStarted') : translate(language, 'log.vpnStarted'));
       this.scheduleRuntimeConnectivityInfo(context, profile, settings, language, this.startedAt);
