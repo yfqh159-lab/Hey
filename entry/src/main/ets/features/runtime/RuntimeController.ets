@@ -355,7 +355,10 @@ export class RuntimeController {
     try {
       const events = await DiagnosticLog.read(context, 80);
       this.diagnosticEntries = events.map((event: DiagnosticEvent) => RuntimeController.eventToEntry(event, language, this.coreLabel));
-      this.applyDiagnosticStats(events);
+      const healthLost = this.applyDiagnosticStats(events);
+      if (healthLost) {
+        await this.cleanupUnhealthyVpn(context, language);
+      }
       this.applyDiagnosticError(events, language);
     } catch (error) {
       // 诊断解析失败绝不能让 refresh 整体抛出——否则页面收不到 snapshot，日志面板会全空。
@@ -365,10 +368,15 @@ export class RuntimeController {
     }
   }
 
-  private applyDiagnosticStats(events: Array<DiagnosticEvent>): void {
+  private applyDiagnosticStats(events: Array<DiagnosticEvent>): boolean {
     for (let index = 0; index < events.length; index++) {
       const event = events[index];
       if (event.uploadBytes !== undefined || event.downloadBytes !== undefined) {
+        // 运行态只接受本次启动请求之后的心跳，避免上一会话的最后一条记录
+        // 暂时把新会话渲染成已停止。
+        if (this.status === ConnectionStatus.RUNNING && event.at < this.startedAt) {
+          continue;
+        }
         this.stats = {
           uploadBytes: event.uploadBytes ?? 0,
           downloadBytes: event.downloadBytes ?? 0,
@@ -376,9 +384,26 @@ export class RuntimeController {
           tunRunning: event.tunRunning ?? false,
           lastMessage: event.details ?? event.message
         };
-        return;
+        return this.status === ConnectionStatus.RUNNING &&
+          (event.xrayRunning === false || event.tunRunning === false);
       }
     }
+    return false;
+  }
+
+  // 心跳已经明确证明数据面不完整时，先清理残留 VPN，再保留错误态等待用户主动重连。
+  // 不在此处调用 start，确保手动断开/异常断开之后都不会自行恢复。
+  private async cleanupUnhealthyVpn(context: common.Context, language: AppLanguage): Promise<void> {
+    const message = translate(language, 'runtime.vpnHealthLost');
+    await this.controller.stop(context);
+    this.status = ConnectionStatus.ERROR;
+    this.startedAt = 0;
+    this.elapsedText = '00:00';
+    this.lastError = message;
+    this.activeProfile = null;
+    this.activeSettings = null;
+    this.resetConnectionDelay();
+    this.appendLog(message);
   }
 
   private applyDiagnosticError(events: Array<DiagnosticEvent>, language: AppLanguage): void {

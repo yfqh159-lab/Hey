@@ -61,7 +61,7 @@ export class ConnectionController {
         return {
           uploadBytes: stats.uploadBytes,
           downloadBytes: stats.downloadBytes,
-          xrayRunning: true,
+          xrayRunning: stats.xrayRunning,
           tunRunning: false,
           lastMessage: stats.lastMessage.length > 0 ? stats.lastMessage : 'Xray is running in proxy-only mode.'
         };
@@ -111,6 +111,7 @@ export class ConnectionController {
     this.generatedConfig.configJson = injectXrayLogFile(this.generatedConfig.configJson, coreLogPath, fallbackLogLevel);
     this.runtimeMode = normalizeAppRuntimeMode(resolvedRuntimeSettings?.mode ?? settings?.mode, APP_MODE_VPN);
     const requestedAt = Date.now();
+    let vpnStartRequested = false;
 
     try {
       if (this.runtimeMode === APP_MODE_PROXY_ONLY) {
@@ -121,6 +122,7 @@ export class ConnectionController {
       }
       hilog.info(LOG_DOMAIN, LOG_TAG, 'Calling startVpnExtensionAbility, configBytes=%{public}d',
         this.generatedConfig.configJson.length);
+      vpnStartRequested = true;
       await this.withTimeout(vpnExtension.startVpnExtensionAbility(createVpnWant(
         this.generatedConfig.configJson
       )), START_VPN_TIMEOUT_MS, '启动 VPN 超时：系统 VPN 授权服务没有响应。若 hilog 中出现 com.huawei.hmos.vpndialog bundle not exist，说明当前系统镜像缺少 VPN 授权组件，请改用真机测试。');
@@ -135,13 +137,16 @@ export class ConnectionController {
         throw new Error(this.formatDiagnosticEvent(startEvent));
       }
       this.status = ConnectionStatus.RUNNING;
-      this.startedAt = Date.now();
+      this.startedAt = requestedAt;
     } catch (error) {
       const businessError = error as BusinessError;
       this.status = ConnectionStatus.ERROR;
       const action = this.runtimeMode === APP_MODE_PROXY_ONLY ? '启动仅代理模式失败' : '启动 VPN 失败';
       this.lastError = `${action}：${businessError.message ?? JSON.stringify(error)}`;
       hilog.error(LOG_DOMAIN, LOG_TAG, 'connection start failed: %{public}s', this.lastError);
+      if (vpnStartRequested) {
+        await this.stopFailedVpnStart();
+      }
     }
     return this.getSnapshot();
   }
@@ -176,9 +181,11 @@ export class ConnectionController {
     this.generatedConfig = { configJson: generated.configJson };
     this.runtimeMode = APP_MODE_VPN;
     const requestedAt = Date.now();
+    let vpnStartRequested = false;
     try {
       hilog.info(LOG_DOMAIN, LOG_TAG, 'Calling startVpnExtensionAbility (sing-box), configBytes=%{public}d',
         generated.configJson.length);
+      vpnStartRequested = true;
       await this.withTimeout(vpnExtension.startVpnExtensionAbility(createVpnWant(
         generated.configJson,
         CORE_TYPE_SINGBOX
@@ -193,12 +200,15 @@ export class ConnectionController {
         throw new Error(this.formatDiagnosticEvent(startEvent));
       }
       this.status = ConnectionStatus.RUNNING;
-      this.startedAt = Date.now();
+      this.startedAt = requestedAt;
     } catch (error) {
       const businessError = error as BusinessError;
       this.status = ConnectionStatus.ERROR;
       this.lastError = `启动 sing-box 失败：${businessError.message ?? JSON.stringify(error)}`;
       hilog.error(LOG_DOMAIN, LOG_TAG, 'sing-box start failed: %{public}s', this.lastError);
+      if (vpnStartRequested) {
+        await this.stopFailedVpnStart();
+      }
     }
     return this.getSnapshot();
   }
@@ -336,6 +346,22 @@ export class ConnectionController {
       message: 'Proxy-only mode stopped.',
       details: xrayResult.message
     });
+  }
+
+  // startVpnExtensionAbility 超时或扩展回写失败时，底层启动请求仍可能稍后成功。
+  // 主进程既然已报告 ERROR，就必须撤销该请求，避免 UI 显示失败但系统 VPN 仍在运行。
+  // 这里只调用系统 stop；VPN Extension 的 onDestroy 会执行幂等 native/TUN 清理。
+  private async stopFailedVpnStart(): Promise<void> {
+    try {
+      await this.withTimeout(vpnExtension.stopVpnExtensionAbility(createStopVpnWant()),
+        START_VPN_TIMEOUT_MS,
+        'Failed VPN start cleanup timed out.');
+      hilog.info(LOG_DOMAIN, LOG_TAG, 'Failed VPN start request was stopped.');
+    } catch (cleanupError) {
+      const businessError = cleanupError as BusinessError;
+      hilog.error(LOG_DOMAIN, LOG_TAG, 'failed VPN start cleanup failed: %{public}s',
+        businessError.message ?? JSON.stringify(cleanupError));
+    }
   }
 
   private async waitForDiagnosticEvent(

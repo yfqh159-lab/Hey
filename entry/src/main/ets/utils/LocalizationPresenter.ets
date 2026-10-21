@@ -50,7 +50,7 @@ export function localizedSubscriptionStatusText(language: AppLanguage, updatedAt
   return formatOne(language, 'subscription.updatedAt', 'time', formatClockTime(updatedAt));
 }
 
-// 把 VPN 运行心跳（每 2 秒一条的 'Native bridge stats.'）渲染成友好文案，
+// 把 VPN 运行心跳（速度显示开启时 2 秒、关闭时 5 秒一条）渲染成友好文案，
 // 顺带带上它携带的有用数据：上/下行累计流量与 Xray/TUN 运行状态。
 export function localizeDiagnosticHeartbeat(
   language: AppLanguage,
