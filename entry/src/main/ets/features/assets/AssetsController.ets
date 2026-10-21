@@ -23,23 +23,34 @@ import {
 } from '../../core/GeoAssets';
 import { redactDiagnosticText } from '../../core/DiagnosticRedaction';
 import { APP_HTTP_USER_AGENT } from '../../core/HttpDefaults';
-import { AppLanguage, isProxyOnlyRuntimeMode } from '../../core/Profile';
+import { AppLanguage, ConnectionStatus, isProxyOnlyRuntimeMode } from '../../core/Profile';
 import { LOCAL_HTTP_PROXY_HOST, LOCAL_HTTP_PROXY_PORT, VPN_INTERNAL_HTTP_PROXY_PORT } from '../../core/XrayConfig';
 import { translate } from '../../core/I18n';
 import { formatTwo } from '../../utils/LocalizationPresenter';
 import { AssetStore, CustomAssetUrl, GeoAssetMetadata, GeoUpdateMetadata } from '../../storage/AssetStore';
-import { SettingsStore } from '../../storage/SettingsStore';
+import { SHARED_RUNTIME_CONTROLLER } from '../runtime/RuntimeController';
 
+export interface AssetDownloadProxyPlan {
+  proxyPort: number;
+}
 
 export function buildAssetDownloadProxyPorts(proxyPort: number): Array<number> {
   if (!isValidAssetDownloadProxyPort(proxyPort)) {
     return [0];
   }
-  return [Math.floor(proxyPort), 0];
+  return [Math.floor(proxyPort)];
 }
 
-export function resolveAssetDownloadProxyPort(mode: string | undefined): number {
-  return isProxyOnlyRuntimeMode(mode) ? LOCAL_HTTP_PROXY_PORT : VPN_INTERNAL_HTTP_PROXY_PORT;
+export function resolveAssetDownloadProxyPlan(
+  mode: string | undefined,
+  runtimeMayOwnNetwork: boolean
+): AssetDownloadProxyPlan {
+  if (!runtimeMayOwnNetwork) {
+    return { proxyPort: 0 };
+  }
+  return {
+    proxyPort: isProxyOnlyRuntimeMode(mode) ? LOCAL_HTTP_PROXY_PORT : VPN_INTERNAL_HTTP_PROXY_PORT
+  };
 }
 
 export interface BuiltinGeoUpdateResult {
@@ -129,8 +140,8 @@ export class AssetsController {
 
   private async performBuiltinGeoUpdate(context: common.Context): Promise<BuiltinGeoUpdateResult> {
     this.recoverInterruptedBuiltinGeoUpdate(context);
-    const proxyPort = await this.resolveDownloadProxyPort(context);
-    const releaseText = await this.requestTextWithFallback(DEFAULT_GEO_RELEASE_API, proxyPort);
+    const proxyPlan = this.resolveDownloadProxyPlan();
+    const releaseText = await this.requestText(DEFAULT_GEO_RELEASE_API, proxyPlan);
     const parsed = parseDefaultGeoRelease(releaseText);
     if (!parsed.ok || parsed.manifest === null) {
       throw new Error(parsed.message.length > 0 ? parsed.message : 'invalid release metadata');
@@ -145,7 +156,7 @@ export class AssetsController {
     try {
       for (let index = 0; index < manifest.files.length; index++) {
         const releaseFile = manifest.files[index];
-        const checksumText = await this.requestTextWithFallback(releaseFile.checksumUrl, proxyPort);
+        const checksumText = await this.requestText(releaseFile.checksumUrl, proxyPlan);
         const expectedSha256 = parseSha256Checksum(checksumText);
         if (expectedSha256.length !== 64) {
           throw new Error(`${releaseFile.fileName}: invalid SHA-256 checksum`);
@@ -159,7 +170,7 @@ export class AssetsController {
           continue;
         }
 
-        const data = await this.requestDataWithFallback(releaseFile.downloadUrl, proxyPort);
+        const data = await this.requestData(releaseFile.downloadUrl, proxyPlan);
         if (!isPlausibleGeoData(data, releaseFile.declaredSize)) {
           throw new Error(`${releaseFile.fileName}: downloaded data failed size or format validation`);
         }
@@ -268,11 +279,11 @@ export class AssetsController {
 
     try {
       onStart();
-      const proxyPort = await this.resolveDownloadProxyPort(context);
+      const proxyPlan = this.resolveDownloadProxyPlan();
       promptAction.showToast({ message: this.t(language, 'assets.downloading').replace('{title}', fileName) });
       // 内置文件的高级 URL 与自定义 .dat 使用同一条校验路径：远端必须在
       // 数据文件旁提供 `${url}.sha256sum`，任何失败都不会覆盖现有文件。
-      await this.downloadVerifiedGeoWithFallback(fileName, url, tempPath, targetPath, proxyPort);
+      await this.downloadVerifiedGeo(fileName, url, tempPath, targetPath, proxyPlan);
       promptAction.showToast({ message: this.t(language, 'assets.downloadSuccess').replace('{title}', fileName) });
       onSuccess();
     } catch (error) {
@@ -311,7 +322,7 @@ export class AssetsController {
     this.assetMutationRunning = true;
     try {
       promptAction.showToast({ message: this.t(language, 'assets.updatingAll') });
-      const proxyPort = await this.resolveDownloadProxyPort(context);
+      const proxyPlan = this.resolveDownloadProxyPlan();
 
       let total = 0;
       let success = 0;
@@ -323,7 +334,7 @@ export class AssetsController {
         }
         onProgress(asset.name);
         total++;
-        if (await this.performDownload(context, `${asset.name}.dat`, asset.url.trim(), proxyPort)) {
+        if (await this.performDownload(context, `${asset.name}.dat`, asset.url.trim(), proxyPlan)) {
           success++;
         }
       }
@@ -351,11 +362,16 @@ export class AssetsController {
     return lower.startsWith('http://') || lower.startsWith('https://');
   }
 
-  private async performDownload(context: common.Context, fileName: string, url: string, proxyPort: number): Promise<boolean> {
+  private async performDownload(
+    context: common.Context,
+    fileName: string,
+    url: string,
+    proxyPlan: AssetDownloadProxyPlan
+  ): Promise<boolean> {
     const tempPath = `${context.filesDir}/${fileName}.tmp`;
     const targetPath = `${context.filesDir}/${fileName}`;
     try {
-      await this.downloadVerifiedGeoWithFallback(fileName, url, tempPath, targetPath, proxyPort);
+      await this.downloadVerifiedGeo(fileName, url, tempPath, targetPath, proxyPlan);
       return true;
     } catch (error) {
       try {
@@ -367,30 +383,27 @@ export class AssetsController {
     return false;
   }
 
-  private async resolveDownloadProxyPort(context: common.Context): Promise<number> {
-    try {
-      const settings = await SettingsStore.load(context);
-      // 本地代理模式使用对用户开放的回环 HTTP 入口；VPN 模式使用独立内部入口。
-      // 两者若未运行，请求层都会回退直连，未连接时仍可正常更新公开 Geo 文件。
-      return resolveAssetDownloadProxyPort(settings.mode);
-    } catch (error) {
-      return 0;
-    }
+  private resolveDownloadProxyPlan(): AssetDownloadProxyPlan {
+    const runtime = SHARED_RUNTIME_CONTROLLER.snapshot();
+    // 必须使用当前会话的实际模式，而不是可能已保存、尚待重启才生效的新设置。
+    // 已连接时代理入口失败就保留旧文件并报错，不能让被排除在 TUN 外的 Hey 静默直连泄漏。
+    // STARTING/STOPPING/ERROR 也按可能仍持有底层网络处理，只有明确 IDLE 才允许直连。
+    return resolveAssetDownloadProxyPlan(runtime.runtimeMode, runtime.status !== ConnectionStatus.IDLE);
   }
 
-  private async downloadVerifiedGeoWithFallback(
+  private async downloadVerifiedGeo(
     fileName: string,
     url: string,
     tempPath: string,
     targetPath: string,
-    proxyPort: number
+    proxyPlan: AssetDownloadProxyPlan
   ): Promise<void> {
-    const checksumText = await this.requestTextWithFallback(`${url}.sha256sum`, proxyPort);
+    const checksumText = await this.requestText(`${url}.sha256sum`, proxyPlan);
     const expectedSha256 = parseSha256Checksum(checksumText);
     if (expectedSha256.length !== 64) {
       throw new Error(`${fileName}: invalid SHA-256 checksum`);
     }
-    const data = await this.requestDataWithFallback(url, proxyPort);
+    const data = await this.requestData(url, proxyPlan);
     if (!isPlausibleGeoData(data)) {
       throw new Error(`${fileName}: downloaded data failed size or format validation`);
     }
@@ -401,8 +414,8 @@ export class AssetsController {
     this.writeAssetData(tempPath, targetPath, data);
   }
 
-  private async requestTextWithFallback(url: string, proxyPort: number): Promise<string> {
-    const ports = buildAssetDownloadProxyPorts(proxyPort);
+  private async requestText(url: string, proxyPlan: AssetDownloadProxyPlan): Promise<string> {
+    const ports = buildAssetDownloadProxyPorts(proxyPlan.proxyPort);
     let lastError = '';
     for (let index = 0; index < ports.length; index++) {
       try {
@@ -414,8 +427,8 @@ export class AssetsController {
     throw new Error(lastError.length > 0 ? lastError : 'request failed');
   }
 
-  private async requestDataWithFallback(url: string, proxyPort: number): Promise<ArrayBuffer> {
-    const ports = buildAssetDownloadProxyPorts(proxyPort);
+  private async requestData(url: string, proxyPlan: AssetDownloadProxyPlan): Promise<ArrayBuffer> {
+    const ports = buildAssetDownloadProxyPorts(proxyPlan.proxyPort);
     let lastError = '';
     for (let index = 0; index < ports.length; index++) {
       try {

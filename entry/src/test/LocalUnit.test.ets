@@ -57,7 +57,7 @@ import { parseCoreLog } from '../main/ets/services/CoreLogReader';
 import { isRuntimeHealthPort } from '../main/ets/services/RuntimeHealthProbe';
 import { wasNetSceneStoppedAfter } from '../main/ets/services/NetSceneStopFlag';
 import { PersistedVpnRuntimeState, VPN_RUNTIME_HEARTBEAT_STALE_MS, isPersistedVpnRuntimeHealthy, parsePersistedVpnRuntimeState, selectPersistedVpnRuntimeState } from '../main/ets/services/VpnRuntimeStateStore';
-import { buildAssetDownloadProxyPorts, resolveAssetDownloadProxyPort } from '../main/ets/features/assets/AssetsController';
+import { buildAssetDownloadProxyPorts, resolveAssetDownloadProxyPlan } from '../main/ets/features/assets/AssetsController';
 import {
   applyDelayTestPostActionsToGroups,
   buildNodeExportModel,
@@ -2194,17 +2194,22 @@ export default function localUnitTest() {
       expect(resolveStandaloneAssetRecoveryAction(true, false)).assertEqual('keep');
     });
 
-    it('tries asset downloads through local HTTP proxy before direct fallback', 0, () => {
-      const proxied = buildAssetDownloadProxyPorts(LOCAL_HTTP_PROXY_PORT);
-      expect(proxied.length).assertEqual(2);
-      expect(proxied[0]).assertEqual(LOCAL_HTTP_PROXY_PORT);
-      expect(proxied[1]).assertEqual(0);
+    it('never falls back to direct asset download while a proxy runtime is active', 0, () => {
+      const vpnPlan = resolveAssetDownloadProxyPlan(APP_MODE_VPN, true);
+      expect(vpnPlan.proxyPort).assertEqual(VPN_INTERNAL_HTTP_PROXY_PORT);
+      const vpnPorts = buildAssetDownloadProxyPorts(vpnPlan.proxyPort);
+      expect(vpnPorts.length).assertEqual(1);
+      expect(vpnPorts[0]).assertEqual(VPN_INTERNAL_HTTP_PROXY_PORT);
 
-      expect(buildAssetDownloadProxyPorts(0).length).assertEqual(1);
+      const localPlan = resolveAssetDownloadProxyPlan(APP_MODE_PROXY_ONLY, true);
+      expect(localPlan.proxyPort).assertEqual(LOCAL_HTTP_PROXY_PORT);
+      expect(buildAssetDownloadProxyPorts(localPlan.proxyPort).length).assertEqual(1);
+
+      const stoppedPlan = resolveAssetDownloadProxyPlan(APP_MODE_VPN, false);
+      expect(stoppedPlan.proxyPort).assertEqual(0);
+      expect(buildAssetDownloadProxyPorts(stoppedPlan.proxyPort)[0]).assertEqual(0);
       expect(buildAssetDownloadProxyPorts(-1)[0]).assertEqual(0);
       expect(buildAssetDownloadProxyPorts(70000)[0]).assertEqual(0);
-      expect(resolveAssetDownloadProxyPort(APP_MODE_VPN)).assertEqual(VPN_INTERNAL_HTTP_PROXY_PORT);
-      expect(resolveAssetDownloadProxyPort(APP_MODE_PROXY_ONLY)).assertEqual(LOCAL_HTTP_PROXY_PORT);
     });
 
     it('normalizes scanned asset URL payloads for QR import', 0, () => {
