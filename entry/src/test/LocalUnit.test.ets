@@ -1,6 +1,6 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { buildPolicyGroupConfigFromNodes, buildPolicyGroupConfigFromSubscription, buildProxyChainConfigFromNodes, isAdvancedOutboundBuildableNode, normalizePolicyGroupBuilderStrategy, parseAdvancedOutboundEditState, resolveDynamicPolicyGroupConfigJson } from '../main/ets/core/AdvancedOutboundBuilder';
-import { CONTROL_CARD_FORM_NAME, CONTROL_CARD_SCAN_URI, CONTROL_CARD_START_URI, CONTROL_CARD_STOP_URI, CONTROL_CARD_TOGGLE_URI, buildControlCardFormData } from '../main/ets/core/ControlCard';
+import { CONTROL_CARD_FORM_NAME, CONTROL_CARD_SCAN_URI, CONTROL_CARD_START_URI, CONTROL_CARD_STOP_URI, CONTROL_CARD_TOGGLE_URI, ControlCardFormData, buildControlCardFormData, normalizeControlCardFormData } from '../main/ets/core/ControlCard';
 import { DNS_DIRECT, DNS_PROXY, isCoreDnsAddress, isPureIpAddress, normalizeDnsServers } from '../main/ets/core/DnsAddresses';
 import { redactDiagnosticText } from '../main/ets/core/DiagnosticRedaction';
 import { AssetNameEntry, hasDuplicateAssetName, isEditableCustomAssetUrl, isSafeCustomAssetName, normalizeScannedAssetUrl } from '../main/ets/core/AssetUrls';
@@ -4175,6 +4175,11 @@ export default function localUnitTest() {
       expect(running.primaryActionUri).assertEqual(CONTROL_CARD_STOP_URI);
       expect(running.primaryActionLabel).assertEqual('Stop');
       expect(running.vpnBacked).assertTrue();
+
+      const legacyRunning = normalizeControlCardFormData(
+        JSON.parse('{"primaryActionUri":"hey://stop"}') as ControlCardFormData
+      );
+      expect(legacyRunning.vpnBacked).assertTrue();
 
       const errored = buildControlCardFormData('en', ConnectionStatus.ERROR, '', 'bad config');
       expect(errored.statusLabel).assertEqual('Error');
