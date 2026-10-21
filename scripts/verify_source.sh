@@ -2015,10 +2015,17 @@ const diagnosticFindAt = connection.indexOf('  private async findDiagnosticEvent
 const startWait = connection.slice(startWaitAt, cleanupWaitAt);
 const cleanupWait = connection.slice(cleanupWaitAt, diagnosticFindAt);
 if (startWaitAt < 0 || cleanupWaitAt < 0 || diagnosticFindAt < 0 ||
-  startWait.split('VpnRuntimeStateStore.readWithEvidence(context)').length - 1 < 2 ||
-  cleanupWait.split('VpnRuntimeStateStore.readWithEvidence(context)').length - 1 < 2 ||
-  startWait.split('persistedRead.authoritativeArtifactInvalid').length - 1 < 2 ||
-  cleanupWait.split('persistedRead.authoritativeArtifactInvalid').length - 1 < 2 ||
+  startWait.split('VpnRuntimeStateStore.readWithEvidence(context)').length - 1 < 1 ||
+  cleanupWait.split('VpnRuntimeStateStore.readWithEvidence(context)').length - 1 < 1 ||
+  startWait.split('persistedRead.authoritativeArtifactInvalid').length - 1 < 1 ||
+  cleanupWait.split('persistedRead.authoritativeArtifactInvalid').length - 1 < 1 ||
+  !connection.includes('export function boundedDiagnosticPollIntervals(') ||
+  !startWait.includes('boundedDiagnosticPollIntervals(') ||
+  !cleanupWait.includes('boundedDiagnosticPollIntervals(') ||
+  startWait.includes('Date.now() + START_VPN_READY_TIMEOUT_MS') ||
+  cleanupWait.includes('Date.now() + STOP_VPN_CLEANUP_TIMEOUT_MS') ||
+  startWait.includes('findDiagnosticEvent(context, requestedAt') ||
+  cleanupWait.includes('findDiagnosticEvent(context, requestedAt') ||
   startWait.includes('VpnRuntimeStateStore.read(context)') ||
   cleanupWait.includes('VpnRuntimeStateStore.read(context)')) {
   throw new Error('VPN start/stop confirmation can trust a fallback state behind an untrusted artifact');

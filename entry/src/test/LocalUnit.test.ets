@@ -62,6 +62,7 @@ import { BROWSER_DIALER_MODE_OPTIONS, CORE_LOG_LEVEL_OPTIONS, DEFAULT_BROWSER_DI
 import { countLogLevels, filterLogEntries, filterLogItems, formatLogcatText, formatLogEntriesText } from '../main/ets/features/logs/LogOperations';
 import { LogEntry, logLevelLabel, normalizeLogLevel } from '../main/ets/features/logs/LogModel';
 import { parseCoreLog } from '../main/ets/services/CoreLogReader';
+import { boundedDiagnosticPollIntervals } from '../main/ets/services/ConnectionController';
 import { nativeDelayFailureStatus } from '../main/ets/services/DelayTester';
 import { isRuntimeHealthPort } from '../main/ets/services/RuntimeHealthProbe';
 import { parseNetSceneStopRecord, parseNetSceneStopTimestamp, selectNetSceneStopRecord, selectNetSceneStopTimestamp, wasNetSceneStoppedAfter, wasNetSceneStoppedForSession } from '../main/ets/services/NetSceneStopFlag';
@@ -3506,13 +3507,23 @@ export default function localUnitTest() {
       };
       expect(isPersistedVpnRuntimeSessionReady(state, 'session-new', 1000, 1003)).assertTrue();
       expect(isPersistedVpnRuntimeSessionReady(state, 'session-old', 1000, 1003)).assertFalse();
-      expect(isPersistedVpnRuntimeSessionReady(state, 'session-new', 1002, 1003)).assertFalse();
+      // Exact unique session identity remains valid if wall time moved backwards after request.
+      expect(isPersistedVpnRuntimeSessionReady(state, 'session-new', 2000, 1003)).assertTrue();
       state.active = false;
       expect(isPersistedVpnRuntimeSessionReady(state, 'session-new', 1000, 1003)).assertFalse();
       state.active = true;
       state.tunRunning = false;
       expect(isPersistedVpnRuntimeSessionReady(state, 'session-new', 1000, 1003)).assertFalse();
       expect(isPersistedVpnRuntimeSessionReady(null, 'session-new', 1000, 1003)).assertFalse();
+    });
+
+    it('bounds VPN diagnostic polling without wall-clock deadlines', 0, () => {
+      expect(boundedDiagnosticPollIntervals(25000, 250)).assertEqual(100);
+      expect(boundedDiagnosticPollIntervals(1, 250)).assertEqual(1);
+      expect(boundedDiagnosticPollIntervals(0, 250)).assertEqual(0);
+      expect(boundedDiagnosticPollIntervals(-1, 250)).assertEqual(0);
+      expect(boundedDiagnosticPollIntervals(1000, 0)).assertEqual(0);
+      expect(boundedDiagnosticPollIntervals(Number.NaN, 250)).assertEqual(0);
     });
 
     it('accepts persisted VPN stop only after the matching cleanup completed', 0, () => {

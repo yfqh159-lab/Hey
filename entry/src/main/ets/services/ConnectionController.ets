@@ -39,6 +39,14 @@ const VPN_START_FAILED_MESSAGE: string = 'VPN start failed.';
 const VPN_CLEANUP_FINISHED_MESSAGE: string = 'VPN cleanup finished.';
 const VPN_CLEANUP_INCOMPLETE_MESSAGE: string = 'VPN cleanup incomplete.';
 
+export function boundedDiagnosticPollIntervals(timeoutMs: number, intervalMs: number): number {
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 0 ||
+    !Number.isFinite(intervalMs) || intervalMs <= 0) {
+    return 0;
+  }
+  return Math.ceil(timeoutMs / intervalMs);
+}
+
 export interface ConnectionSnapshot {
   status: ConnectionStatus;
   startedAt: number;
@@ -803,15 +811,17 @@ export class ConnectionController {
     timeoutMs: number,
     predicate: (event: DiagnosticEvent) => boolean
   ): Promise<DiagnosticEvent | null> {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() <= deadline) {
+    const intervals = boundedDiagnosticPollIntervals(timeoutMs, DIAGNOSTIC_POLL_INTERVAL_MS);
+    for (let attempt = 0; attempt <= intervals; attempt++) {
       const event = await this.findDiagnosticEvent(context, since, predicate);
       if (event !== null) {
         return event;
       }
-      await this.sleep(DIAGNOSTIC_POLL_INTERVAL_MS);
+      if (attempt < intervals) {
+        await this.sleep(DIAGNOSTIC_POLL_INTERVAL_MS);
+      }
     }
-    return this.findDiagnosticEvent(context, since, predicate);
+    return null;
   }
 
   private async waitForVpnStartEvent(
@@ -820,9 +830,12 @@ export class ConnectionController {
     sessionId: string,
     predicate: (event: DiagnosticEvent) => boolean
   ): Promise<DiagnosticEvent | null> {
-    const deadline = Date.now() + START_VPN_READY_TIMEOUT_MS;
-    while (Date.now() <= deadline) {
-      const event = await this.findDiagnosticEvent(context, requestedAt, predicate);
+    const intervals = boundedDiagnosticPollIntervals(
+      START_VPN_READY_TIMEOUT_MS, DIAGNOSTIC_POLL_INTERVAL_MS);
+    for (let attempt = 0; attempt <= intervals; attempt++) {
+      // The predicate requires this unique session ID, so wall-clock ordering is neither needed
+      // nor safe when automatic time correction moves Date.now() backwards during startup.
+      const event = await this.findDiagnosticEvent(context, 0, predicate);
       if (event !== null) {
         // A session-matched terminal failure remains authoritative even if an
         // older active snapshot is still awaiting cleanup.
@@ -843,37 +856,22 @@ export class ConnectionController {
           details: `session=${sessionId}; confirmation=runtime-state`
         };
       }
-      await this.sleep(DIAGNOSTIC_POLL_INTERVAL_MS);
+      if (attempt < intervals) {
+        await this.sleep(DIAGNOSTIC_POLL_INTERVAL_MS);
+      }
     }
-
-    const event = await this.findDiagnosticEvent(context, requestedAt, predicate);
-    if (event !== null) {
-      return event;
-    }
-    const persistedRead = VpnRuntimeStateStore.readWithEvidence(context);
-    const persisted = persistedRead.state;
-    const now = Date.now();
-    if (persistedRead.authoritativeArtifactInvalid ||
-      !isPersistedVpnRuntimeSessionReady(persisted, sessionId, requestedAt, now)) {
-      return null;
-    }
-    return {
-      at: persisted?.heartbeatAt ?? now,
-      level: 'info',
-      source: 'vpn',
-      message: VPN_STARTED_MESSAGE,
-      details: `session=${sessionId}; confirmation=runtime-state`
-    };
+    return null;
   }
 
   private async waitForVpnCleanupEvent(
     context: common.Context,
-    requestedAt: number,
+    _requestedAt: number,
     sessionId: string
   ): Promise<DiagnosticEvent | null> {
-    const deadline = Date.now() + STOP_VPN_CLEANUP_TIMEOUT_MS;
-    while (Date.now() <= deadline) {
-      const event = await this.findDiagnosticEvent(context, requestedAt, (candidate: DiagnosticEvent) => {
+    const intervals = boundedDiagnosticPollIntervals(
+      STOP_VPN_CLEANUP_TIMEOUT_MS, DIAGNOSTIC_POLL_INTERVAL_MS);
+    for (let attempt = 0; attempt <= intervals; attempt++) {
+      const event = await this.findDiagnosticEvent(context, 0, (candidate: DiagnosticEvent) => {
         return candidate.source === 'vpn' && this.matchesVpnSession(candidate, sessionId) &&
           (candidate.message === VPN_CLEANUP_FINISHED_MESSAGE ||
             candidate.message === VPN_CLEANUP_INCOMPLETE_MESSAGE);
@@ -894,29 +892,11 @@ export class ConnectionController {
           details: `session=${sessionId}; confirmation=runtime-state`
         };
       }
-      await this.sleep(DIAGNOSTIC_POLL_INTERVAL_MS);
+      if (attempt < intervals) {
+        await this.sleep(DIAGNOSTIC_POLL_INTERVAL_MS);
+      }
     }
-    const event = await this.findDiagnosticEvent(context, requestedAt, (candidate: DiagnosticEvent) => {
-      return candidate.source === 'vpn' && this.matchesVpnSession(candidate, sessionId) &&
-        (candidate.message === VPN_CLEANUP_FINISHED_MESSAGE ||
-          candidate.message === VPN_CLEANUP_INCOMPLETE_MESSAGE);
-    });
-    if (event !== null) {
-      return event;
-    }
-    const persistedRead = VpnRuntimeStateStore.readWithEvidence(context);
-    const persisted = persistedRead.state;
-    if (persistedRead.authoritativeArtifactInvalid ||
-      !isPersistedVpnRuntimeSessionStopped(persisted, sessionId)) {
-      return null;
-    }
-    return {
-      at: persisted?.heartbeatAt ?? Date.now(),
-      level: 'info',
-      source: 'vpn',
-      message: VPN_CLEANUP_FINISHED_MESSAGE,
-      details: `session=${sessionId}; confirmation=runtime-state`
-    };
+    return null;
   }
 
   private async findDiagnosticEvent(

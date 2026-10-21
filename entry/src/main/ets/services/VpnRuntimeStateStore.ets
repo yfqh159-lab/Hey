@@ -103,7 +103,10 @@ export function isPersistedVpnRuntimeSessionReady(
   now: number
 ): boolean {
   return state !== null && expectedSessionId.length > 0 && state.sessionId === expectedSessionId &&
-    Number.isFinite(requestedAt) && requestedAt > 0 && state.startedAt >= requestedAt &&
+    // Exact session identity is authoritative. Wall time can move backwards between the UI
+    // request and Extension startup, so ordering startedAt against requestedAt would reject a
+    // genuinely healthy instance of this unique session.
+    Number.isFinite(requestedAt) && requestedAt > 0 &&
     isPersistedVpnRuntimeHealthy(state, now);
 }
 
