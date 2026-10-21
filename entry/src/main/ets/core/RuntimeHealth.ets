@@ -46,7 +46,8 @@ export function shouldApplyVpnDiagnosticError(
   eventLevel: string,
   eventSource: string
 ): boolean {
-  const active = status === ConnectionStatus.RUNNING || status === ConnectionStatus.STARTING;
-  return normalizeAppRuntimeMode(mode) === APP_MODE_VPN && active && startedAt > 0 &&
+  // STARTING 的错误由 ConnectionController.start() 自己消费并回滚；刷新定时器不能
+  // 同时进入停止流程，否则会与尚未返回的启动协程争用状态。
+  return normalizeAppRuntimeMode(mode) === APP_MODE_VPN && status === ConnectionStatus.RUNNING && startedAt > 0 &&
     eventAt >= startedAt && eventLevel === 'error' && eventSource === 'vpn';
 }

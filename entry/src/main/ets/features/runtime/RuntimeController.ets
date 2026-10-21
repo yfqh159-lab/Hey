@@ -571,7 +571,7 @@ export class RuntimeController {
       if (healthLost) {
         await this.cleanupUnhealthyVpn(context, language);
       }
-      this.applyDiagnosticError(events, language);
+      await this.applyDiagnosticError(context, events, language);
     } catch (error) {
       // 诊断解析失败绝不能让 refresh 整体抛出——否则页面收不到 snapshot，日志面板会全空。
       console.error(`Diagnostic refresh failed: ${JSON.stringify(error)}`);
@@ -605,8 +605,12 @@ export class RuntimeController {
 
   // 心跳已经明确证明数据面不完整时，先清理残留 VPN，再保留错误态等待用户主动重连。
   // 不在此处调用 start，确保手动断开/异常断开之后都不会自行恢复。
-  private async cleanupUnhealthyVpn(context: common.Context, language: AppLanguage): Promise<void> {
-    const message = translate(language, 'runtime.vpnHealthLost');
+  private async cleanupUnhealthyVpn(
+    context: common.Context,
+    language: AppLanguage,
+    reason?: string
+  ): Promise<void> {
+    const message = reason ?? translate(language, 'runtime.vpnHealthLost');
     await this.controller.stop(context);
     this.status = ConnectionStatus.ERROR;
     this.startedAt = 0;
@@ -678,7 +682,11 @@ export class RuntimeController {
     this.proxyUnhealthySampleCount = 0;
   }
 
-  private applyDiagnosticError(events: Array<DiagnosticEvent>, language: AppLanguage): void {
+  private async applyDiagnosticError(
+    context: common.Context,
+    events: Array<DiagnosticEvent>,
+    language: AppLanguage
+  ): Promise<void> {
     if (events.length === 0) {
       return;
     }
@@ -694,8 +702,9 @@ export class RuntimeController {
       return;
     }
     const message = event.details !== undefined && event.details.length > 0 ? `${event.message} ${event.details}` : event.message;
-    this.lastError = localizeCoreMessage(language, message);
-    this.status = ConnectionStatus.ERROR;
+    // Extension 的 error 均发生在启动失败或清理路径。不能只改 UI 状态而把底层
+    // ConnectionController 留在 RUNNING，否则下一次手动连接会被误判为已经运行。
+    await this.cleanupUnhealthyVpn(context, language, localizeCoreMessage(language, message));
   }
 }
 

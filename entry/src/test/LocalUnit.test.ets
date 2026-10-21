@@ -2691,7 +2691,7 @@ export default function localUnitTest() {
       expect(shouldApplyVpnDiagnosticError(
         APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 101, 'error', 'vpn')).assertTrue();
       expect(shouldApplyVpnDiagnosticError(
-        APP_MODE_VPN, ConnectionStatus.STARTING, 100, 100, 'error', 'vpn')).assertTrue();
+        APP_MODE_VPN, ConnectionStatus.STARTING, 100, 100, 'error', 'vpn')).assertFalse();
       expect(shouldApplyVpnDiagnosticError(
         APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 99, 'error', 'vpn')).assertFalse();
       expect(shouldApplyVpnDiagnosticError(
