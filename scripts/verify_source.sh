@@ -2234,6 +2234,38 @@ printf 'late system VPN start cancellation verification passed\n'
 node <<'NODE'
 const fs = require('fs');
 const vpn = fs.readFileSync('entry/src/main/ets/vpn/HeyVpnAbility.ets', 'utf8');
+const helperAt = vpn.indexOf('  private requestCleanupWithoutRestart(');
+const helperEnd = vpn.indexOf('\n  private async cleanup()', helperAt);
+const helper = vpn.slice(helperAt, helperEnd);
+const onRequestAt = vpn.indexOf('  onRequest(want: Want, startId: number): void');
+const onDestroyAt = vpn.indexOf('\n  onDestroy(): void', onRequestAt);
+const onRequest = vpn.slice(onRequestAt, onDestroyAt);
+const terminalMessages = [
+  "'Network scene auto-disconnect.'",
+  "'Network handover recovery failed; cleaning up without reconnecting.'",
+  "'Unpersisted VPN runtime cleanup requested.'",
+  "'Unhealthy VPN runtime cleanup requested.'"
+];
+if (!vpn.includes('private restartFenceReliable: boolean = true;') ||
+  !vpn.includes('this.restartFenceReliable = true;') ||
+  helperAt < 0 || helperEnd < 0 ||
+  !helper.includes('VpnStartCancellationStore.check(this.context, this.sessionId)') ||
+  !helper.includes('VpnStartCancellationStore.markCancelled(this.context, this.sessionId)') ||
+  !helper.includes('this.restartFenceReliable = this.persistRestartFence();') ||
+  !onRequest.includes('this.restartFenceReliable = this.persistRestartFence();') ||
+  !vpn.includes('!this.vpnCreateInFlight && this.restartFenceReliable') ||
+  terminalMessages.some(message =>
+    !vpn.includes(`this.requestCleanupWithoutRestart(\n            ${message}`) &&
+    !vpn.includes(`this.requestCleanupWithoutRestart(\n          ${message}`) &&
+    !vpn.includes(`this.requestCleanupWithoutRestart(\n      ${message}`))) {
+  throw new Error('self-terminated VPN sessions can be redelivered without a durable restart fence');
+}
+NODE
+printf 'self-terminated VPN restart fence verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
+const vpn = fs.readFileSync('entry/src/main/ets/vpn/HeyVpnAbility.ets', 'utf8');
 const onRequestAt = vpn.indexOf('  onRequest(want: Want, startId: number): void');
 const onDestroyAt = vpn.indexOf('\n  onDestroy(): void', onRequestAt);
 const onRequest = vpn.slice(onRequestAt, onDestroyAt);
@@ -2268,8 +2300,8 @@ if (!vpn.includes('private ensureStartAllowed(stage: string, sessionGeneration: 
 const cleanupAt = vpn.indexOf('  private async cleanup(): Promise<void>');
 const cleanupEnd = vpn.indexOf('\n  private async cancelSpeedNotificationSafely', cleanupAt);
 const cleanup = vpn.slice(cleanupAt, cleanupEnd);
-if (!cleanup.includes('&& !this.vpnCreateInFlight;') ||
-  !cleanup.includes('createPending=${this.vpnCreateInFlight}')) {
+if (!cleanup.includes('!this.vpnCreateInFlight && this.restartFenceReliable;') ||
+  !cleanup.includes('createPending=${this.vpnCreateInFlight}; restartFence=${this.restartFenceReliable}')) {
   throw new Error('VPN cleanup may attest completion while system TUN creation is still pending');
 }
 const pendingStartAt = vpn.indexOf('  private startPendingSessionIfReady(): void');
@@ -2336,7 +2368,7 @@ if (uiDecisionAt < 0 || uiConfirmAt < uiDecisionAt || uiDisconnectAt < uiConfirm
 
 const vpnDecisionAt = vpn.indexOf('if (action === NET_ACTION_DISCONNECT) {');
 const vpnConfirmAt = vpn.indexOf('await this.confirmNetSceneDisconnect(ctx, sessionGeneration);', vpnDecisionAt);
-const vpnCleanupAt = vpn.indexOf("this.requestCleanup('Network scene auto-disconnect.'", vpnDecisionAt);
+const vpnCleanupAt = vpn.indexOf("this.requestCleanupWithoutRestart(\n            'Network scene auto-disconnect.'", vpnDecisionAt);
 if (vpnDecisionAt < 0 || vpnConfirmAt < vpnDecisionAt || vpnCleanupAt < vpnConfirmAt ||
   !vpn.includes("'Network auto-disconnect confirmation timed out.'") ||
   !vpn.includes('sessionGeneration !== this.sessionGeneration || this.cleaningUp || this.stopRequested') ||
@@ -2378,7 +2410,7 @@ const decisionAt = vpn.indexOf('if (action === NET_ACTION_DISCONNECT) {');
 const decisionEnd = vpn.indexOf('\n      if (transportChanged', decisionAt);
 const decision = vpn.slice(decisionAt, decisionEnd);
 const timestampAt = decision.indexOf('const stoppedAt = Date.now();');
-const cleanupAt = decision.indexOf("this.requestCleanup('Network scene auto-disconnect.'");
+const cleanupAt = decision.indexOf("this.requestCleanupWithoutRestart(\n            'Network scene auto-disconnect.'");
 const flagAt = decision.indexOf('await NetSceneStopFlag.markStopped(this.context, stoppedAt, this.sessionId);');
 if (decisionAt < 0 || decisionEnd < 0 || timestampAt < 0 || cleanupAt < timestampAt ||
   flagAt < cleanupAt) {

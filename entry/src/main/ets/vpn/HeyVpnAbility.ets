@@ -144,6 +144,9 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   private destroying: boolean = false;
   private sessionGeneration: number = 0;
   private vpnCreateInFlight: boolean = false;
+  // 自身判定必须终止且等待用户手动重连时，原启动 Want 必须先进入跨进程取消集。
+  // 标志落盘失败则本轮清理不能宣称完整，避免系统重投递旧 Want 后静默复活 TUN。
+  private restartFenceReliable: boolean = true;
   // 外层轮询超时不能取消 ArkData Promise。永久 pending 时后续 5 秒轮询复用同一
   // 底层读取，避免后台会话不断向 SettingsStore 串行队列追加任务。
   private settingsLoadInFlight: Promise<AppSettings> | null = null;
@@ -177,6 +180,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     this.netSceneTransportSignature = '';
     this.netSceneSeeded = false;
     this.netScenePollInFlight = false;
+    this.restartFenceReliable = true;
     const cancellation = VpnStartCancellationStore.check(this.context, this.sessionId);
     if (!cancellation.reliable || cancellation.cancelled) {
       const reason = cancellation.cancelled ? 'the start session was cancelled' :
@@ -202,6 +206,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     }
     this.emitInfo('VPN ability created.', `session=${this.sessionId}`);
     if (this.isStopCommand(want)) {
+      this.restartFenceReliable = this.persistRestartFence();
       this.requestCleanup('VPN stop command received on create.', 'startId=0');
       return;
     }
@@ -221,6 +226,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
           `session=${this.sessionId}; targetSession=${targetSessionId}; startId=${startId}`);
         return;
       }
+      this.restartFenceReliable = this.persistRestartFence();
       this.pendingStartWant = null;
       this.requestCleanup('VPN stop command received.', `startId=${startId}`);
       return;
@@ -578,7 +584,8 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
           // 实际数据面清理优先于辅助 UI 标志。cleanup() 在首个系统 destroy await 前已
           // 同步置停止闩锁、写 inactive 并停止核心/tun2socks；即使文件系统写标志卡顿，
           // 也不能继续让代理承载流量。时间戳取触发时刻，迟到落盘不会命中新会话。
-          this.requestCleanup('Network scene auto-disconnect.', `session=${this.sessionId}`);
+          this.requestCleanupWithoutRestart(
+            'Network scene auto-disconnect.', `session=${this.sessionId}`);
           // 写跨进程标志，供主进程回前台校正「运行中」滞留状态。
           try {
             await NetSceneStopFlag.markStopped(this.context, stoppedAt, this.sessionId);
@@ -659,7 +666,8 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       if (sessionGeneration === this.sessionGeneration && !this.stopRequested && !this.cleaningUp) {
         this.emitError('Core reload after underlying network change failed.',
           `session=${this.sessionId}; error=${this.errorMessage(error)}`);
-        this.requestCleanup('Network handover recovery failed; cleaning up without reconnecting.',
+        this.requestCleanupWithoutRestart(
+          'Network handover recovery failed; cleaning up without reconnecting.',
           `session=${this.sessionId}`);
       }
     } finally {
@@ -768,6 +776,24 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     });
   }
 
+  private requestCleanupWithoutRestart(message: string, details: string): void {
+    this.restartFenceReliable = this.persistRestartFence();
+    this.requestCleanup(message, details);
+  }
+
+  private persistRestartFence(): boolean {
+    const existing = VpnStartCancellationStore.check(this.context, this.sessionId);
+    if (existing.reliable && existing.cancelled) {
+      return true;
+    }
+    const stored = VpnStartCancellationStore.markCancelled(this.context, this.sessionId);
+    if (!stored) {
+      this.emitError('VPN restart cancellation marker could not be persisted.',
+        `session=${this.sessionId}`);
+    }
+    return stored;
+  }
+
   private async cleanup(): Promise<void> {
     this.stopRequested = true;
     if (this.cleaningUp) {
@@ -822,9 +848,10 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         this.tunFd = -1;
         this.runtimeHealthProbePort = 0;
         cleanupCompleted = isVpnCleanupComplete(
-          tun2socksResult.ok, xrayResult.ok, singboxResult.ok, vpnDestroyed) && !this.vpnCreateInFlight;
+          tun2socksResult.ok, xrayResult.ok, singboxResult.ok, vpnDestroyed) &&
+          !this.vpnCreateInFlight && this.restartFenceReliable;
         this.lastCleanupComplete = cleanupCompleted;
-        cleanupDetails = `tun=${tun2socksResult.ok}; xray=${xrayResult.ok}; singbox=${singboxResult.ok}; vpn=${vpnDestroyed}; createPending=${this.vpnCreateInFlight}`;
+        cleanupDetails = `tun=${tun2socksResult.ok}; xray=${xrayResult.ok}; singbox=${singboxResult.ok}; vpn=${vpnDestroyed}; createPending=${this.vpnCreateInFlight}; restartFence=${this.restartFenceReliable}`;
         const controlCardUpdate = this.updateControlCardAfterCleanupSafely(cleanupCompleted);
         // 保持 cleaningUp 闩锁直到附属界面状态也完成（或超时）；期间的重入停止请求只会
         // 设置 cleanupAgainRequested，并由下一轮重新扫描全部原生资源。
@@ -1034,7 +1061,8 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         if (shouldCleanupAfterVpnRuntimeStateWriteFailures(this.runtimeStateWriteFailureCount)) {
           this.emitError('VPN runtime state persistence remained unavailable; cleaning up without reconnecting.',
             `session=${this.sessionId}`);
-          this.requestCleanup('Unpersisted VPN runtime cleanup requested.', `session=${this.sessionId}`);
+          this.requestCleanupWithoutRestart(
+            'Unpersisted VPN runtime cleanup requested.', `session=${this.sessionId}`);
           return;
         }
       }
@@ -1065,7 +1093,8 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     }
     this.emitError('VPN runtime became unhealthy; cleaning up without reconnecting.',
       `session=${this.sessionId}; ${details}`);
-    this.requestCleanup('Unhealthy VPN runtime cleanup requested.', `session=${this.sessionId}`);
+    this.requestCleanupWithoutRestart(
+      'Unhealthy VPN runtime cleanup requested.', `session=${this.sessionId}`);
   }
 
   private persistStoppedRuntimeState(stage: string, cleanupComplete: boolean): boolean {
