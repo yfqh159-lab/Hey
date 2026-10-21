@@ -4202,13 +4202,13 @@ export default function localUnitTest() {
       expect(SubscriptionManager.resolveSubscriptionProxyPort(APP_MODE_VPN, false)).assertEqual(0);
       expect(SubscriptionManager.resolveSubscriptionProxyPort(APP_MODE_PROXY_ONLY, false)).assertEqual(0);
 
-      expect(SubscriptionManager.resolvePersistedSubscriptionProxyPort(true, false, false))
+      expect(SubscriptionManager.resolvePersistedSubscriptionProxyPort(true, APP_MODE_PROXY_ONLY, false))
         .assertEqual(VPN_INTERNAL_HTTP_PROXY_PORT);
-      expect(SubscriptionManager.resolvePersistedSubscriptionProxyPort(false, true, true))
+      expect(SubscriptionManager.resolvePersistedSubscriptionProxyPort(false, APP_MODE_VPN, true))
         .assertEqual(VPN_INTERNAL_HTTP_PROXY_PORT);
-      expect(SubscriptionManager.resolvePersistedSubscriptionProxyPort(false, true, false))
+      expect(SubscriptionManager.resolvePersistedSubscriptionProxyPort(false, APP_MODE_PROXY_ONLY, true))
         .assertEqual(LOCAL_HTTP_PROXY_PORT);
-      expect(SubscriptionManager.resolvePersistedSubscriptionProxyPort(false, false, false)).assertEqual(0);
+      expect(SubscriptionManager.resolvePersistedSubscriptionProxyPort(false, APP_MODE_VPN, false)).assertEqual(0);
     });
 
     it('moves subscription groups without mutating the source list', 0, () => {
@@ -4437,11 +4437,26 @@ export default function localUnitTest() {
       expect(running.primaryActionUri).assertEqual(CONTROL_CARD_STOP_URI);
       expect(running.primaryActionLabel).assertEqual('Stop');
       expect(running.vpnBacked).assertTrue();
+      expect(running.runtimeStatus).assertEqual(ConnectionStatus.RUNNING);
+      expect(running.runtimeMode).assertEqual(APP_MODE_VPN);
+
+      const proxyStarting = buildControlCardFormData(
+        'en', ConnectionStatus.STARTING, '', '', false, APP_MODE_PROXY_ONLY);
+      expect(proxyStarting.runtimeStatus).assertEqual(ConnectionStatus.STARTING);
+      expect(proxyStarting.runtimeMode).assertEqual(APP_MODE_PROXY_ONLY);
 
       const legacyRunning = normalizeControlCardFormData(
         JSON.parse('{"primaryActionUri":"hey://stop"}') as ControlCardFormData
       );
       expect(legacyRunning.vpnBacked).assertTrue();
+      expect(legacyRunning.runtimeStatus).assertEqual(ConnectionStatus.RUNNING);
+      expect(legacyRunning.runtimeMode).assertEqual(APP_MODE_VPN);
+
+      const previousProxyRunning = normalizeControlCardFormData(
+        JSON.parse('{"primaryActionUri":"hey://stop","vpnBacked":false}') as ControlCardFormData
+      );
+      expect(previousProxyRunning.runtimeStatus).assertEqual(ConnectionStatus.RUNNING);
+      expect(previousProxyRunning.runtimeMode).assertEqual(APP_MODE_PROXY_ONLY);
 
       const errored = buildControlCardFormData('en', ConnectionStatus.ERROR, '', 'bad config');
       expect(errored.statusLabel).assertEqual('Error');

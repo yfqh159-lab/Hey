@@ -1,5 +1,12 @@
 import { DEFAULT_LANGUAGE, normalizeLanguage, translate } from './I18n';
-import { AppLanguage, ConnectionStatus } from './Profile';
+import {
+  APP_MODE_PROXY_ONLY,
+  APP_MODE_VPN,
+  AppLanguage,
+  AppRuntimeMode,
+  ConnectionStatus,
+  normalizeAppRuntimeMode
+} from './Profile';
 
 export const CONTROL_CARD_FORM_NAME: string = 'HeyControlCard';
 export const CONTROL_CARD_TOGGLE_URI: string = 'hey://toggle';
@@ -11,6 +18,9 @@ export interface ControlCardFormData {
   language: AppLanguage;
   // 仅用于系统刷新卡片时核对跨进程 VPN 心跳，不在卡片上展示。
   vpnBacked: boolean;
+  // 供系统单独拉起卡片或后台任务时恢复真实模式/过渡态，不在卡片上展示。
+  runtimeStatus: ConnectionStatus;
+  runtimeMode: AppRuntimeMode;
   appName: string;
   subtitle: string;
   toggleUri: string;
@@ -32,7 +42,8 @@ export function buildControlCardFormData(
   status: ConnectionStatus = ConnectionStatus.IDLE,
   elapsedText: string = '',
   lastError: string = '',
-  vpnBacked: boolean = false
+  vpnBacked: boolean = false,
+  runtimeMode: AppRuntimeMode = APP_MODE_VPN
 ): ControlCardFormData {
   const running = status === ConnectionStatus.RUNNING;
   const busy = status === ConnectionStatus.STARTING || status === ConnectionStatus.STOPPING;
@@ -40,6 +51,8 @@ export function buildControlCardFormData(
   return {
     language,
     vpnBacked: running && vpnBacked,
+    runtimeStatus: status,
+    runtimeMode: normalizeAppRuntimeMode(runtimeMode, APP_MODE_VPN),
     appName: 'Hey',
     subtitle: translate(language, 'control.card.subtitle'),
     toggleUri: CONTROL_CARD_TOGGLE_URI,
@@ -63,13 +76,18 @@ export function normalizeControlCardFormData(data: ControlCardFormData | null | 
   }
   const fallback = buildControlCardFormData();
   const primaryActionUri = nonEmpty(data.primaryActionUri, fallback.primaryActionUri);
+  const vpnBacked = typeof data.vpnBacked === 'boolean'
+    ? data.vpnBacked
+    : primaryActionUri === CONTROL_CARD_STOP_URI;
+  const fallbackMode = primaryActionUri === CONTROL_CARD_STOP_URI && !vpnBacked
+    ? APP_MODE_PROXY_ONLY : APP_MODE_VPN;
   return {
     language: normalizeLanguage(data.language),
     // 旧版本没有该字段；若旧卡片的主动作是“停止”，按 VPN 会话处理并要求心跳复核，
     // 宁可纠正为未连接，也不能长期保留一个无法证明的运行状态。
-    vpnBacked: typeof data.vpnBacked === 'boolean'
-      ? data.vpnBacked
-      : primaryActionUri === CONTROL_CARD_STOP_URI,
+    vpnBacked,
+    runtimeStatus: normalizeRuntimeStatus(data.runtimeStatus, primaryActionUri),
+    runtimeMode: normalizeAppRuntimeMode(data.runtimeMode, fallbackMode),
     appName: nonEmpty(data.appName, fallback.appName),
     subtitle: nonEmpty(data.subtitle, fallback.subtitle),
     toggleUri: nonEmpty(data.toggleUri, fallback.toggleUri),
@@ -85,6 +103,19 @@ export function normalizeControlCardFormData(data: ControlCardFormData | null | 
     primaryColor: nonEmpty(data.primaryColor, fallback.primaryColor),
     primaryTextColor: nonEmpty(data.primaryTextColor, fallback.primaryTextColor)
   };
+}
+
+function normalizeRuntimeStatus(value: ConnectionStatus | undefined, primaryActionUri: string): ConnectionStatus {
+  switch (value) {
+    case ConnectionStatus.IDLE:
+    case ConnectionStatus.STARTING:
+    case ConnectionStatus.RUNNING:
+    case ConnectionStatus.STOPPING:
+    case ConnectionStatus.ERROR:
+      return value;
+    default:
+      return primaryActionUri === CONTROL_CARD_STOP_URI ? ConnectionStatus.RUNNING : ConnectionStatus.IDLE;
+  }
 }
 
 function statusLabel(language: AppLanguage, status: ConnectionStatus): string {

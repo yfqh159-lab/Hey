@@ -6,7 +6,7 @@ import { DiagnosticLog } from '../services/DiagnosticLog';
 import { SubscriptionBackgroundScheduler } from '../services/SubscriptionBackgroundScheduler';
 import { SubscriptionManager } from '../services/SubscriptionManager';
 import { VpnRuntimeStateStore } from '../services/VpnRuntimeStateStore';
-import { CONTROL_CARD_STOP_URI } from '../core/ControlCard';
+import { ConnectionStatus } from '../core/Profile';
 import { ControlCardStore } from '../storage/ControlCardStore';
 
 export default class SubscriptionUpdateWorkAbility extends WorkSchedulerExtensionAbility {
@@ -36,8 +36,8 @@ export default class SubscriptionUpdateWorkAbility extends WorkSchedulerExtensio
       const controlCardState = await ControlCardStore.loadState(context);
       const proxyPort = SubscriptionManager.resolvePersistedSubscriptionProxyPort(
         vpnState !== null && vpnState.active,
-        controlCardState.primaryActionUri === CONTROL_CARD_STOP_URI,
-        controlCardState.vpnBacked
+        controlCardState.runtimeMode,
+        controlCardState.runtimeStatus !== ConnectionStatus.IDLE
       );
       const result = groupId.length > 0
         ? await SUBSCRIPTIONS_CONTROLLER.updateDueGroup(

@@ -1,6 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { formBindingData, formProvider } from '@kit.FormKit';
-import { AppLanguage, ConnectionStatus } from '../core/Profile';
+import { APP_MODE_VPN, AppLanguage, AppRuntimeMode, ConnectionStatus } from '../core/Profile';
 import { CONTROL_CARD_STOP_URI, ControlCardFormData, buildControlCardFormData } from '../core/ControlCard';
 import { ControlCardStore } from '../storage/ControlCardStore';
 import { DiagnosticLog } from './DiagnosticLog';
@@ -41,16 +41,17 @@ export class ControlCardManager {
     elapsedText: string,
     language: AppLanguage,
     lastError: string,
-    vpnBacked: boolean
+    vpnBacked: boolean,
+    runtimeMode: AppRuntimeMode
   ): Promise<void> {
     const now = Date.now();
-    const immediateKey = `${language}|${status}|${lastError}|${vpnBacked}`;
+    const immediateKey = `${language}|${status}|${lastError}|${vpnBacked}|${runtimeMode}`;
     if (this.shouldSkipSync(now, immediateKey)) {
       return;
     }
     const state = await ControlCardStore.saveState(
       context,
-      buildControlCardFormData(language, status, elapsedText, lastError, vpnBacked)
+      buildControlCardFormData(language, status, elapsedText, lastError, vpnBacked, runtimeMode)
     );
     const formIds = await ControlCardStore.loadFormIds(context);
     for (let index = 0; index < formIds.length; index++) {
@@ -80,7 +81,10 @@ export class ControlCardManager {
     }
     const status = persisted !== null && !persisted.active ? ConnectionStatus.IDLE : ConnectionStatus.ERROR;
     const error = status === ConnectionStatus.ERROR ? translate(state.language, 'runtime.vpnHealthLost') : '';
-    return ControlCardStore.saveState(context, buildControlCardFormData(state.language, status, '', error, false));
+    return ControlCardStore.saveState(
+      context,
+      buildControlCardFormData(state.language, status, '', error, false, APP_MODE_VPN)
+    );
   }
 
   private async updateOne(context: common.Context, formId: string, state: ControlCardFormData): Promise<void> {

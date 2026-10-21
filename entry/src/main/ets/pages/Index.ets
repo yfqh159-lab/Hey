@@ -4,7 +4,7 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import { IconButton } from '../components/IconButton';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { BOTTOM_SAFE_HEIGHT_KEY, TOP_SAFE_HEIGHT_KEY } from '../core/Immersive';
-import { APP_MODE_VPN, AppLanguage, AppRuntimeMode, AppSettings, ConnectionStatus, isProxyOnlyRuntimeMode, normalizeHomeDelayTestInterval, normalizeRealPingConcurrency, ProxyNode, ProxyProfile, resolveDelayTestUrl, RuntimeStats, SubscriptionGroup, SubscriptionProfile, XrayConfigType } from '../core/Profile';
+import { APP_MODE_VPN, AppLanguage, AppRuntimeMode, AppSettings, ConnectionStatus, isProxyOnlyRuntimeMode, normalizeAppRuntimeMode, normalizeHomeDelayTestInterval, normalizeRealPingConcurrency, ProxyNode, ProxyProfile, resolveDelayTestUrl, RuntimeStats, SubscriptionGroup, SubscriptionProfile, XrayConfigType } from '../core/Profile';
 import { CoreSelectionStore, requiredCoreForProtocol, CORE_TYPE_SINGBOX } from '../core/CoreSelection';
 import { DELAY_TEST_BATCH_PORT_BASE, normalizeOutboundInput } from '../core/XrayConfig';
 import { DeepLinkControlAction, DeepLinkIntent, parseDeepLink, subscriptionNameFromDeepLink } from '../core/DeepLink';
@@ -1832,7 +1832,9 @@ struct Index {
     }
 
     try {
+      this.runtimeMode = normalizeAppRuntimeMode(this.currentSettings.mode, APP_MODE_VPN);
       this.status = ConnectionStatus.STARTING;
+      this.syncControlCard();
       const state = await SHARED_RUNTIME_CONTROLLER.start(context, saved.profile, this.currentSettings, this.language);
       this.applyRuntimeState(state);
       this.showProxySharingStartWarning(state.status);
@@ -1841,6 +1843,7 @@ struct Index {
       this.status = ConnectionStatus.ERROR;
       this.lastError = this.f1('vpn.startFailed', 'error', redactDiagnosticText(JSON.stringify(error)));
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
+      this.syncControlCard();
       return false;
     }
   }
@@ -1880,6 +1883,7 @@ struct Index {
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
       this.status = ConnectionStatus.STOPPING;
+      this.syncControlCard();
       const state = await SHARED_RUNTIME_CONTROLLER.stop(context, this.language);
       this.applyRuntimeState(state);
       return state.status === ConnectionStatus.IDLE;
@@ -1887,6 +1891,7 @@ struct Index {
       this.status = ConnectionStatus.ERROR;
       this.lastError = this.f1('vpn.stopFailed', 'error', redactDiagnosticText(JSON.stringify(error)));
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
+      this.syncControlCard();
       return false;
     }
   }
@@ -2591,7 +2596,8 @@ struct Index {
       this.elapsedText,
       this.language,
       this.lastError,
-      SHARED_RUNTIME_CONTROLLER.isVpnRunning()
+      SHARED_RUNTIME_CONTROLLER.isVpnRunning(),
+      this.runtimeMode
     )
       .catch((error: Error) => {
         SHARED_RUNTIME_CONTROLLER.appendLog(redactDiagnosticText(JSON.stringify(error)));

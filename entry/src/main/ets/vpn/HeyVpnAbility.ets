@@ -10,7 +10,7 @@ import {
   networkContextSignature
 } from '../core/NetworkAutomation';
 import { NetSceneStopFlag } from '../services/NetSceneStopFlag';
-import { AppLanguage, ConnectionStatus, resolveVpnInterfaceAddressConfig, RuntimeStats } from '../core/Profile';
+import { APP_MODE_VPN, AppLanguage, ConnectionStatus, resolveVpnInterfaceAddressConfig, RuntimeStats } from '../core/Profile';
 import {
   createDefaultVpnConfig,
   normalizeVpnMtu,
@@ -463,7 +463,8 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
           '00:00',
           this.activeLanguage,
           '',
-          false
+          false,
+          APP_MODE_VPN
         ),
         CONTROL_CARD_RESET_TIMEOUT_MS,
         'Control card reset timed out.'

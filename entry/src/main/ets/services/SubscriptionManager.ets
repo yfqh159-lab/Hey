@@ -353,16 +353,13 @@ export class SubscriptionManager {
 
   static resolvePersistedSubscriptionProxyPort(
     vpnMayOwnNetwork: boolean,
-    controlCardRunning: boolean,
-    controlCardVpnBacked: boolean
+    controlCardMode: string | undefined,
+    controlCardMayOwnNetwork: boolean
   ): number {
     if (vpnMayOwnNetwork) {
       return VPN_INTERNAL_HTTP_PROXY_PORT;
     }
-    if (!controlCardRunning) {
-      return 0;
-    }
-    return controlCardVpnBacked ? VPN_INTERNAL_HTTP_PROXY_PORT : LOCAL_HTTP_PROXY_PORT;
+    return SubscriptionManager.resolveSubscriptionProxyPort(controlCardMode, controlCardMayOwnNetwork);
   }
 
   static validateSubscriptionUrl(url: string, allowInsecureUrl: boolean): string {
