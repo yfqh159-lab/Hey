@@ -713,6 +713,34 @@ if (!detailSource.includes("configType === 'proxy-chain' || configType === 'poli
   !detailSource.includes('url: AppRoute.JSON_IMPORT')) {
   throw new Error('hiding advanced creation broke compatibility editing for existing nodes');
 }
+
+const tabsAt = indexSource.indexOf('  build() {');
+const tabsEnd = indexSource.indexOf('\n  @Builder\n  private TabBarItem(', tabsAt);
+const nodesAt = indexSource.indexOf('  private NodesTab()');
+const nodesEnd = indexSource.indexOf('\n  @Builder\n  private NodeListConnectionBar()', nodesAt);
+const barAt = nodesEnd;
+const barEnd = indexSource.indexOf('\n  @Builder\n  private NodesHeader()', barAt);
+const ringAt = indexSource.indexOf('  private ConnectRing()');
+const ringEnd = indexSource.indexOf('\n  // 「当前连接」', ringAt);
+if (tabsAt < 0 || tabsEnd < 0 || nodesAt < 0 || nodesEnd < 0 ||
+  barAt < 0 || barEnd < 0 || ringAt < 0 || ringEnd < 0) {
+  throw new Error('home node-list/connection surface could not be inspected');
+}
+const tabs = indexSource.slice(tabsAt, tabsEnd);
+const firstNodes = tabs.indexOf('this.NodesTab()');
+const laterConnect = tabs.indexOf('this.ConnectTab()');
+const nodes = indexSource.slice(nodesAt, nodesEnd);
+const bar = indexSource.slice(barAt, barEnd);
+const ring = indexSource.slice(ringAt, ringEnd);
+if (firstNodes < 0 || laterConnect < 0 || firstNodes > laterConnect ||
+  !nodes.includes('this.NodeListConnectionBar()') ||
+  !bar.includes('this.statusLabel()') ||
+  !bar.includes('this.findSelectedNodeName()') ||
+  !bar.includes('this.handleConnectionButton();') ||
+  !ring.includes('this.handleConnectionButton();') ||
+  !indexSource.includes('private handleConnectionButton(): void')) {
+  throw new Error('home must open on the node list with one shared connection action');
+}
 NODE
 printf 'simplified add surface verification passed\n'
 
@@ -946,8 +974,13 @@ if (!policy.includes('status === ConnectionStatus.STARTING') ||
   !policy.includes("action === 'stop' || action === 'toggle'")) {
   throw new Error('connection-start cancellation policy is incomplete');
 }
-if (!index.includes('if (this.isBusy() && !canCancelStartingConnection(this.status))') ||
-  !index.includes('if (canCancelStartingConnection(this.status)) {\n          this.stopConnection();') ||
+const connectionButtonAt = index.indexOf('  private handleConnectionButton(): void');
+const connectionButtonEnd = index.indexOf('\n  private isBusy(): boolean', connectionButtonAt);
+const connectionButton = index.slice(connectionButtonAt, connectionButtonEnd);
+if (connectionButtonAt < 0 || connectionButtonEnd < 0 ||
+  !connectionButton.includes('if (this.isBusy() && !canCancelStartingConnection(this.status))') ||
+  !connectionButton.includes('if (canCancelStartingConnection(this.status) || this.shouldStopBeforeStart())') ||
+  !connectionButton.includes('this.stopConnection();') ||
   !index.includes('shouldDeferBusyControlAction(action, this.status, this.isBusy())') ||
   !index.includes('shouldOfferConnectionStop(this.status, SHARED_RUNTIME_CONTROLLER.requiresCleanup())')) {
   throw new Error('home or external controls no longer expose safe startup cancellation');

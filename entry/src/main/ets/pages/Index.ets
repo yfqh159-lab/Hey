@@ -855,14 +855,14 @@ struct Index {
   build() {
     Tabs({ barPosition: BarPosition.End, index: this.currentTab, controller: this.tabsController }) {
       TabContent() {
-        this.ConnectTab()
-      }
-      .tabBar(this.TabBarItem(this.t('tab.connect'), $r('app.media.ic_shield'), 0))
-
-      TabContent() {
         this.NodesTab()
       }
-      .tabBar(this.TabBarItem(this.t('tab.nodes'), $r('app.media.ic_globe'), 1))
+      .tabBar(this.TabBarItem(this.t('tab.nodes'), $r('app.media.ic_globe'), 0))
+
+      TabContent() {
+        this.ConnectTab()
+      }
+      .tabBar(this.TabBarItem(this.t('tab.connect'), $r('app.media.ic_shield'), 1))
 
       TabContent() {
         this.SettingsTab()
@@ -911,7 +911,7 @@ struct Index {
   }
 
   // ---------------------------------------------------------------------------
-  // Tab 1 · 连接
+  // Tab 2 · 连接与完整诊断
   // ---------------------------------------------------------------------------
 
   @Builder
@@ -1006,18 +1006,7 @@ struct Index {
         ? { radius: Elevation.glow, color: AppColor.shadowBrand, offsetX: 0, offsetY: 8 }
         : { radius: Elevation.card, color: AppColor.shadowCard, offsetX: 0, offsetY: 4 })
       .onClick(() => {
-        if (this.isBusy() && !canCancelStartingConnection(this.status)) {
-          return;
-        }
-        if (canCancelStartingConnection(this.status)) {
-          this.stopConnection();
-          return;
-        }
-        if (this.shouldStopBeforeStart()) {
-          this.stopConnection();
-        } else {
-          this.confirmCoreSwitchAndConnect();
-        }
+        this.handleConnectionButton();
       })
     }
   }
@@ -1178,8 +1167,8 @@ struct Index {
     .borderRadius(Radius.lg)
     .margin({ left: Space.lg, right: Space.lg, bottom: Space.md })
     .onClick(() => {
-      this.tabsController.changeIndex(1);
-      this.currentTab = 1;
+      this.tabsController.changeIndex(0);
+      this.currentTab = 0;
     })
   }
 
@@ -1235,7 +1224,7 @@ struct Index {
   }
 
   // ---------------------------------------------------------------------------
-  // Tab 2 · 节点
+  // Tab 1 · 节点（默认首页）
   // ---------------------------------------------------------------------------
 
   @Builder
@@ -1269,11 +1258,62 @@ struct Index {
       } else {
         this.NodeList()
       }
+
+      // 常见单节点客户端的首页结构：节点列表与单一启停动作位于同一屏，选中节点后
+      // 无需再切换页签。完整延迟、出口 IP 与流量详情仍保留在“连接”页。
+      this.NodeListConnectionBar()
     }
     .width('100%')
     .height('100%')
     .backgroundColor(AppColor.bg)
     .padding({ top: this.topSafe })
+  }
+
+  @Builder
+  private NodeListConnectionBar() {
+    Row({ space: Space.md }) {
+      Column({ space: 3 }) {
+        Text(this.statusLabel())
+          .fontSize(FontSz.callout)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.isRunning() ? AppColor.brand : AppColor.textPrimary)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(this.selectedNodeId.length > 0 ? this.findSelectedNodeName() : this.t('home.noNodeSelected'))
+          .fontSize(FontSz.caption)
+          .fontColor(AppColor.textTertiary)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+
+      Button() {
+        if (this.isBusy() && !canCancelStartingConnection(this.status)) {
+          LoadingProgress()
+            .width(24)
+            .height(24)
+            .color(this.shouldStopBeforeStart() ? AppColor.onBrand : AppColor.brand)
+        } else {
+          Image(this.shouldStopBeforeStart() ? $r('app.media.ic_stop') : $r('app.media.ic_play_arrow'))
+            .width(24)
+            .height(24)
+            .fillColor(this.shouldStopBeforeStart() ? AppColor.onBrand : AppColor.brand)
+        }
+      }
+      .width(52)
+      .height(52)
+      .borderRadius(26)
+      .enabled(!this.isBusy() || canCancelStartingConnection(this.status))
+      .backgroundColor(this.shouldStopBeforeStart() ? AppColor.brand : AppColor.surfaceAlt)
+      .onClick(() => {
+        this.handleConnectionButton();
+      })
+    }
+    .width('100%')
+    .padding({ left: Space.lg, right: Space.lg, top: Space.sm, bottom: Space.sm })
+    .backgroundColor(AppColor.surface)
+    .border({ width: 0.5, color: AppColor.divider })
   }
 
   @Builder
@@ -2909,6 +2949,17 @@ struct Index {
 
   private shouldStopBeforeStart(): boolean {
     return shouldOfferConnectionStop(this.status, SHARED_RUNTIME_CONTROLLER.requiresCleanup());
+  }
+
+  private handleConnectionButton(): void {
+    if (this.isBusy() && !canCancelStartingConnection(this.status)) {
+      return;
+    }
+    if (canCancelStartingConnection(this.status) || this.shouldStopBeforeStart()) {
+      this.stopConnection();
+      return;
+    }
+    this.confirmCoreSwitchAndConnect();
   }
 
   private isBusy(): boolean {
