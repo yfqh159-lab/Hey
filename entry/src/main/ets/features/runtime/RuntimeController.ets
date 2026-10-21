@@ -3,7 +3,7 @@ import { DEFAULT_LANGUAGE, translate } from '../../core/I18n';
 import { shouldExposeLocalHttpProxy } from '../../core/LocalProxy';
 import { isProxyOnlyRuntimeUnhealthy } from '../../core/RuntimeHealth';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppLanguage, AppRuntimeMode, AppSettings, ConnectionStatus, normalizeAppRuntimeMode, ProxyProfile, RuntimeStats } from '../../core/Profile';
-import { LOCAL_HTTP_PROXY_PORT, VPN_DATA_SOCKS_PORT } from '../../core/XrayConfig';
+import { LOCAL_HTTP_PROXY_PORT, VPN_INTERNAL_HTTP_PROXY_PORT } from '../../core/XrayConfig';
 import { CoreSelectionStore, isSingboxCore } from '../../core/CoreSelection';
 import { ConnectionController, ConnectionSnapshot } from '../../services/ConnectionController';
 import { NetSceneStopFlag } from '../../services/NetSceneStopFlag';
@@ -480,9 +480,10 @@ export class RuntimeController {
     if ((profile.configType ?? 'outbound') === 'full' || settings.ipApiUrl.trim().length === 0) {
       return 0;
     }
-    // sing-box 的 VPN 数据入站是仅监听回环地址的 mixed(SOCKS+HTTP) 端口，可直接用于检测。
-    if (isSingboxCore(this.controller.getSnapshot().coreType)) {
-      return VPN_DATA_SOCKS_PORT;
+    // VPN 模式始终提供独立的仅回环内部 HTTP 入站；它不受用户可见本地代理开关影响，
+    // 也不会暴露到局域网。Hey 自身被排除在 TUN 外，出口验证必须显式走这个入口。
+    if (normalizeAppRuntimeMode(settings.mode, APP_MODE_VPN) === APP_MODE_VPN) {
+      return VPN_INTERNAL_HTTP_PROXY_PORT;
     }
     return shouldExposeLocalHttpProxy(settings) ? LOCAL_HTTP_PROXY_PORT : 0;
   }

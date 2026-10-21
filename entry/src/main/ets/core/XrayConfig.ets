@@ -375,13 +375,16 @@ export const LOCAL_SOCKS_PROXY_PORT: number = 18080;
 export const LOCAL_HTTP_PROXY_PORT: number = 18081;
 export const DELAY_TEST_SOCKS_PORT: number = 18085;
 // 并发测速时每个"槽"占一个固定 socks 端口，基址从此开始（端口 = 基址 + 槽号）。
-// 槽内顺序处理节点，故并发的 ping 互不撞端口。避开 VPN 数据面(18082)/单测(18085)/
+// 槽内顺序处理节点，故并发的 ping 互不撞端口。避开 VPN 数据面(18082-18083)/单测(18085)/
 // 本地代理(18080-18081)等已用端口。
 export const DELAY_TEST_BATCH_PORT_BASE: number = 18100;
 // VPN 数据面（tun2socks -> Xray SOCKS 入站）的本地地址与端口。Harmony TUN fd 的
 // 流量由 libheytun2socks.so 转发到这里。与用户本地 SOCKS 代理端口分开，避免冲突。
 export const VPN_DATA_SOCKS_HOST: string = '127.0.0.1';
 export const VPN_DATA_SOCKS_PORT: number = 18082;
+// VPN 模式下供 Hey 自身请求使用的内部 HTTP 入口。Hey bundle 被排除在系统 TUN 外以防
+// 回环，因此 Geo 更新/出口验证需显式经过核心；该端口固定只监听回环，不受“代理共享”影响。
+export const VPN_INTERNAL_HTTP_PROXY_PORT: number = 18083;
 // Local Xray metrics (expvar) endpoint. The generated VPN config exposes a
 // dokodemo inbound on this port routed to the metrics handler so that
 // CGoQueryStats can read real per-tag traffic counters from /debug/vars.
@@ -1805,11 +1808,32 @@ function buildXrayConfigFromOutbounds(
   if (vpnMode) {
     inbounds.push(tunInbound);
     proxyInboundTags.push('tun-in');
+    const vpnHttpInboundTag = 'vpn-http-in';
+    const vpnHttpInbound: XrayInboundConfig = {
+      tag: vpnHttpInboundTag,
+      listen: VPN_DATA_SOCKS_HOST,
+      port: VPN_INTERNAL_HTTP_PROXY_PORT,
+      protocol: 'http',
+      settings: new HttpInboundSettings()
+    };
+    if (sniffing !== undefined) {
+      vpnHttpInbound.sniffing = sniffing;
+    }
+    inbounds.push(vpnHttpInbound);
   }
   const outbounds: Array<XrayOutbound> = proxyOutbounds.concat([directOutbound, blockOutbound]);
 
   const proxyTarget = buildProxyRoutingTarget(balancer?.tag);
   const routingRules = buildRoutingRules(settings, balancer?.tag);
+
+  if (vpnMode) {
+    const vpnHttpProxyRule: XrayRoutingRule = {
+      type: 'field',
+      inboundTag: ['vpn-http-in']
+    };
+    applyRoutingTarget(vpnHttpProxyRule, proxyTarget);
+    routingRules.unshift(vpnHttpProxyRule);
+  }
 
   if (appendHttpProxy) {
     const runtimeSettings = settings as AppSettings;

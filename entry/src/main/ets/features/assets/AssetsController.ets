@@ -22,9 +22,8 @@ import {
 } from '../../core/GeoAssets';
 import { redactDiagnosticText } from '../../core/DiagnosticRedaction';
 import { APP_HTTP_USER_AGENT } from '../../core/HttpDefaults';
-import { shouldExposeLocalHttpProxy } from '../../core/LocalProxy';
-import { AppLanguage } from '../../core/Profile';
-import { LOCAL_HTTP_PROXY_HOST, LOCAL_HTTP_PROXY_PORT } from '../../core/XrayConfig';
+import { AppLanguage, isProxyOnlyRuntimeMode } from '../../core/Profile';
+import { LOCAL_HTTP_PROXY_HOST, LOCAL_HTTP_PROXY_PORT, VPN_INTERNAL_HTTP_PROXY_PORT } from '../../core/XrayConfig';
 import { translate } from '../../core/I18n';
 import { formatTwo } from '../../utils/LocalizationPresenter';
 import { AssetStore, CustomAssetUrl, GeoAssetMetadata, GeoUpdateMetadata } from '../../storage/AssetStore';
@@ -36,6 +35,10 @@ export function buildAssetDownloadProxyPorts(proxyPort: number): Array<number> {
     return [0];
   }
   return [Math.floor(proxyPort), 0];
+}
+
+export function resolveAssetDownloadProxyPort(mode: string | undefined): number {
+  return isProxyOnlyRuntimeMode(mode) ? LOCAL_HTTP_PROXY_PORT : VPN_INTERNAL_HTTP_PROXY_PORT;
 }
 
 export interface BuiltinGeoUpdateResult {
@@ -348,7 +351,9 @@ export class AssetsController {
   private async resolveDownloadProxyPort(context: common.Context): Promise<number> {
     try {
       const settings = await SettingsStore.load(context);
-      return shouldExposeLocalHttpProxy(settings) ? LOCAL_HTTP_PROXY_PORT : 0;
+      // 本地代理模式使用对用户开放的回环 HTTP 入口；VPN 模式使用独立内部入口。
+      // 两者若未运行，请求层都会回退直连，未连接时仍可正常更新公开 Geo 文件。
+      return resolveAssetDownloadProxyPort(settings.mode);
     } catch (error) {
       return 0;
     }

@@ -5,7 +5,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppRuntimeMode, AppSettings, ConnectionStatus, GeneratedXrayConfig, normalizeAppRuntimeMode, ProxyProfile, RuntimeStats } from '../core/Profile';
 import { resolveDynamicPolicyGroupConfigJson } from '../core/AdvancedOutboundBuilder';
 import { selectRuntimeLocalSocksPort, shouldExposeLocalHttpProxy, shouldUseDynamicLocalSocksPort, withRuntimeLocalSocksPort } from '../core/LocalProxy';
-import { buildRuntimeXrayConfig, injectXrayLogFile, LOCAL_HTTP_PROXY_PORT, METRICS_PORT, normalizeConfigInput, VPN_DATA_SOCKS_PORT, XRAY_CORE_LOG_FILE } from '../core/XrayConfig';
+import { buildRuntimeXrayConfig, injectXrayLogFile, LOCAL_HTTP_PROXY_PORT, METRICS_PORT, normalizeConfigInput, VPN_DATA_SOCKS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT, XRAY_CORE_LOG_FILE } from '../core/XrayConfig';
 import { normalizeCoreLogLevel } from '../core/ProtocolOptions';
 import { CORE_TYPE_SINGBOX, CORE_TYPE_XRAY, CoreSelectionStore, CoreType, isSingboxCore, isSingboxOnlyProtocol } from '../core/CoreSelection';
 import { buildSingboxConfig } from '../core/SingboxConfig';
@@ -285,7 +285,7 @@ export class ConnectionController {
   }
 
   private reservedRuntimePorts(settings: AppSettings): Array<number> {
-    const ports: Array<number> = [METRICS_PORT];
+    const ports: Array<number> = [METRICS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT];
     if (shouldExposeLocalHttpProxy(settings)) {
       ports.push(LOCAL_HTTP_PROXY_PORT);
     }

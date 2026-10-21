@@ -1,5 +1,5 @@
 import { AppSettings } from './Profile';
-import { VPN_DATA_SOCKS_HOST, VPN_DATA_SOCKS_PORT } from './XrayConfig';
+import { VPN_DATA_SOCKS_HOST, VPN_DATA_SOCKS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT } from './XrayConfig';
 import { coerceRealitySafeFingerprint } from './RealityFingerprint';
 
 /**
@@ -564,6 +564,16 @@ export function buildSingboxConfig(outboundJson: string, settings?: AppSettings,
     sniff: true,
     sniff_override_destination: false
   };
+  // Hey 自身被系统 VPN 排除以防回环，应用内 Geo/出口请求需显式走这个仅回环 HTTP 入口。
+  // 与 Xray 使用同一固定端口，且不受用户可见本地代理/共享开关影响。
+  const internalHttpIn: SbInbound = {
+    type: 'mixed',
+    tag: 'internal-http-in',
+    listen: VPN_DATA_SOCKS_HOST,
+    listen_port: VPN_INTERNAL_HTTP_PROXY_PORT,
+    sniff: true,
+    sniff_override_destination: false
+  };
 
   const directOut: SbOutbound = { type: 'direct', tag: 'direct' };
   const dnsOut: SbOutbound = { type: 'dns', tag: 'dns-out' };
@@ -603,7 +613,7 @@ export function buildSingboxConfig(outboundJson: string, settings?: AppSettings,
   const config: SbConfig = {
     log,
     dns,
-    inbounds: [socksIn],
+    inbounds: [socksIn, internalHttpIn],
     outbounds: [proxy, directOut, dnsOut],
     route
   };

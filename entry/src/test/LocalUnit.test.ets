@@ -19,7 +19,7 @@ import { clearVisiblePerAppPackages, exportPerAppProxyList, importPerAppProxyLis
 import { shouldShowProxySharingStartWarning } from '../main/ets/core/ProxySharingWarning';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppSettings, ConnectionStatus, DEFAULT_DELAY_TEST_URL, DEFAULT_HEV_TUN_LOG_LEVEL, DEFAULT_HEV_TUN_RW_TIMEOUT, DEFAULT_IP_API_URL, DEFAULT_VPN_MTU, OUTBOUND_DOMAIN_RESOLVE_DNS_HOSTS, OUTBOUND_DOMAIN_RESOLVE_NONE, OUTBOUND_DOMAIN_RESOLVE_REPLACE, OutboundDomainResolveMethod, normalizeAppRuntimeMode, normalizeHevTunLogLevel, normalizeHevTunRwTimeout, normalizeRealPingConcurrency, normalizeRoutingDomainStrategy, normalizeUiModeNight, ProxyNode, resolveDelayTestUrl, RoutingRule, RuntimeStats, SubscriptionGroup } from '../main/ets/core/Profile';
 import { BUILTIN_GEO_DATA_FILE_NAMES, DEFAULT_GEO_RELEASE_API, DEFAULT_GEO_RELEASE_DOWNLOAD_PREFIX, GEOIP_FILE_NAME, GEOSITE_FILE_NAME, buildAssetDownloadUrl, encodeGeoTransactionState, isAllowedGeoAssetRedirect, isPlausibleGeoData, parseDefaultGeoRelease, parseGeoTransactionState, parseHttpRedirectLocation, parseSha256Checksum, resolveGeoRecoveryAction, resolveStandaloneAssetRecoveryAction } from '../main/ets/core/GeoAssets';
-import { DELAY_TEST_SOCKS_PORT, LOCAL_HTTP_PROXY_LAN_HOST, LOCAL_HTTP_PROXY_PORT, LOCAL_SOCKS_PROXY_PORT, UNIDENTIFIED_PROCESS_PACKAGE, VPN_DATA_SOCKS_PORT, buildDelayTestConfig, buildRuntimeXrayConfig, buildXrayConfig, buildXrayConfigWithSettings, canUseProcessRouting, collectOutboundDomainPreResolveHosts, normalizeFullConfigRoutingProcesses, normalizeOutboundInput, normalizeRoutingRuleProcesses, validateFullConfigJson, validateOutboundJson, validatePolicyGroupConfigJson, validateProxyChainConfigJson, withOutboundDomainResolvedHosts, injectXrayLogFile } from '../main/ets/core/XrayConfig';
+import { DELAY_TEST_SOCKS_PORT, LOCAL_HTTP_PROXY_LAN_HOST, LOCAL_HTTP_PROXY_PORT, LOCAL_SOCKS_PROXY_PORT, UNIDENTIFIED_PROCESS_PACKAGE, VPN_DATA_SOCKS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT, buildDelayTestConfig, buildRuntimeXrayConfig, buildXrayConfig, buildXrayConfigWithSettings, canUseProcessRouting, collectOutboundDomainPreResolveHosts, normalizeFullConfigRoutingProcesses, normalizeOutboundInput, normalizeRoutingRuleProcesses, validateFullConfigJson, validateOutboundJson, validatePolicyGroupConfigJson, validateProxyChainConfigJson, withOutboundDomainResolvedHosts, injectXrayLogFile } from '../main/ets/core/XrayConfig';
 import { CONTROL_SHORTCUT_ACTION_PARAM, CONTROL_SHORTCUT_GUID_PARAM, CONTROL_SHORTCUT_NODE_ID_PARAM, CONTROL_SHORTCUT_URI_PARAM, TASKER_EXTRA_BUNDLE_GUID_PARAM, TASKER_EXTRA_BUNDLE_SWITCH_PARAM, controlUriFromShortcutParameters, deepLinkUriFromWant, parseDeepLink } from '../main/ets/core/DeepLink';
 import { HARMONY_SEND_DATA_ACTION, HARMONY_SHARE_ABSTRACT_KEY, HARMONY_SHARE_URL_KEY, HARMONY_TEXT_MIME_TYPE, SharedTextWantLike, extractSharedTextFromWant, isSharedTextWant } from '../main/ets/core/SharedTextImport';
 import { extractOutboundsFromXrayConfig } from '../main/ets/core/XrayOutbounds';
@@ -50,7 +50,7 @@ import { LogEntry, logLevelLabel, normalizeLogLevel } from '../main/ets/features
 import { parseCoreLog } from '../main/ets/services/CoreLogReader';
 import { isRuntimeHealthPort } from '../main/ets/services/RuntimeHealthProbe';
 import { PersistedVpnRuntimeState, VPN_RUNTIME_HEARTBEAT_STALE_MS, isPersistedVpnRuntimeHealthy, parsePersistedVpnRuntimeState, selectPersistedVpnRuntimeState } from '../main/ets/services/VpnRuntimeStateStore';
-import { buildAssetDownloadProxyPorts } from '../main/ets/features/assets/AssetsController';
+import { buildAssetDownloadProxyPorts, resolveAssetDownloadProxyPort } from '../main/ets/features/assets/AssetsController';
 import {
   applyDelayTestPostActionsToGroups,
   buildNodeExportModel,
@@ -353,6 +353,8 @@ export default function localUnitTest() {
       expect(result.configJson).assertContain('"outbounds"');
       expect(result.configJson).assertContain('"tag": "tun-in"');
       expect(result.configJson).assertContain('"protocol": "socks"');
+      expect(result.configJson).assertContain('"tag": "vpn-http-in"');
+      expect(result.configJson).assertContain(`"port": ${VPN_INTERNAL_HTTP_PROXY_PORT}`);
       expect(result.configJson).assertContain('"security": "reality"');
     });
 
@@ -2075,6 +2077,8 @@ export default function localUnitTest() {
       expect(buildAssetDownloadProxyPorts(0).length).assertEqual(1);
       expect(buildAssetDownloadProxyPorts(-1)[0]).assertEqual(0);
       expect(buildAssetDownloadProxyPorts(70000)[0]).assertEqual(0);
+      expect(resolveAssetDownloadProxyPort(APP_MODE_VPN)).assertEqual(VPN_INTERNAL_HTTP_PROXY_PORT);
+      expect(resolveAssetDownloadProxyPort(APP_MODE_PROXY_ONLY)).assertEqual(LOCAL_HTTP_PROXY_PORT);
     });
 
     it('normalizes scanned asset URL payloads for QR import', 0, () => {
@@ -3451,6 +3455,8 @@ export default function localUnitTest() {
       expect(generated.configJson).assertContain('"password":"C4BB1AFA-D466-D81D-22C5-2046A78ED06C"');
       expect(generated.configJson).assertContain('"server_name":"ac9b90d0.sdsarsdg.xin"');
       expect(generated.configJson).assertContain('"insecure":true');
+      expect(generated.configJson).assertContain('"tag":"internal-http-in"');
+      expect(generated.configJson).assertContain(`"listen_port":${VPN_INTERNAL_HTTP_PROXY_PORT}`);
     });
 
     it('flags anytls/tuic as sing-box-only so the Xray core path forces a switch', 0, () => {
