@@ -75,13 +75,11 @@ export default function abilityTest() {
     it('applies vpn bypass lan routes', 0, () => {
       const bypassConfig = createDefaultVpnConfig(false, true, [], '1.1.1.1', true, 1420, 0, '1');
       const bypassRoutes = bypassConfig.routes === undefined ? [] : bypassConfig.routes;
-      expect(bypassRoutes.length).assertEqual(VPN_BYPASS_LAN_IPV4_ROUTES.length + 2);
+      expect(bypassRoutes.length).assertEqual(VPN_BYPASS_LAN_IPV4_ROUTES.length + 1);
       expect(bypassRoutes[0].destination.address.address).assertEqual('0.0.0.0');
       expect(bypassRoutes[0].destination.prefixLength).assertEqual(5);
-      expect(bypassRoutes[bypassRoutes.length - 2].destination.address.address).assertEqual('2000::');
-      expect(bypassRoutes[bypassRoutes.length - 2].destination.prefixLength).assertEqual(3);
-      expect(bypassRoutes[bypassRoutes.length - 1].destination.address.address).assertEqual('fc00::');
-      expect(bypassRoutes[bypassRoutes.length - 1].destination.prefixLength).assertEqual(18);
+      expect(bypassRoutes[bypassRoutes.length - 1].destination.address.address).assertEqual('::');
+      expect(bypassRoutes[bypassRoutes.length - 1].destination.prefixLength).assertEqual(0);
 
       const proxyConfig = createDefaultVpnConfig(false, true, [], '1.1.1.1', true, 1420, 0, '2');
       const proxyRoutes = proxyConfig.routes === undefined ? [] : proxyConfig.routes;
@@ -110,10 +108,13 @@ export default function abilityTest() {
       }])).assertTrue();
     });
 
-    it('adds ipv6 interface address and route when enabled', 0, () => {
+    it('always captures ipv6 to prevent physical-interface leaks', 0, () => {
       const ipv4Only = createDefaultVpnConfig(false, true, [], '1.1.1.1', false, 1400, 0, '2');
-      expect(ipv4Only.isIPv6Accepted).assertFalse();
-      expect(ipv4Only.addresses.length).assertEqual(1);
+      const ipv4OnlyRoutes = ipv4Only.routes === undefined ? [] : ipv4Only.routes;
+      expect(ipv4Only.isIPv6Accepted).assertTrue();
+      expect(ipv4Only.addresses.length).assertEqual(2);
+      expect(ipv4OnlyRoutes[1].destination.address.address).assertEqual('::');
+      expect(ipv4OnlyRoutes[1].destination.prefixLength).assertEqual(0);
 
       const ipv6Config = createDefaultVpnConfig(false, true, [], '1.1.1.1', true, 1400, 0, '2');
       const routes = ipv6Config.routes === undefined ? [] : ipv6Config.routes;
@@ -124,7 +125,8 @@ export default function abilityTest() {
       expect(routes.length).assertEqual(2);
       expect(routes[1].destination.address.address).assertEqual('::');
       expect(routes[1].destination.address.family).assertEqual(2);
-      expect(routes[1].isDefaultRoute).assertTrue();
+      // HarmonyOS 需要空 gateway + isDefaultRoute=false 才会实际安装 ::/0。
+      expect(routes[1].isDefaultRoute).assertFalse();
     });
   });
 }

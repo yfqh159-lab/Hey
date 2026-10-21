@@ -66,13 +66,10 @@ export class ConnectionController {
           lastMessage: stats.lastMessage.length > 0 ? stats.lastMessage : 'Xray is running in proxy-only mode.'
         };
       }
-      return {
-        uploadBytes: stats.uploadBytes,
-        downloadBytes: stats.downloadBytes,
-        xrayRunning: true,
-        tunRunning: true,
-        lastMessage: 'VPN extension owns the native bridge. Xray is handling the TUN inbound directly.'
-      };
+      // VPN Extension 在独立进程中拥有 native bridge。主进程的 native 全局状态必然
+      // 不能代表隧道状态，禁止仅凭 UI 枚举为 RUNNING 就伪造两个 true。真实状态由
+      // RuntimeController 随后读取扩展进程写入的 vpn-stats 心跳覆盖。
+      return stats;
     }
     return stats;
   }

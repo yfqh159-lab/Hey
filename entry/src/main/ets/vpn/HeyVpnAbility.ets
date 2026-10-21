@@ -33,6 +33,9 @@ import { DiagnosticLog } from '../services/DiagnosticLog';
 const LOG_DOMAIN: number = 0x0001;
 const LOG_TAG: string = 'HeyVpnAbility';
 const STATS_INTERVAL_MS: number = 2000;
+// 即使用户关闭速度显示，也要持续回写低频健康心跳。主进程与 VPN Extension
+// 分属不同进程，不能用主进程 native 全局变量判断隧道是否仍在运行。
+const HEALTH_INTERVAL_MS: number = 5000;
 // 网络场景轮询间隔：VPN 扩展进程后台存活，自驱动定时器可跑（区别于后台收不到的 connection.on 事件）。
 const NET_SCENE_POLL_MS: number = 5000;
 
@@ -135,11 +138,9 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       }
       this.emitInfo('tun data plane started.', `engine=${useHevTun ? 'hev' : 'gvisor'}, ${VPN_DATA_SOCKS_HOST}:${VPN_DATA_SOCKS_PORT}, mtu=${vpnMtu}, core=${useSingbox ? 'singbox' : 'xray'}, ${tun2socksResult.message}`);
 
-      if (settings.speedEnabled) {
-        this.startStatsTimer();
-      } else {
-        this.stopStatsTimer();
-        this.emitInfo('Speed stats disabled by settings.');
+      this.startStatsTimer(settings.speedEnabled ? STATS_INTERVAL_MS : HEALTH_INTERVAL_MS);
+      if (!settings.speedEnabled) {
+        this.emitInfo('Speed display disabled; low-frequency VPN health heartbeat remains enabled.');
       }
       this.emitInfo('Native VPN bridge started.', `session=${this.sessionId}`);
       this.startNetScenePoll();
@@ -262,11 +263,11 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     this.emitInfo('VPN cleanup finished.', `session=${this.sessionId}`);
   }
 
-  private startStatsTimer(): void {
+  private startStatsTimer(intervalMs: number): void {
     this.stopStatsTimer();
     this.statsTimerId = setInterval(() => {
       this.recordStats();
-    }, STATS_INTERVAL_MS);
+    }, intervalMs);
     this.recordStats();
   }
 
