@@ -222,6 +222,8 @@ struct ScannerPage {
               .padding(12)
               .onChange((value: string) => {
                 this.importBuffer = value;
+                // 输入已经变化，上一轮导入错误不再描述当前内容；当前有效性由下方预览即时展示。
+                this.lastError = '';
                 this.updateImportPreview(value);
               })
 

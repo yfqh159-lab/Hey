@@ -98,6 +98,7 @@ struct ImportPage {
           .backgroundColor(Color.Transparent)
           .onChange((value: string) => {
             this.importBuffer = value;
+            this.lastError = '';
           })
 
         if (this.importBuffer.length > 0) {
@@ -114,6 +115,7 @@ struct ImportPage {
           .margin({ right: Space.md })
           .onClick(() => {
             this.importBuffer = '';
+            this.lastError = '';
           })
         }
       }
