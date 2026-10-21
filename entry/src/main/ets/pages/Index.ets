@@ -252,8 +252,11 @@ struct Index {
       SHARED_RUNTIME_CONTROLLER.appendLog(this.t('log.autoStartupDisabled'));
       return;
     }
+    const cleanupRequired = SHARED_RUNTIME_CONTROLLER.requiresCleanup();
     await this.handleControlDeepLink('start');
-    SHARED_RUNTIME_CONTROLLER.appendLog(this.t('log.autoStartupStartRequested'));
+    SHARED_RUNTIME_CONTROLLER.appendLog(this.t(
+      cleanupRequired ? 'log.autoStartupCleanupRequired' : 'log.autoStartupStartRequested'
+    ));
   }
 
   // Imports a stashed deep link (hey://add-source|add-endpoint?url=...) once
