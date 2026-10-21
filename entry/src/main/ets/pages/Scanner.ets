@@ -37,6 +37,7 @@ struct ScannerPage {
   @State private isPressedPhotoCard: boolean = false;
   @State private isPressedImportBtn: boolean = false;
   private startScanImmediate: boolean = false;
+  private immediateScanTimerId: number = -1;
 
   aboutToAppear(): void {
     this.loadState();
@@ -44,6 +45,13 @@ struct ScannerPage {
 
   onPageShow(): void {
     this.tryStartImmediateScan();
+  }
+
+  aboutToDisappear(): void {
+    if (this.immediateScanTimerId >= 0) {
+      clearTimeout(this.immediateScanTimerId);
+      this.immediateScanTimerId = -1;
+    }
   }
 
   build() {
@@ -344,7 +352,8 @@ struct ScannerPage {
     }
     this.hasAutoScanned = true;
     // 延迟拉起扫码，确保转场动画完全结束后再加载扫码面板，体验更流畅。
-    setTimeout(() => {
+    this.immediateScanTimerId = setTimeout(() => {
+      this.immediateScanTimerId = -1;
       this.startCameraScan();
     }, 300);
   }
