@@ -791,6 +791,21 @@ export class RuntimeController {
     }
   }
 
+  // 延迟测试与出口 IP 地址只是当前会话的观测偏好，不参与核心、监听器或 TUN 配置。
+  // 设置页保存后热更新这两个字段，避免为了换诊断端点拆掉健康连接；不得把 mode 等
+  // 新数据面设置一起覆盖到仍在运行的旧会话，否则内部代理端口会与真实会话错配。
+  updateObservationSettings(settings: AppSettings): void {
+    if (this.activeSettings === null) {
+      return;
+    }
+    if (this.activeSettings.ipApiUrl !== settings.ipApiUrl) {
+      // 旧端点的在途响应不能在设置更新后继续显示；下一次前台复测使用新端点。
+      this.resetEgressIp();
+    }
+    this.activeSettings.delayTestUrl = settings.delayTestUrl;
+    this.activeSettings.ipApiUrl = settings.ipApiUrl;
+  }
+
   // 真实底层承载变化时先让所有在途请求失效。调用方随后可在确认存在可用承载后复测；
   // 这里不自行联网，也不重启核心/VPN。
   invalidateCurrentEgressIp(): void {

@@ -326,6 +326,8 @@ export default function localUnitTest() {
       uiOnly.netAutomationEnabled = !uiOnly.netAutomationEnabled;
       uiOnly.netAutomationTrustedSsids = ['home'];
       uiOnly.localDnsPort++;
+      uiOnly.delayTestUrl = 'https://latency.example/generate_204';
+      uiOnly.ipApiUrl = 'https://ip.example/';
       expect(shouldRestartRuntimeForSettingsChange(previous, uiOnly)).assertFalse();
 
       const modeChanged = buildSettingsFixture();

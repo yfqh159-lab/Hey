@@ -2078,6 +2078,7 @@ struct Index {
       const context = this.getUIContext().getHostContext() as common.Context;
       this.currentSettings = await withAuthoritativeStorageTimeout(
         this.loadSettingsSingleFlight(context), 'settings read');
+      SHARED_RUNTIME_CONTROLLER.updateObservationSettings(this.currentSettings);
       this.language = this.currentSettings.language;
       this.speedEnabled = this.currentSettings.speedEnabled;
       this.groupAllDisplay = this.currentSettings.groupAllDisplay;

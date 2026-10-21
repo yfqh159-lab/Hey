@@ -79,7 +79,6 @@ function runtimeSettingsSignature(settings: AppSettings): string {
     remoteDns: settings.remoteDns,
     domesticDns: settings.domesticDns,
     dnsHosts: settings.dnsHosts,
-    delayTestUrl: settings.delayTestUrl,
     logLevel: settings.logLevel,
     outboundDomainResolveMethod: settings.outboundDomainResolveMethod,
     mode: settings.mode,

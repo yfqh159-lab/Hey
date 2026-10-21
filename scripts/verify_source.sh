@@ -1389,10 +1389,21 @@ const settingsChange = fs.readFileSync('entry/src/main/ets/core/SettingsChange.e
 const signatureStart = settingsChange.indexOf('function runtimeSettingsSignature(');
 const markerStart = settingsChange.indexOf('\nexport function markRuntimeSettingsRestartNeeded', signatureStart);
 const signature = settingsChange.slice(signatureStart, markerStart);
+const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeController.ets', 'utf8');
+const observationStart = runtime.indexOf('  updateObservationSettings(settings: AppSettings): void');
+const observationEnd = runtime.indexOf('\n  // 真实底层承载变化时', observationStart);
+const observation = runtime.slice(observationStart, observationEnd);
+const index = fs.readFileSync('entry/src/main/ets/pages/Index.ets', 'utf8');
 if (visibleCatalog.includes("key: 'localDnsPort'") ||
   !visibleCatalog.includes("key: 'localDns'") ||
   !visibleCatalog.includes("key: 'vpnDns'") ||
-  signatureStart < 0 || markerStart < 0 || signature.includes('localDnsPort')) {
+  signatureStart < 0 || markerStart < 0 || signature.includes('localDnsPort') ||
+  signature.includes('delayTestUrl') || signature.includes('ipApiUrl') ||
+  observationStart < 0 || observationEnd < 0 ||
+  !observation.includes('this.activeSettings.delayTestUrl = settings.delayTestUrl;') ||
+  !observation.includes('this.activeSettings.ipApiUrl = settings.ipApiUrl;') ||
+  !observation.includes('this.resetEgressIp();') ||
+  !index.includes('SHARED_RUNTIME_CONTROLLER.updateObservationSettings(this.currentSettings);')) {
   throw new Error('settings UI exposes an unused local DNS port or hides active DNS controls');
 }
 NODE
