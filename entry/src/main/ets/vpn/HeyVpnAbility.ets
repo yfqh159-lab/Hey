@@ -62,6 +62,7 @@ const UNHEALTHY_SAMPLE_LIMIT: number = 2;
 const PROTECT_PROCESS_TIMEOUT_MS: number = 10000;
 const NOTIFICATION_CANCEL_TIMEOUT_MS: number = 2000;
 const CONTROL_CARD_RESET_TIMEOUT_MS: number = 2000;
+const NET_SCENE_BASELINE_TIMEOUT_MS: number = 2000;
 // 网络场景轮询间隔：VPN 扩展进程后台存活，自驱动定时器可跑（区别于后台收不到的 connection.on 事件）。
 const NET_SCENE_POLL_MS: number = 5000;
 
@@ -195,6 +196,8 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       const settings = await SETTINGS_CONTROLLER.load(this.context);
       this.activeLanguage = settings.language;
       this.ensureStartAllowed('settings load');
+      await this.seedNetSceneBaseline(settings.netAutomationEnabled);
+      this.ensureStartAllowed('underlying network baseline');
       const perAppEnabled = settings.perAppProxyEnabled;
       const bypassMode = settings.perAppProxyBypass ?? false;
       const appList = settings.perAppProxyList ?? [];
@@ -298,16 +301,42 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     }
   }
 
-  // 在 VPN 扩展进程内用自驱动定时器轮询网络场景。VPN 隧道运行期该进程持续存活，
-  // 定时器在后台/熄屏仍会触发（与 2s 统计定时器同理），弥补后台收不到 connection.on 事件的限制。
+  // 在 VPN 扩展生命周期内用自驱动定时器尽力轮询网络场景，补充 UI 进程退后台后可能
+  // 收不到的 connection.on 事件；实际触发频率仍服从 HarmonyOS 的后台与省电调度。
   private startNetScenePoll(): void {
     this.stopNetScenePoll();
-    this.netSceneSeeded = false;
-    this.netSceneSignature = '';
-    this.netSceneTransportSignature = '';
     this.netScenePollTimerId = setInterval(() => {
       this.pollNetScene();
     }, NET_SCENE_POLL_MS);
+    // 启动阶段可能跨越 VPN 授权、核心与 TUN 就绪等待；完成后立即对照启动前基线，
+    // 避免恰好发生在首个 5 秒定时器前的 Wi-Fi/蜂窝切换被当作初始网络漏掉。
+    this.pollNetScene();
+  }
+
+  private async seedNetSceneBaseline(automationEnabled: boolean): Promise<void> {
+    try {
+      const ctx = await withTimeout(
+        NetworkProbe.readCurrentNetContext(),
+        NET_SCENE_BASELINE_TIMEOUT_MS,
+        'Underlying network baseline timed out.'
+      );
+      if (this.cleaningUp || this.stopRequested) {
+        return;
+      }
+      this.netSceneSeeded = true;
+      this.netSceneSignature = networkContextSignature(ctx);
+      this.netSceneTransportSignature = networkTransportSignature(ctx);
+      this.emitInfo('Underlying network baseline recorded.',
+        `kind=${ctx.kind}; ssid=${ctx.ssid === undefined ? '<none>' : '<redacted>'}; automation=${automationEnabled}`);
+    } catch (error) {
+      // 连续性观测是辅助能力；拿不到基线时连接仍可继续，完成后的立即轮询会只 seed
+      // 当前承载而不贸然重载或自动断开。
+      this.netSceneSeeded = false;
+      this.netSceneSignature = '';
+      this.netSceneTransportSignature = '';
+      this.emitInfo('Underlying network baseline unavailable; first poll will seed it.',
+        this.errorMessage(error));
+    }
   }
 
   private stopNetScenePoll(): void {
