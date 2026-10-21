@@ -1166,7 +1166,7 @@ if (xrayStart < 0 || singboxStart < 0) {
 }
 const startBody = controller.slice(xrayStart, singboxStart);
 const requestedModeAssignment = startBody.indexOf('this.runtimeMode = requestedMode;');
-const firstCoreSelectionAwait = startBody.indexOf('await CoreSelectionStore.load(context)');
+const firstCoreSelectionAwait = startBody.indexOf('CoreSelectionStore.load(context),');
 if (requestedModeAssignment < 0 || firstCoreSelectionAwait < 0 ||
   requestedModeAssignment > firstCoreSelectionAwait) {
   throw new Error('connection mode must be fixed before the first cancellable startup await');
@@ -1176,6 +1176,11 @@ const postCoreGenerationCheck = startBody.indexOf('if (!this.isCurrentStart(star
 if (!startBody.includes('let coreType: CoreType;') || coreLoadCatch < firstCoreSelectionAwait ||
   postCoreGenerationCheck < coreLoadCatch) {
   throw new Error('core selection read failures can leave connection startup stuck');
+}
+if (!controller.includes('const PREPARATION_STORE_TIMEOUT_MS: number = 5000;') ||
+  !startBody.includes('CoreSelectionStore.load(context),\n        PREPARATION_STORE_TIMEOUT_MS,') ||
+  !startBody.includes('this.resolveRuntimeConfigJson(context, validation.normalizedJson, validation.configType),\n        PREPARATION_STORE_TIMEOUT_MS,')) {
+  throw new Error('connection preparation storage reads can permanently hold STARTING');
 }
 const proxyBranch = startBody.indexOf('if (this.runtimeMode === APP_MODE_PROXY_ONLY) {');
 const proxyStart = startBody.indexOf('await this.startProxyOnly(context);', proxyBranch);

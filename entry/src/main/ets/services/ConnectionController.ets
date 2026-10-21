@@ -28,6 +28,7 @@ import {
 const LOG_DOMAIN: number = 0x0001;
 const LOG_TAG: string = 'HeyVpn';
 const START_VPN_TIMEOUT_MS: number = 10000;
+const PREPARATION_STORE_TIMEOUT_MS: number = 5000;
 // 扩展内依次创建 VPN、尝试最长 10 秒的进程网络保护，再等待最长 5 秒的 SOCKS
 // 监听器。主进程的就绪窗口必须覆盖整条启动链，不能先行误判超时并拆掉正在启动的会话。
 const START_VPN_READY_TIMEOUT_MS: number = 25000;
@@ -164,7 +165,11 @@ export class ConnectionController {
     // anytls / tuic 等 sing-box 独有协议 Xray 没有对应 outbound，无论全局开关如何都强制走 sing-box。
     let coreType: CoreType;
     try {
-      coreType = await CoreSelectionStore.load(context);
+      coreType = await this.withTimeout(
+        CoreSelectionStore.load(context),
+        PREPARATION_STORE_TIMEOUT_MS,
+        '读取运行内核选择超时。'
+      );
     } catch (error) {
       return this.failStartPreparation(startGeneration, error as Object);
     }
@@ -187,8 +192,11 @@ export class ConnectionController {
     let handoverConfigJson = '';
     try {
       runtimeSettings = validation.configType === 'full' ? settings : this.resolveRuntimeSettings(settings);
-      runtimeConfigJson = await this.resolveRuntimeConfigJson(
-        context, validation.normalizedJson, validation.configType);
+      runtimeConfigJson = await this.withTimeout(
+        this.resolveRuntimeConfigJson(context, validation.normalizedJson, validation.configType),
+        PREPARATION_STORE_TIMEOUT_MS,
+        '读取策略组节点数据超时。'
+      );
       if (!this.isCurrentStart(startGeneration)) {
         return this.getSnapshot();
       }
