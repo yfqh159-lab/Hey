@@ -11,7 +11,7 @@ import { SETTINGS_CONTROLLER } from '../features/settings/SettingsController';
 import { SHARED_RUNTIME_CONTROLLER } from '../features/runtime/RuntimeController';
 import { PageHeader } from '../shell/PageHeader';
 import { AssetStore, CustomAssetUrl, GeoUpdateMetadata } from '../storage/AssetStore';
-import { ASSETS_CONTROLLER } from '../features/assets/AssetsController';
+import { ASSETS_CONTROLLER, BuiltinGeoUpdateResult } from '../features/assets/AssetsController';
 import { BOTTOM_SAFE_HEIGHT_KEY } from '../core/Immersive';
 import { AppColor, FontSz, Radius, Space } from '../theme/Theme';
 import { formatOne } from '../utils/LocalizationPresenter';
@@ -867,19 +867,27 @@ struct AssetsPage {
     this.toast(this.t('assets.updatingAll'));
     try {
       const result = await ASSETS_CONTROLLER.checkAndUpdateBuiltinGeo(context);
+      let metadataConfirmed = result.metadataSaved;
       if (result.metadataSaved) {
-        await this.loadGeoMetadata();
+        try {
+          if (!await this.loadGeoMetadata()) {
+            metadataConfirmed = false;
+            this.applyVerifiedGeoResult(result);
+          }
+        } catch (metadataError) {
+          // 文件事务及元数据保存均已成功；页面重读失败不能把真实更新结果改报为失败。
+          metadataConfirmed = false;
+          this.applyVerifiedGeoResult(result);
+          const metadataMessage = redactDiagnosticText(
+            metadataError instanceof Error ? metadataError.message : JSON.stringify(metadataError)
+          );
+          SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('assets.loadFailed', 'error', metadataMessage));
+        }
       } else {
         // 文件事务已经成功但校验记录未持久化时，不得重新加载并展示上一版元数据。
         // 尽力清掉旧记录，同时用本次已验证结果更新当前页面；下次启动会重新核对文件。
         await this.clearGeoMetadata();
-        this.applyGeoMetadata({
-          version: result.version,
-          source: '',
-          checkedAt: result.checkedAt,
-          result: result.changed ? 'updated' : 'latest',
-          assets: result.assets
-        });
+        this.applyVerifiedGeoResult(result);
       }
       this.updateFileStatus();
       // 文件校验/替换结果与“校验记录是否成功落盘”是两件事；记录失败不能覆盖真实
@@ -887,7 +895,7 @@ struct AssetsPage {
       const notice = resolveGeoUpdateNotice(
         result.changed,
         SHARED_RUNTIME_CONTROLLER.isRunning(),
-        result.metadataSaved
+        metadataConfirmed
       );
       let message = this.f1(notice.resultKey, 'version', result.version);
       if (notice.appendMetadataWarning) {
@@ -897,7 +905,15 @@ struct AssetsPage {
       this.toast(message);
     } catch (error) {
       const message = redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error));
-      await this.loadGeoMetadata();
+      try {
+        await this.loadGeoMetadata();
+      } catch (metadataError) {
+        // 展示记录刷新失败只能作为附加诊断，不能遮蔽真正的下载或校验失败。
+        const metadataMessage = redactDiagnosticText(
+          metadataError instanceof Error ? metadataError.message : JSON.stringify(metadataError)
+        );
+        SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('assets.loadFailed', 'error', metadataMessage));
+      }
       const localized = this.f1('assets.geo.checkFailed', 'error', message);
       SHARED_RUNTIME_CONTROLLER.appendLog(localized);
       this.toast(localized);
@@ -1211,7 +1227,7 @@ struct AssetsPage {
     }
   }
 
-  private async loadGeoMetadata(): Promise<void> {
+  private async loadGeoMetadata(): Promise<boolean> {
     const context = this.getUIContext().getHostContext() as common.Context;
     const metadata = await AssetStore.loadGeoUpdateMetadata(context);
     if (!await ASSETS_CONTROLLER.isBuiltinGeoMetadataCurrent(context, metadata)) {
@@ -1224,9 +1240,20 @@ struct AssetsPage {
       }
       this.geoAssetHashes = {};
       this.geoUpdateSummary = this.t('assets.geo.defaultSource');
-      return;
+      return false;
     }
     this.applyGeoMetadata(metadata);
+    return true;
+  }
+
+  private applyVerifiedGeoResult(result: BuiltinGeoUpdateResult): void {
+    this.applyGeoMetadata({
+      version: result.version,
+      source: '',
+      checkedAt: result.checkedAt,
+      result: result.changed ? 'updated' : 'latest',
+      assets: result.assets
+    });
   }
 
   private applyGeoMetadata(metadata: GeoUpdateMetadata): void {

@@ -185,21 +185,47 @@ if (verifyAt < 0 || verifyEnd < 0 ||
   !verify.includes('await this.sha256(data) !== matched.sha256')) {
   throw new Error('stored Geo version/hash metadata is not verified against both installed files');
 }
-const loadAt = page.indexOf('  private async loadGeoMetadata(): Promise<void>');
+const loadAt = page.indexOf('  private async loadGeoMetadata(): Promise<boolean>');
 const loadEnd = page.indexOf('\n  private applyGeoMetadata(', loadAt);
 const load = page.slice(loadAt, loadEnd);
 if (loadAt < 0 || loadEnd < 0 ||
   !load.includes('await ASSETS_CONTROLLER.isBuiltinGeoMetadataCurrent(context, metadata)') ||
   !load.includes('await AssetStore.clearGeoUpdateMetadata(context);') ||
-  !load.includes("this.geoUpdateSummary = this.t('assets.geo.defaultSource');")) {
+  !load.includes("this.geoUpdateSummary = this.t('assets.geo.defaultSource');") ||
+  !load.includes('return false;') || !load.includes('return true;')) {
   throw new Error('Assets page can display stale Geo verification metadata');
 }
 const updateAt = page.indexOf('  private async checkGeoUpdate(): Promise<void>');
 const updateEnd = page.indexOf('\n  private deleteAsset(', updateAt);
 const update = page.slice(updateAt, updateEnd);
 if (updateAt < 0 || updateEnd < 0 || !update.includes('if (result.metadataSaved)') ||
-  !update.includes('await this.clearGeoMetadata();') || !update.includes('this.applyGeoMetadata({')) {
+  !update.includes('await this.clearGeoMetadata();') || !update.includes('this.applyVerifiedGeoResult(result);')) {
   throw new Error('a metadata write failure can reload and display an obsolete Geo version');
+}
+if (!update.includes('let metadataConfirmed = result.metadataSaved;') ||
+  !update.includes('metadataConfirmed = false;') ||
+  !update.includes('if (!await this.loadGeoMetadata()) {') ||
+  !update.includes('this.applyVerifiedGeoResult(result);') ||
+  !update.includes('resolveGeoUpdateNotice(\n        result.changed,\n        SHARED_RUNTIME_CONTROLLER.isRunning(),\n        metadataConfirmed') ||
+  update.includes('SHARED_RUNTIME_CONTROLLER.isRunning(),\n        result.metadataSaved')) {
+  throw new Error('a Geo metadata display failure can overwrite or misreport the verified file result');
+}
+const applyVerifiedAt = page.indexOf('  private applyVerifiedGeoResult(');
+const applyVerifiedEnd = page.indexOf('\n  private applyGeoMetadata(', applyVerifiedAt);
+const applyVerified = page.slice(applyVerifiedAt, applyVerifiedEnd);
+if (applyVerifiedAt < 0 || applyVerifiedEnd < 0 ||
+  !applyVerified.includes('this.applyGeoMetadata({') ||
+  !applyVerified.includes('version: result.version') ||
+  !applyVerified.includes('assets: result.assets')) {
+  throw new Error('verified Geo controller results are not preserved when metadata display reload fails');
+}
+const updateCatchAt = update.indexOf('    } catch (error) {');
+const updateCatch = update.slice(updateCatchAt);
+if (updateCatchAt < 0 || !updateCatch.includes('const message = redactDiagnosticText(') ||
+  !updateCatch.includes('try {\n        await this.loadGeoMetadata();\n      } catch (metadataError) {') ||
+  !updateCatch.includes("const localized = this.f1('assets.geo.checkFailed', 'error', message);") ||
+  !updateCatch.includes('SHARED_RUNTIME_CONTROLLER.appendLog(localized);')) {
+  throw new Error('a secondary Geo metadata load failure can mask the original update error');
 }
 if (!controller.includes('await AssetStore.saveGeoUpdateMetadata(context, updateMetadata);') ||
   !controller.includes('this.removeFileStrictIfExists(`${context.filesDir}/${GEO_METADATA_INVALID_FILE}`);') ||
