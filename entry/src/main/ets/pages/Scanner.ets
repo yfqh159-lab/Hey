@@ -42,11 +42,18 @@ struct ScannerPage {
   private startScanImmediate: boolean = false;
   private routeStartScanImmediate: boolean = false;
   private immediateScanTimerId: number = -1;
+  private pageActive: boolean = false;
+  private pageGeneration: number = 0;
   // 相机、相册和剪贴板内容可能包含 UUID、密码或订阅 Token。原文只保存在页面实例内，
   // 默认不绑定到可截图的 TextArea；确认导入仍使用这份原始值。
   private pendingSensitiveImport: string = '';
 
   aboutToAppear(): void {
+    this.pageActive = true;
+    const pageGeneration = ++this.pageGeneration;
+    // A previous page instance may have left while a system picker was pending; its
+    // continuation is generation-invalid, so it must not leave the visible page busy.
+    this.isBusy = false;
     try {
       this.routeStartScanImmediate = shouldStartScannerImmediately(
         router.getParams() as Record<string, Object>
@@ -54,7 +61,7 @@ struct ScannerPage {
     } catch (error) {
       this.routeStartScanImmediate = false;
     }
-    this.loadState();
+    this.loadState(pageGeneration);
   }
 
   onPageShow(): void {
@@ -62,6 +69,8 @@ struct ScannerPage {
   }
 
   aboutToDisappear(): void {
+    this.pageActive = false;
+    this.pageGeneration++;
     if (this.immediateScanTimerId >= 0) {
       clearTimeout(this.immediateScanTimerId);
       this.immediateScanTimerId = -1;
@@ -380,15 +389,20 @@ struct ScannerPage {
     this.updateImportPreview('');
   }
 
-  private async loadState(): Promise<void> {
+  private async loadState(pageGeneration: number): Promise<void> {
     try {
       const context = getContext(this) as common.Context;
       const settings = await SETTINGS_CONTROLLER.load(context);
+      if (!this.isCurrentPage(pageGeneration)) {
+        return;
+      }
       this.language = settings.language;
       this.startScanImmediate = this.routeStartScanImmediate || settings.startScanImmediate;
       this.tryStartImmediateScan();
     } catch (error) {
-      this.lastError = this.f1('scanner.loadStateFailed', 'error', redactDiagnosticText(JSON.stringify(error)));
+      if (this.isCurrentPage(pageGeneration)) {
+        this.lastError = this.f1('scanner.loadStateFailed', 'error', redactDiagnosticText(JSON.stringify(error)));
+      }
     }
   }
 
@@ -400,7 +414,9 @@ struct ScannerPage {
     // 延迟拉起扫码，确保转场动画完全结束后再加载扫码面板，体验更流畅。
     this.immediateScanTimerId = setTimeout(() => {
       this.immediateScanTimerId = -1;
-      this.startCameraScan();
+      if (this.pageActive) {
+        this.startCameraScan();
+      }
     }, 300);
   }
 
@@ -410,20 +426,32 @@ struct ScannerPage {
     }
     this.isBusy = true;
     this.lastError = '';
+    const pageGeneration = this.pageGeneration;
     try {
       const context = getContext(this) as common.UIAbilityContext;
       if (!await requestCameraPermission(context)) {
-        this.lastError = this.t('scanner.cameraPermissionDenied');
+        if (this.isCurrentPage(pageGeneration)) {
+          this.lastError = this.t('scanner.cameraPermissionDenied');
+        }
         return;
       }
-      await this.importScannedValue(await scanQrCode(context));
+      if (!this.isCurrentPage(pageGeneration)) {
+        return;
+      }
+      const value = await scanQrCode(context);
+      if (!this.isCurrentPage(pageGeneration)) {
+        return;
+      }
+      await this.importScannedValue(value);
     } catch (error) {
       console.error('Scan barcode failed or cancelled:', redactDiagnosticText(JSON.stringify(error)));
-      if (!isScanCancelled(error)) {
+      if (this.isCurrentPage(pageGeneration) && !isScanCancelled(error)) {
         this.lastError = this.f1('scanner.scanFailed', 'error', this.errorMessage(error));
       }
     } finally {
-      this.isBusy = false;
+      if (this.isCurrentPage(pageGeneration)) {
+        this.isBusy = false;
+      }
     }
   }
 
@@ -433,12 +461,16 @@ struct ScannerPage {
     }
     this.isBusy = true;
     this.lastError = '';
+    const pageGeneration = this.pageGeneration;
     try {
       const photoSelectOptions = new picker.PhotoSelectOptions();
       photoSelectOptions.MIMEType = picker.PhotoViewMIMETypes.IMAGE_TYPE;
       photoSelectOptions.maxSelectNumber = 1;
       const photoPicker = new picker.PhotoViewPicker();
       const result = await photoPicker.select(photoSelectOptions);
+      if (!this.isCurrentPage(pageGeneration)) {
+        return;
+      }
       if (!result || !result.photoUris || result.photoUris.length === 0) {
         return;
       }
@@ -448,14 +480,19 @@ struct ScannerPage {
         enableMultiMode: false
       };
       const results = await detectBarcode.decode({ uri: result.photoUris[0] }, options);
+      if (!this.isCurrentPage(pageGeneration)) {
+        return;
+      }
       await this.importScannedValue(this.firstScanValue(results), this.t('scanner.decodeFailed'));
     } catch (error) {
       console.error('Decode QR image failed or cancelled:', redactDiagnosticText(JSON.stringify(error)));
-      if (!isScanCancelled(error)) {
+      if (this.isCurrentPage(pageGeneration) && !isScanCancelled(error)) {
         this.lastError = this.f1('scanner.photoImportFailed', 'error', this.errorMessage(error));
       }
     } finally {
-      this.isBusy = false;
+      if (this.isCurrentPage(pageGeneration)) {
+        this.isBusy = false;
+      }
     }
   }
 
@@ -487,15 +524,28 @@ struct ScannerPage {
   }
 
   private async pasteFromClipboard(): Promise<void> {
+    if (this.isBusy) {
+      return;
+    }
+    this.isBusy = true;
+    const pageGeneration = this.pageGeneration;
     try {
       const context = getContext(this) as common.Context;
       if (!await ensureReadPasteboardPermission(context)) {
-        promptAction.showToast({ message: this.t('prompt.clipboardReadFailed') });
+        if (this.isCurrentPage(pageGeneration)) {
+          promptAction.showToast({ message: this.t('prompt.clipboardReadFailed') });
+        }
+        return;
+      }
+      if (!this.isCurrentPage(pageGeneration)) {
         return;
       }
       const systemPasteboard = pasteboard.getSystemPasteboard();
       if (systemPasteboard.hasDataSync()) {
         const pasteData = await systemPasteboard.getData();
+        if (!this.isCurrentPage(pageGeneration)) {
+          return;
+        }
         const text = pasteData.getPrimaryText();
         if (text && text.trim().length > 0) {
           this.setSensitiveImportValue(text);
@@ -509,8 +559,18 @@ struct ScannerPage {
         promptAction.showToast({ message: this.t('prompt.clipboardNoData') });
       }
     } catch (error) {
-      promptAction.showToast({ message: this.t('prompt.clipboardReadFailed') });
+      if (this.isCurrentPage(pageGeneration)) {
+        promptAction.showToast({ message: this.t('prompt.clipboardReadFailed') });
+      }
+    } finally {
+      if (this.isCurrentPage(pageGeneration)) {
+        this.isBusy = false;
+      }
     }
+  }
+
+  private isCurrentPage(pageGeneration: number): boolean {
+    return this.pageActive && pageGeneration === this.pageGeneration;
   }
 
   private async importResult(): Promise<void> {

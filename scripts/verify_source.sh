@@ -343,6 +343,34 @@ if (!disappear.includes("this.pendingSensitiveImport = '';" ) ||
   !disappear.includes('this.hasPendingSensitiveImport = false;')) {
   throw new Error('scanner keeps external credentials in the page instance after leaving');
 }
+if (!scanner.includes('private pageActive: boolean = false;') ||
+  !scanner.includes('private pageGeneration: number = 0;') ||
+  !disappear.includes('this.pageActive = false;') ||
+  !disappear.includes('this.pageGeneration++;') ||
+  !scanner.includes('private isCurrentPage(pageGeneration: number): boolean')) {
+  throw new Error('scanner async results can repopulate sensitive content after the page leaves');
+}
+const pasteAt = scanner.indexOf('  private async pasteFromClipboard(): Promise<void>');
+const pasteEnd = scanner.indexOf('\n  private isCurrentPage(', pasteAt);
+const paste = scanner.slice(pasteAt, pasteEnd);
+if (pasteAt < 0 || pasteEnd < 0 || !paste.includes('if (this.isBusy) {') ||
+  !paste.includes('this.isBusy = true;') || !paste.includes('this.isCurrentPage(pageGeneration)') ||
+  !paste.includes('this.isBusy = false;')) {
+  throw new Error('scanner clipboard reads are not single-flight or page-generation safe');
+}
+for (const [method, next, minimumChecks] of [
+  ['  private async loadState(', '\n  private tryStartImmediateScan(', 2],
+  ['  private async startCameraScan(', '\n  private async selectPhotoQr(', 4],
+  ['  private async selectPhotoQr(', '\n  private firstScanValue(', 3]
+]) {
+  const methodAt = scanner.indexOf(method);
+  const methodEnd = scanner.indexOf(next, methodAt);
+  const body = scanner.slice(methodAt, methodEnd);
+  const checks = (body.match(/this[.]isCurrentPage[(]pageGeneration[)]/g) ?? []).length;
+  if (methodAt < 0 || methodEnd < 0 || checks < minimumChecks) {
+    throw new Error(`${method.trim()} does not reject late results after scanner page disposal`);
+  }
+}
 NODE
 printf 'import re-entry and scanner disposal verification passed\n'
 
