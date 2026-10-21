@@ -174,7 +174,12 @@ struct ImportPage {
       .backgroundColor(AppColor.surfaceAlt)
       .borderRadius(Radius.pill)
       .onClick(() => {
-        this.getUIContext().getRouter().pushUrl({ url: AppRoute.SCANNER });
+        this.getUIContext().getRouter().pushUrl({
+          url: AppRoute.SCANNER,
+          params: {
+            startImmediately: true
+          }
+        });
       })
     }
     .width('100%')  }

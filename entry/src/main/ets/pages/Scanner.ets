@@ -20,6 +20,7 @@ import { SubscriptionStore } from '../storage/SubscriptionStore';
 import { convertNativeShareTextToOutbounds } from '../services/NativeShareConverter';
 import { SubscriptionManager } from '../services/SubscriptionManager';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
+import { shouldStartScannerImmediately } from '../core/ScannerLaunch';
 import { AppColor } from '../theme/Theme';
 
 @Entry
@@ -37,9 +38,17 @@ struct ScannerPage {
   @State private isPressedPhotoCard: boolean = false;
   @State private isPressedImportBtn: boolean = false;
   private startScanImmediate: boolean = false;
+  private routeStartScanImmediate: boolean = false;
   private immediateScanTimerId: number = -1;
 
   aboutToAppear(): void {
+    try {
+      this.routeStartScanImmediate = shouldStartScannerImmediately(
+        router.getParams() as Record<string, Object>
+      );
+    } catch (error) {
+      this.routeStartScanImmediate = false;
+    }
     this.loadState();
   }
 
@@ -339,7 +348,7 @@ struct ScannerPage {
       const context = getContext(this) as common.Context;
       const settings = await SETTINGS_CONTROLLER.load(context);
       this.language = settings.language;
-      this.startScanImmediate = settings.startScanImmediate;
+      this.startScanImmediate = this.routeStartScanImmediate || settings.startScanImmediate;
       this.tryStartImmediateScan();
     } catch (error) {
       this.lastError = this.f1('scanner.loadStateFailed', 'error', redactDiagnosticText(JSON.stringify(error)));

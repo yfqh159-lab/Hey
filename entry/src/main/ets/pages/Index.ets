@@ -628,7 +628,7 @@ struct Index {
 
   private async handleControlDeepLink(action: DeepLinkControlAction, targetNodeId: string = ''): Promise<void> {
     if (action === 'scan') {
-      this.getUIContext().getRouter().pushUrl({ url: AppRoute.SCANNER }).catch((err: Error) => {});
+      this.openScannerImmediately();
       SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('log.deepLinkControl', 'action', action));
       return;
     }
@@ -1203,7 +1203,7 @@ struct Index {
           iconSize: 24,
           iconColor: AppColor.brand,
           onAction: () => {
-            this.getUIContext().getRouter().pushUrl({ url: AppRoute.SCANNER });
+            this.openScannerImmediately();
           }
         })
 
@@ -2643,7 +2643,20 @@ struct Index {
   }
 
   private openRoute(route: AppRoute): void {
+    if (route === AppRoute.SCANNER) {
+      this.openScannerImmediately();
+      return;
+    }
     this.getUIContext().getRouter().pushUrl({ url: route }).catch((err: Error) => {});
+  }
+
+  private openScannerImmediately(): void {
+    this.getUIContext().getRouter().pushUrl({
+      url: AppRoute.SCANNER,
+      params: {
+        startImmediately: true
+      }
+    }).catch((err: Error) => {});
   }
 
   private openNodeDetail(node: ProxyNode): void {
