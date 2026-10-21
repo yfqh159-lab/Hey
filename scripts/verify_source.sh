@@ -1260,6 +1260,16 @@ if (vpnStartAt < 0 || geoFenceAt < vpnStartAt || vpnConnectionCreateAt < geoFenc
   !geoReadiness.includes('hasPendingGeoReplacementArtifacts(names)')) {
   throw new Error('VPN Extension can load a core while a Geo replacement transaction is incomplete');
 }
+const connectionStartAt = connection.indexOf(
+  '  async start(context: common.Context, profile: ProxyProfile, settings?: AppSettings)');
+const connectionValidationAt = connection.indexOf(
+  'const validation = normalizeConfigInput(', connectionStartAt);
+const connectionGeoFenceAt = connection.indexOf(
+  'assertGeoAssetsStableForCore(context.filesDir);', connectionStartAt);
+if (connectionStartAt < 0 || connectionGeoFenceAt < connectionStartAt ||
+  connectionValidationAt < connectionGeoFenceAt) {
+  throw new Error('proxy-only startup can reach config/core preparation before the Geo transaction fence');
+}
 if (!health.includes('expectedSessionId: string') || !health.includes('eventDetails: string | undefined') ||
   !health.includes('eventDetails.startsWith(`${marker};`)')) {
   throw new Error('VPN diagnostic errors are not matched to the exact active session');

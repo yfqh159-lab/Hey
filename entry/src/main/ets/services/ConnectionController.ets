@@ -17,6 +17,7 @@ import { DiagnosticEvent, DiagnosticLog } from './DiagnosticLog';
 import { clearCoreLog, clearSingboxLog } from './CoreLogReader';
 import { OUTBOUND_DOMAIN_RESOLVER } from './OutboundDomainResolver';
 import { waitForRuntimeSocksHealth } from './RuntimeHealthProbe';
+import { assertGeoAssetsStableForCore } from './GeoCoreReadiness';
 import {
   VpnRuntimeStateStore,
   isPersistedVpnRuntimeSessionReady,
@@ -122,6 +123,18 @@ export class ConnectionController {
       this.status = ConnectionStatus.ERROR;
       this.lastError = redactDiagnosticText(
         `Xray 资源目录尚未安全初始化：${assetReadiness.message}`
+      );
+      return this.getSnapshot();
+    }
+    try {
+      // 本地代理不会进入 VPN Extension，必须在共享控制器这里独立检查；VPN 模式
+      // 也先在 UI 进程快速失败，扩展进程仍保留自己的跨进程第二道栅栏。
+      assertGeoAssetsStableForCore(context.filesDir);
+    } catch (error) {
+      const businessError = error as BusinessError;
+      this.status = ConnectionStatus.ERROR;
+      this.lastError = redactDiagnosticText(
+        `Geo 数据替换尚未恢复：${businessError.message ?? JSON.stringify(error)}`
       );
       return this.getSnapshot();
     }
