@@ -895,10 +895,12 @@ struct AssetsPage {
 
   private deleteAsset(fileName: string): void {
     const context = this.getUIContext().getHostContext() as common.Context;
-    ASSETS_CONTROLLER.deleteAsset(context, fileName, this.language, () => {
+    ASSETS_CONTROLLER.deleteAsset(context, fileName, this.language, (success: boolean) => {
       this.updateFileStatus();
-      this.clearGeoMetadata();
-      this.notifyGeoReloadRequiredIfRunning();
+      if (success) {
+        this.clearGeoMetadata();
+        this.notifyGeoReloadRequiredIfRunning();
+      }
     });
   }
 

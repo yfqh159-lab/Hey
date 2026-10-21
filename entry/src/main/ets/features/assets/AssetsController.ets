@@ -863,17 +863,26 @@ export class AssetsController {
   }
 
   // 删除 Geo 资源
-  deleteAsset(context: common.Context, fileName: string, language: AppLanguage, onComplete: () => void): void {
+  deleteAsset(
+    context: common.Context,
+    fileName: string,
+    language: AppLanguage,
+    onComplete: (success: boolean) => void
+  ): void {
     const targetPath = `${context.filesDir}/${fileName}`;
+    let success = false;
     try {
-      if (fs.accessSync(targetPath)) {
-        fs.unlinkSync(targetPath);
+      const existed = this.fileExists(targetPath);
+      this.removeStandaloneAssetFiles(targetPath);
+      success = true;
+      if (existed) {
         promptAction.showToast({ message: this.t(language, 'assets.deleteSuccess').replace('{title}', fileName) });
       }
     } catch (error) {
-      promptAction.showToast({ message: this.t(language, 'assets.deleteFailed').replace('{error}', JSON.stringify(error)) });
+      const message = redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error));
+      promptAction.showToast({ message: this.t(language, 'assets.deleteFailed').replace('{error}', message) });
     } finally {
-      onComplete();
+      onComplete(success);
     }
   }
 
@@ -881,15 +890,24 @@ export class AssetsController {
   async deleteCustomAsset(context: common.Context, item: CustomAssetUrl, customAssets: Array<CustomAssetUrl>, language: AppLanguage): Promise<Array<CustomAssetUrl>> {
     const path = `${context.filesDir}/${item.name}.dat`;
     try {
-      if (fs.accessSync(path)) {
-        fs.unlinkSync(path);
-      }
-    } catch (e) {}
+      this.removeStandaloneAssetFiles(path);
+      const updated = customAssets.filter(asset => asset.id !== item.id);
+      await AssetStore.save(context, updated);
+      promptAction.showToast({ message: this.t(language, 'assets.customDeleteSuccess') });
+      return updated;
+    } catch (error) {
+      const message = redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error));
+      promptAction.showToast({ message: this.t(language, 'assets.deleteFailed').replace('{error}', message) });
+      return customAssets;
+    }
+  }
 
-    const updated = customAssets.filter(asset => asset.id !== item.id);
-    await AssetStore.save(context, updated);
-    promptAction.showToast({ message: this.t(language, 'assets.customDeleteSuccess') });
-    return updated;
+  private removeStandaloneAssetFiles(targetPath: string): void {
+    // 先删备份再删正式文件。若备份清理失败则保留正式文件，避免下一次冷启动把用户
+    // 已删除的资源从 .update.bak 意外恢复回来。
+    this.removeFileStrictIfExists(`${targetPath}.update.bak`);
+    this.removeFileStrictIfExists(`${targetPath}.tmp`);
+    this.removeFileStrictIfExists(targetPath);
   }
 
 }
