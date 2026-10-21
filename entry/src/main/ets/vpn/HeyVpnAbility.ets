@@ -5,7 +5,7 @@ import Want from '@ohos.app.ability.Want';
 import { NetworkProbe } from '../services/NetworkProbe';
 import { NetAutomationConfig, NET_ACTION_DISCONNECT, decideNetAutomationAction } from '../core/NetworkAutomation';
 import { NetSceneStopFlag } from '../services/NetSceneStopFlag';
-import { resolveVpnInterfaceAddressConfig, RuntimeStats } from '../core/Profile';
+import { AppLanguage, ConnectionStatus, resolveVpnInterfaceAddressConfig, RuntimeStats } from '../core/Profile';
 import {
   createDefaultVpnConfig,
   normalizeVpnMtu,
@@ -32,6 +32,8 @@ import { VpnRuntimeStateStore } from '../services/VpnRuntimeStateStore';
 import { isRuntimeHealthPort, probeRuntimeSocksHealth, waitForRuntimeSocksHealth } from '../services/RuntimeHealthProbe';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { SPEED_NOTIFICATION_MANAGER } from '../services/SpeedNotificationManager';
+import { CONTROL_CARD_MANAGER } from '../services/ControlCardManager';
+import { DEFAULT_LANGUAGE } from '../core/I18n';
 
 const LOG_DOMAIN: number = 0x0001;
 const LOG_TAG: string = 'HeyVpnAbility';
@@ -44,6 +46,7 @@ const RUNTIME_STATE_INTERVAL_MS: number = 4000;
 const UNHEALTHY_SAMPLE_LIMIT: number = 2;
 const PROTECT_PROCESS_TIMEOUT_MS: number = 10000;
 const NOTIFICATION_CANCEL_TIMEOUT_MS: number = 2000;
+const CONTROL_CARD_RESET_TIMEOUT_MS: number = 2000;
 // 网络场景轮询间隔：VPN 扩展进程后台存活，自驱动定时器可跑（区别于后台收不到的 connection.on 事件）。
 const NET_SCENE_POLL_MS: number = 5000;
 
@@ -76,6 +79,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   private sessionId: string = '';
   private startedAt: number = 0;
   private activeCoreType: string = 'xray';
+  private activeLanguage: AppLanguage = DEFAULT_LANGUAGE;
   private lastRuntimeStateAt: number = 0;
   private cleaningUp: boolean = false;
   private cleanupAgainRequested: boolean = false;
@@ -143,6 +147,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       this.vpnConnection = vpnExtension.createVpnConnection(this.context);
       this.emitInfo('Creating VPN connection.');
       const settings = await SETTINGS_CONTROLLER.load(this.context);
+      this.activeLanguage = settings.language;
       this.ensureStartAllowed('settings load');
       const perAppEnabled = settings.perAppProxyEnabled;
       const bypassMode = settings.perAppProxyBypass ?? false;
@@ -348,6 +353,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     // 通知由 UI 进程发布，但 VPN 可能在 UI 被挂起/回收后由扩展自行清理。立即并行撤销，
     // 不能让“正在运行”的常驻通知晚于真实隧道状态；失败或超时不得阻塞 TUN/核心释放。
     const notificationCancel = this.cancelSpeedNotificationSafely();
+    const controlCardReset = this.resetControlCardSafely();
     try {
       do {
         this.cleanupAgainRequested = false;
@@ -387,6 +393,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       this.cleaningUp = false;
     }
     await notificationCancel;
+    await controlCardReset;
     this.emitInfo('VPN cleanup finished.', `session=${this.sessionId}`);
   }
 
@@ -399,6 +406,25 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       );
     } catch (error) {
       this.emitInfo('Speed notification cancellation did not complete.', this.errorMessage(error));
+    }
+  }
+
+  private async resetControlCardSafely(): Promise<void> {
+    try {
+      await withTimeout(
+        CONTROL_CARD_MANAGER.sync(
+          this.context,
+          ConnectionStatus.IDLE,
+          '00:00',
+          this.activeLanguage,
+          '',
+          false
+        ),
+        CONTROL_CARD_RESET_TIMEOUT_MS,
+        'Control card reset timed out.'
+      );
+    } catch (error) {
+      this.emitInfo('Control card reset did not complete.', this.errorMessage(error));
     }
   }
 
