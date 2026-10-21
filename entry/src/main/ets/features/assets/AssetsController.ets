@@ -7,12 +7,17 @@ import fs from '@ohos.file.fs';
 import {
   BUILTIN_GEO_DATA_FILE_NAMES,
   DEFAULT_GEO_RELEASE_API,
+  GeoRecoveryAction,
+  GeoTransactionState,
   MAX_GEO_DATA_BYTES,
+  encodeGeoTransactionState,
   isAllowedGeoAssetRedirect,
   isPlausibleGeoData,
+  parseGeoTransactionState,
   parseHttpRedirectLocation,
   parseDefaultGeoRelease,
-  parseSha256Checksum
+  parseSha256Checksum,
+  resolveGeoRecoveryAction
 } from '../../core/GeoAssets';
 import { APP_HTTP_USER_AGENT } from '../../core/HttpDefaults';
 import { shouldExposeLocalHttpProxy } from '../../core/LocalProxy';
@@ -50,6 +55,7 @@ interface StagedGeoAsset {
 
 const GEO_UPDATE_TEMP_SUFFIX: string = '.geo-update.tmp';
 const GEO_UPDATE_BACKUP_SUFFIX: string = '.geo-update.bak';
+const GEO_UPDATE_STATE_FILE: string = '.geo-update.state';
 const GEO_UPDATE_COMMIT_FILE: string = '.geo-update.committed';
 const MAX_ASSET_REDIRECTS: number = 5;
 
@@ -97,7 +103,7 @@ export class AssetsController {
   }
 
   // 检查可信默认发布源。两个核心文件全部通过版本、大小、格式和 SHA-256 校验后才一起替换。
-  // 若安装阶段失败，则回滚本次已替换的文件；进程中断留下的备份会在下次检查时恢复。
+  // 若安装阶段失败，则回滚本次已替换的文件；进程中断留下的事务状态会在下次检查时恢复。
   async checkAndUpdateBuiltinGeo(context: common.Context): Promise<BuiltinGeoUpdateResult> {
     if (this.geoUpdateRunning) {
       throw new Error('Geo update is already running');
@@ -596,7 +602,10 @@ export class AssetsController {
   private writeFileData(path: string, data: ArrayBuffer): void {
     const file = fs.openSync(path, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
     try {
-      fs.writeSync(file.fd, data);
+      const written = fs.writeSync(file.fd, data);
+      if (written !== data.byteLength) {
+        throw new Error(`short write for ${path}`);
+      }
     } finally {
       fs.closeSync(file);
     }
@@ -614,7 +623,21 @@ export class AssetsController {
 
   private installStagedGeoAssets(context: common.Context, staged: Array<StagedGeoAsset>): void {
     const commitPath = `${context.filesDir}/${GEO_UPDATE_COMMIT_FILE}`;
+    const statePath = `${context.filesDir}/${GEO_UPDATE_STATE_FILE}`;
+    this.removeFileStrictIfExists(statePath);
     this.removeFileStrictIfExists(commitPath);
+    let stagedMask = 0;
+    let originalMask = 0;
+    for (let index = 0; index < staged.length; index++) {
+      const bit = this.geoTransactionBit(staged[index].fileName);
+      stagedMask |= bit;
+      if (staged[index].hadOriginal) {
+        originalMask |= bit;
+      }
+    }
+    // 在任何破坏性 rename 前持久化“哪些文件参与、哪些原本存在”。首次安装没有 .bak，
+    // 进程若在两个文件之间退出，下次也能据此删除已装入的半套新文件。
+    this.writeFileData(statePath, encodeGeoTransactionState(stagedMask, originalMask));
     for (let index = 0; index < staged.length; index++) {
       const asset = staged[index];
       this.removeFileStrictIfExists(asset.backupPath);
@@ -640,7 +663,15 @@ export class AssetsController {
       }
     }
     if (cleanupComplete) {
-      this.removeFileIfExists(`${context.filesDir}/${GEO_UPDATE_COMMIT_FILE}`);
+      const statePath = `${context.filesDir}/${GEO_UPDATE_STATE_FILE}`;
+      try {
+        this.removeFileStrictIfExists(statePath);
+        // 提交标记必须最后删除。若两次删除之间进程退出，保留 committed 会让恢复逻辑
+        // 继续保留已完整安装的新文件；反过来会把首次安装误判为未提交并删除新文件。
+        this.removeFileStrictIfExists(`${context.filesDir}/${GEO_UPDATE_COMMIT_FILE}`);
+      } catch (error) {
+        // 清理标记失败不撤销已提交的新文件；下次检查会按 committed 状态继续清理。
+      }
     }
   }
 
@@ -666,25 +697,54 @@ export class AssetsController {
     if (firstError !== null) {
       throw firstError;
     }
+    this.removeFileIfExists(`${context.filesDir}/${GEO_UPDATE_STATE_FILE}`);
   }
 
   private async recoverGeoTransaction(context: common.Context): Promise<void> {
     const commitPath = `${context.filesDir}/${GEO_UPDATE_COMMIT_FILE}`;
+    const statePath = `${context.filesDir}/${GEO_UPDATE_STATE_FILE}`;
     const committed = this.fileExists(commitPath);
+    const transactionState = this.readGeoTransactionState(statePath);
     const names = BUILTIN_GEO_DATA_FILE_NAMES;
     for (let index = 0; index < names.length; index++) {
       const targetPath = `${context.filesDir}/${names[index]}`;
       const backupPath = `${targetPath}${GEO_UPDATE_BACKUP_SUFFIX}`;
       const tempPath = `${targetPath}${GEO_UPDATE_TEMP_SUFFIX}`;
-      if (committed) {
+      const action: GeoRecoveryAction = resolveGeoRecoveryAction(
+        committed,
+        transactionState,
+        index,
+        this.fileExists(backupPath)
+      );
+      if (action === 'discard-backup') {
         this.removeFileStrictIfExists(backupPath);
-      } else if (this.fileExists(backupPath)) {
+      } else if (action === 'restore-backup') {
         this.removeFileStrictIfExists(targetPath);
         fs.renameSync(backupPath, targetPath);
+      } else if (action === 'remove-target') {
+        this.removeFileStrictIfExists(targetPath);
       }
       this.removeFileStrictIfExists(tempPath);
     }
+    this.removeFileStrictIfExists(statePath);
+    // 与正常完成路径相同，提交标记最后删除，避免留下“有状态、无提交标记”的假回滚窗口。
     this.removeFileStrictIfExists(commitPath);
+  }
+
+  private geoTransactionBit(fileName: string): number {
+    const index = BUILTIN_GEO_DATA_FILE_NAMES.indexOf(fileName);
+    if (index < 0) {
+      throw new Error(`unsupported Geo transaction file: ${fileName}`);
+    }
+    return 1 << index;
+  }
+
+  private readGeoTransactionState(path: string): GeoTransactionState | null {
+    try {
+      return parseGeoTransactionState(this.readFileData(path));
+    } catch (error) {
+      return null;
+    }
   }
 
   private fileExists(path: string): boolean {

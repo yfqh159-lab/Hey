@@ -17,7 +17,7 @@ import { buildManualHysteria2Outbound, buildManualWireguardOutbound } from '../m
 import { clearVisiblePerAppPackages, exportPerAppProxyList, importPerAppProxyList, invertVisiblePerAppPackages, normalizePerAppPackageList, selectAllPerAppPackages } from '../main/ets/core/PerAppProxy';
 import { shouldShowProxySharingStartWarning } from '../main/ets/core/ProxySharingWarning';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppSettings, ConnectionStatus, DEFAULT_DELAY_TEST_URL, DEFAULT_HEV_TUN_LOG_LEVEL, DEFAULT_HEV_TUN_RW_TIMEOUT, DEFAULT_IP_API_URL, DEFAULT_VPN_MTU, OUTBOUND_DOMAIN_RESOLVE_DNS_HOSTS, OUTBOUND_DOMAIN_RESOLVE_NONE, OUTBOUND_DOMAIN_RESOLVE_REPLACE, OutboundDomainResolveMethod, normalizeAppRuntimeMode, normalizeHevTunLogLevel, normalizeHevTunRwTimeout, normalizeRealPingConcurrency, normalizeRoutingDomainStrategy, normalizeUiModeNight, ProxyNode, resolveDelayTestUrl, RoutingRule, RuntimeStats, SubscriptionGroup } from '../main/ets/core/Profile';
-import { BUILTIN_GEO_DATA_FILE_NAMES, DEFAULT_GEO_RELEASE_API, DEFAULT_GEO_RELEASE_DOWNLOAD_PREFIX, GEOIP_FILE_NAME, GEOSITE_FILE_NAME, buildAssetDownloadUrl, isAllowedGeoAssetRedirect, isPlausibleGeoData, parseDefaultGeoRelease, parseHttpRedirectLocation, parseSha256Checksum } from '../main/ets/core/GeoAssets';
+import { BUILTIN_GEO_DATA_FILE_NAMES, DEFAULT_GEO_RELEASE_API, DEFAULT_GEO_RELEASE_DOWNLOAD_PREFIX, GEOIP_FILE_NAME, GEOSITE_FILE_NAME, buildAssetDownloadUrl, encodeGeoTransactionState, isAllowedGeoAssetRedirect, isPlausibleGeoData, parseDefaultGeoRelease, parseGeoTransactionState, parseHttpRedirectLocation, parseSha256Checksum, resolveGeoRecoveryAction } from '../main/ets/core/GeoAssets';
 import { DELAY_TEST_SOCKS_PORT, LOCAL_HTTP_PROXY_LAN_HOST, LOCAL_HTTP_PROXY_PORT, LOCAL_SOCKS_PROXY_PORT, UNIDENTIFIED_PROCESS_PACKAGE, buildDelayTestConfig, buildRuntimeXrayConfig, buildXrayConfig, buildXrayConfigWithSettings, canUseProcessRouting, collectOutboundDomainPreResolveHosts, normalizeFullConfigRoutingProcesses, normalizeOutboundInput, normalizeRoutingRuleProcesses, validateFullConfigJson, validateOutboundJson, validatePolicyGroupConfigJson, validateProxyChainConfigJson, withOutboundDomainResolvedHosts, injectXrayLogFile } from '../main/ets/core/XrayConfig';
 import { CONTROL_SHORTCUT_ACTION_PARAM, CONTROL_SHORTCUT_GUID_PARAM, CONTROL_SHORTCUT_NODE_ID_PARAM, CONTROL_SHORTCUT_URI_PARAM, TASKER_EXTRA_BUNDLE_GUID_PARAM, TASKER_EXTRA_BUNDLE_SWITCH_PARAM, controlUriFromShortcutParameters, deepLinkUriFromWant, parseDeepLink } from '../main/ets/core/DeepLink';
 import { HARMONY_SEND_DATA_ACTION, HARMONY_SHARE_ABSTRACT_KEY, HARMONY_SHARE_URL_KEY, HARMONY_TEXT_MIME_TYPE, SharedTextWantLike, extractSharedTextFromWant, isSharedTextWant } from '../main/ets/core/SharedTextImport';
@@ -1964,6 +1964,31 @@ export default function localUnitTest() {
       expect(isAllowedGeoAssetRedirect(DEFAULT_GEO_RELEASE_API, 'https://api.github.com/repositories/1/releases/2')).assertTrue();
       expect(isAllowedGeoAssetRedirect('https://example.com/file', 'http://example.com/file')).assertFalse();
       expect(isAllowedGeoAssetRedirect('https://example.com/file', 'https://cdn.example.com/file')).assertTrue();
+    });
+
+    it('persists and validates geo update transaction state', 0, () => {
+      const state = parseGeoTransactionState(encodeGeoTransactionState(3, 1));
+      expect(state?.stagedMask).assertEqual(3);
+      expect(state?.originalMask).assertEqual(1);
+      expect(parseGeoTransactionState(new Uint8Array([0, 0]).buffer)).assertEqual(null);
+      expect(parseGeoTransactionState(new Uint8Array([1, 2]).buffer)).assertEqual(null);
+      expect(parseGeoTransactionState(new Uint8Array([7, 0]).buffer)).assertEqual(null);
+      expect(parseGeoTransactionState(new Uint8Array([1]).buffer)).assertEqual(null);
+    });
+
+    it('recovers interrupted initial and replacement geo installs as one transaction', 0, () => {
+      const firstInstall = parseGeoTransactionState(encodeGeoTransactionState(3, 0));
+      expect(resolveGeoRecoveryAction(false, firstInstall, 0, false)).assertEqual('remove-target');
+      expect(resolveGeoRecoveryAction(false, firstInstall, 1, false)).assertEqual('remove-target');
+
+      const replacement = parseGeoTransactionState(encodeGeoTransactionState(3, 3));
+      expect(resolveGeoRecoveryAction(false, replacement, 0, true)).assertEqual('restore-backup');
+      expect(resolveGeoRecoveryAction(false, replacement, 1, false)).assertEqual('keep');
+      expect(resolveGeoRecoveryAction(true, replacement, 0, true)).assertEqual('discard-backup');
+      expect(resolveGeoRecoveryAction(true, replacement, 1, false)).assertEqual('keep');
+
+      expect(resolveGeoRecoveryAction(false, null, 0, true)).assertEqual('restore-backup');
+      expect(resolveGeoRecoveryAction(false, null, 1, false)).assertEqual('keep');
     });
 
     it('tries asset downloads through local HTTP proxy before direct fallback', 0, () => {

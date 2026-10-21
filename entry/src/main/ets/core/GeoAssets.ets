@@ -15,6 +15,57 @@ export const BUILTIN_GEO_DATA_FILE_NAMES: Array<string> = [
   GEOIP_FILE_NAME
 ];
 
+export interface GeoTransactionState {
+  stagedMask: number;
+  originalMask: number;
+}
+
+export type GeoRecoveryAction = 'keep' | 'remove-target' | 'restore-backup' | 'discard-backup';
+
+export function encodeGeoTransactionState(stagedMask: number, originalMask: number): ArrayBuffer {
+  const validMask = geoTransactionValidMask();
+  if (stagedMask === 0 || (stagedMask & ~validMask) !== 0 || (originalMask & ~stagedMask) !== 0) {
+    throw new Error('invalid Geo transaction state');
+  }
+  return new Uint8Array([stagedMask, originalMask]).buffer;
+}
+
+export function parseGeoTransactionState(data: ArrayBuffer | null): GeoTransactionState | null {
+  if (data === null || data.byteLength !== 2) {
+    return null;
+  }
+  const bytes = new Uint8Array(data);
+  const stagedMask = bytes[0];
+  const originalMask = bytes[1];
+  const validMask = geoTransactionValidMask();
+  if (stagedMask === 0 || (stagedMask & ~validMask) !== 0 || (originalMask & ~stagedMask) !== 0) {
+    return null;
+  }
+  return { stagedMask, originalMask };
+}
+
+export function resolveGeoRecoveryAction(
+  committed: boolean,
+  transactionState: GeoTransactionState | null,
+  fileIndex: number,
+  backupExists: boolean
+): GeoRecoveryAction {
+  if (committed) {
+    return backupExists ? 'discard-backup' : 'keep';
+  }
+  if (fileIndex >= 0 && fileIndex < BUILTIN_GEO_DATA_FILE_NAMES.length && transactionState !== null) {
+    const bit = 1 << fileIndex;
+    if ((transactionState.stagedMask & bit) !== 0) {
+      if ((transactionState.originalMask & bit) === 0) {
+        return 'remove-target';
+      }
+      return backupExists ? 'restore-backup' : 'keep';
+    }
+  }
+  // 兼容尚未写入事务状态文件的旧版本：发现遗留备份时仍恢复旧文件。
+  return backupExists ? 'restore-backup' : 'keep';
+}
+
 export function buildAssetDownloadUrl(sourceUrl: string, fileName: string): string {
   const normalizedSource = sourceUrl.endsWith('/') ? sourceUrl : `${sourceUrl}/`;
   return `${normalizedSource}${fileName}`;
@@ -167,4 +218,8 @@ function normalizeDeclaredSize(value: number | undefined): number {
 
 function failedManifest(message: string): GeoManifestParseResult {
   return { ok: false, message, manifest: null };
+}
+
+function geoTransactionValidMask(): number {
+  return (1 << BUILTIN_GEO_DATA_FILE_NAMES.length) - 1;
 }
