@@ -199,7 +199,7 @@ const updateAt = page.indexOf('  private async checkGeoUpdate(): Promise<void>')
 const updateEnd = page.indexOf('\n  private deleteAsset(', updateAt);
 const update = page.slice(updateAt, updateEnd);
 if (updateAt < 0 || updateEnd < 0 || !update.includes('if (result.metadataSaved)') ||
-  !update.includes('await this.clearGeoMetadata(pageGeneration);') || !update.includes('this.applyVerifiedGeoResult(result);')) {
+  update.includes('await this.clearGeoMetadata(pageGeneration);') || !update.includes('this.applyVerifiedGeoResult(result);')) {
   throw new Error('a metadata write failure can reload and display an obsolete Geo version');
 }
 if (!update.includes('let metadataConfirmed = result.metadataSaved;') ||
@@ -256,7 +256,8 @@ if (deleteCustomAt < 0 || deleteCustomEnd < 0 || persistDeleteAt < 0 ||
 const updateCatchAt = update.indexOf('    } catch (error) {');
 const updateCatch = update.slice(updateCatchAt);
 if (updateCatchAt < 0 || !updateCatch.includes('const message = redactDiagnosticText(') ||
-  !updateCatch.includes('try {\n        await this.loadGeoMetadata(pageGeneration);\n      } catch (metadataError) {') ||
+  !updateCatch.includes('if (!ASSETS_CONTROLLER.isGeoMetadataStorePending()) {') ||
+  !updateCatch.includes('try {\n          await this.loadGeoMetadata(pageGeneration);\n        } catch (metadataError) {') ||
   !updateCatch.includes("const localized = this.f1('assets.geo.checkFailed', 'error', message);") ||
   !updateCatch.includes('SHARED_RUNTIME_CONTROLLER.appendLog(localized);')) {
   throw new Error('a secondary Geo metadata load failure can mask the original update error');
@@ -272,13 +273,13 @@ if (!page.includes('private pageActive: boolean = false;') ||
   !lifecycle.includes('this.pageActive = false;') ||
   !lifecycle.includes('this.pageGeneration++;') ||
   !update.includes('const pageGeneration = this.pageGeneration;') ||
-  checkGenerationCount < 6 ||
+  checkGenerationCount < 5 ||
   !update.includes('this.logDetachedGeoResult(result);') ||
   !update.includes('await this.loadState(this.pageGeneration);') ||
   !load.includes('this.isCurrentPage(pageGeneration)')) {
   throw new Error('Geo update or metadata load can update a disposed page or lose refresh after returning');
 }
-if (!controller.includes('await AssetStore.saveGeoUpdateMetadata(context, updateMetadata);') ||
+if (!controller.includes('(): Promise<void> => AssetStore.saveGeoUpdateMetadata(context, updateMetadata)') ||
   !controller.includes('this.removeFileStrictIfExists(`${context.filesDir}/${GEO_METADATA_INVALID_FILE}`);') ||
   !controller.includes('this.writeFileData(`${context.filesDir}/${GEO_METADATA_INVALID_FILE}`')) {
   throw new Error('Geo metadata failures are not durably invalidated across equal-content releases');
@@ -301,6 +302,17 @@ NODE
 printf 'installed Geo metadata verification passed\n'
 
 geo_controller="entry/src/main/ets/features/assets/AssetsController.ets"
+if ! grep -Fq "const GEO_METADATA_STORE_DEADLINE_MS: number = 5000;" "${geo_controller}" || \
+  ! grep -Fq "function withGeoMetadataStoreTimeout<T>(promise: Promise<T>): Promise<T>" "${geo_controller}" || \
+  ! grep -Fq "private geoMetadataStoreInFlight: Promise<void> | null = null;" "${geo_controller}" || \
+  ! grep -Fq "isGeoMetadataStorePending(): boolean" "${geo_controller}" || \
+  ! grep -Fq "private async runGeoMetadataStoreOperation(operation: () => Promise<void>): Promise<void>" "${geo_controller}" || \
+  ! grep -Fq "await this.runGeoMetadataStoreOperation(" "${geo_controller}" || \
+  ! grep -Fq "this.releaseGeoMetadataStoreOperation(promise)" "${geo_controller}"; then
+  throw_error "Geo metadata writes must be bounded and single-flight"
+fi
+printf 'bounded Geo metadata storage verification passed\n'
+
 if ! grep -q 'maxLimit: MAX_GEO_TEXT_BYTES' "${geo_controller}" ||
   ! grep -q 'maxLimit: MAX_GEO_HTTP_DATA_BYTES' "${geo_controller}" ||
   ! grep -q "response.result.byteLength > MAX_GEO_HTTP_DATA_BYTES" "${geo_controller}" ||

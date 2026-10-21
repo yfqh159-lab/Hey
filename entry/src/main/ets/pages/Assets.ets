@@ -916,12 +916,9 @@ struct AssetsPage {
           SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('assets.loadFailed', 'error', metadataMessage));
         }
       } else {
-        // 文件事务已经成功但校验记录未持久化时，不得重新加载并展示上一版元数据。
-        // 尽力清掉旧记录，同时用本次已验证结果更新当前页面；下次启动会重新核对文件。
-        await this.clearGeoMetadata(pageGeneration);
-        if (!this.isCurrentPage(pageGeneration)) {
-          return;
-        }
+        // 文件事务已经成功但校验记录未持久化（也可能 ArkData 永久 pending）时，
+        // 不再排队等待同一存储队列清旧记录。失效标记会让下次读取拒绝旧记录；当前
+        // 页面直接使用本次已经过 SHA-256 验证的结果，资源更新互斥锁也已释放。
         this.applyVerifiedGeoResult(result);
       }
       this.updateFileStatus();
@@ -940,14 +937,18 @@ struct AssetsPage {
       this.toast(message);
     } catch (error) {
       const message = redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error));
-      try {
-        await this.loadGeoMetadata(pageGeneration);
-      } catch (metadataError) {
-        // 展示记录刷新失败只能作为附加诊断，不能遮蔽真正的下载或校验失败。
-        const metadataMessage = redactDiagnosticText(
-          metadataError instanceof Error ? metadataError.message : JSON.stringify(metadataError)
-        );
-        SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('assets.loadFailed', 'error', metadataMessage));
+      // 失败记录已经超时时，不能把元数据重读继续排到同一条卡住的 ArkData 队列。
+      // 存储正常时仍刷新“上次检查失败”时间；无论如何都保留下面的原始检查错误。
+      if (!ASSETS_CONTROLLER.isGeoMetadataStorePending()) {
+        try {
+          await this.loadGeoMetadata(pageGeneration);
+        } catch (metadataError) {
+          // 展示记录刷新失败只能作为附加诊断，不能遮蔽真正的下载或校验失败。
+          const metadataMessage = redactDiagnosticText(
+            metadataError instanceof Error ? metadataError.message : JSON.stringify(metadataError)
+          );
+          SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('assets.loadFailed', 'error', metadataMessage));
+        }
       }
       const localized = this.f1('assets.geo.checkFailed', 'error', message);
       SHARED_RUNTIME_CONTROLLER.appendLog(localized);

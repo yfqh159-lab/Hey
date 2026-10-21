@@ -82,10 +82,25 @@ const GEO_METADATA_INVALID_FILE: string = '.geo-metadata.invalid';
 const MAX_ASSET_REDIRECTS: number = 5;
 const GEO_TEXT_HTTP_DEADLINE_MS: number = 45000;
 const GEO_DATA_HTTP_DEADLINE_MS: number = 75000;
+const GEO_METADATA_STORE_DEADLINE_MS: number = 5000;
 
 function withAssetRequestTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timerId = setTimeout(() => reject(new Error('Geo HTTP request timed out')), timeoutMs);
+    promise.then((value: T) => {
+      clearTimeout(timerId);
+      resolve(value);
+    }, (error: Object) => {
+      clearTimeout(timerId);
+      reject(error);
+    });
+  });
+}
+
+function withGeoMetadataStoreTimeout<T>(promise: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timerId = setTimeout(() => reject(new Error('Geo metadata storage timed out')),
+      GEO_METADATA_STORE_DEADLINE_MS);
     promise.then((value: T) => {
       clearTimeout(timerId);
       resolve(value);
@@ -104,6 +119,13 @@ export class AssetsController {
   // 所有 .dat 文件替换/删除共用一把进程内互斥锁。页面离开后重新进入会丢失本地
   // downloadingFile 状态，因此不能只依赖 UI 防止双文件事务与单文件操作竞争。
   private assetMutationRunning: boolean = false;
+  // Preferences 调用超时只会结束本轮等待，不能取消 ArkData 底层任务。保留原 Promise
+  // 直到真正结算，期间不再向同一串行存储队列叠加失败/成功元数据任务。
+  private geoMetadataStoreInFlight: Promise<void> | null = null;
+
+  isGeoMetadataStorePending(): boolean {
+    return this.geoMetadataStoreInFlight !== null;
+  }
   
   private pad(val: number): string {
     return val < 10 ? `0${val}` : `${val}`;
@@ -195,7 +217,14 @@ export class AssetsController {
     try {
       return await this.performBuiltinGeoUpdate(context);
     } catch (error) {
-      await this.recordGeoUpdateFailure(context);
+      // 失败记录只是可观察性元数据，ArkData 永久 pending 时不能反过来占住资源
+      // 更新互斥锁。旧 Geo 文件仍是权威结果；记录迟到也没有文件系统副作用。
+      try {
+        await this.runGeoMetadataStoreOperation(
+          (): Promise<void> => this.recordGeoUpdateFailure(context));
+      } catch (_metadataError) {
+        // keep the original download/check/install error
+      }
       throw error;
     } finally {
       this.assetMutationRunning = false;
@@ -276,7 +305,8 @@ export class AssetsController {
       };
       let metadataSaved = true;
       try {
-        await AssetStore.saveGeoUpdateMetadata(context, updateMetadata);
+        await this.runGeoMetadataStoreOperation(
+          (): Promise<void> => AssetStore.saveGeoUpdateMetadata(context, updateMetadata));
         // 上一次文件安装成功、Preferences 保存失败时可能留下失效标志。只有本次记录
         // 已持久化后才移除；移除失败同样视为记录未能安全启用。
         this.removeFileStrictIfExists(`${context.filesDir}/${GEO_METADATA_INVALID_FILE}`);
@@ -321,6 +351,25 @@ export class AssetsController {
       });
     } catch (error) {
       // The original files are still authoritative; failure metadata is best effort only.
+    }
+  }
+
+  private async runGeoMetadataStoreOperation(operation: () => Promise<void>): Promise<void> {
+    if (this.geoMetadataStoreInFlight !== null) {
+      throw new Error('Geo metadata storage is still pending');
+    }
+    const promise = operation();
+    this.geoMetadataStoreInFlight = promise;
+    promise.then(
+      (): void => this.releaseGeoMetadataStoreOperation(promise),
+      (_error: Object): void => this.releaseGeoMetadataStoreOperation(promise)
+    );
+    await withGeoMetadataStoreTimeout(promise);
+  }
+
+  private releaseGeoMetadataStoreOperation(promise: Promise<void>): void {
+    if (this.geoMetadataStoreInFlight === promise) {
+      this.geoMetadataStoreInFlight = null;
     }
   }
 
