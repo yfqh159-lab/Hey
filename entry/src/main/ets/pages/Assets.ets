@@ -71,10 +71,23 @@ struct AssetsPage {
   @State private editUrl: string = '';
   @State private editIsLocal: boolean = false;
   @State private geoUrlInput: string = '';
+  private pageActive: boolean = false;
+  private pageGeneration: number = 0;
 
   aboutToAppear(): void {
-    this.loadState();
-    this.loadCustomAssets();
+    this.pageActive = true;
+    // A previous page generation may have finished while this route was hidden.
+    // The controller remains the cross-navigation mutation lock and will reject
+    // a second update if the original operation is still in flight.
+    this.downloadingFile = '';
+    const pageGeneration = ++this.pageGeneration;
+    this.loadState(pageGeneration);
+    this.loadCustomAssets(pageGeneration);
+  }
+
+  aboutToDisappear(): void {
+    this.pageActive = false;
+    this.pageGeneration++;
   }
 
   // 物理返回键：抽屉打开先关抽屉；在用户资源子页先退回主视图；
@@ -867,18 +880,33 @@ struct AssetsPage {
       return;
     }
     const context = this.getUIContext().getHostContext() as common.Context;
+    const pageGeneration = this.pageGeneration;
     this.downloadingFile = GEOSITE_FILE_NAME;
     this.toast(this.t('assets.updatingAll'));
     try {
       const result = await ASSETS_CONTROLLER.checkAndUpdateBuiltinGeo(context);
+      if (!this.isCurrentPage(pageGeneration)) {
+        this.logDetachedGeoResult(result);
+        if (this.pageActive) {
+          this.downloadingFile = '';
+          await this.loadState(this.pageGeneration);
+        }
+        return;
+      }
       let metadataConfirmed = result.metadataSaved;
       if (result.metadataSaved) {
         try {
-          if (!await this.loadGeoMetadata()) {
+          if (!await this.loadGeoMetadata(pageGeneration)) {
+            if (!this.isCurrentPage(pageGeneration)) {
+              return;
+            }
             metadataConfirmed = false;
             this.applyVerifiedGeoResult(result);
           }
         } catch (metadataError) {
+          if (!this.isCurrentPage(pageGeneration)) {
+            return;
+          }
           // 文件事务及元数据保存均已成功；页面重读失败不能把真实更新结果改报为失败。
           metadataConfirmed = false;
           this.applyVerifiedGeoResult(result);
@@ -890,7 +918,10 @@ struct AssetsPage {
       } else {
         // 文件事务已经成功但校验记录未持久化时，不得重新加载并展示上一版元数据。
         // 尽力清掉旧记录，同时用本次已验证结果更新当前页面；下次启动会重新核对文件。
-        await this.clearGeoMetadata();
+        await this.clearGeoMetadata(pageGeneration);
+        if (!this.isCurrentPage(pageGeneration)) {
+          return;
+        }
         this.applyVerifiedGeoResult(result);
       }
       this.updateFileStatus();
@@ -910,7 +941,7 @@ struct AssetsPage {
     } catch (error) {
       const message = redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error));
       try {
-        await this.loadGeoMetadata();
+        await this.loadGeoMetadata(pageGeneration);
       } catch (metadataError) {
         // 展示记录刷新失败只能作为附加诊断，不能遮蔽真正的下载或校验失败。
         const metadataMessage = redactDiagnosticText(
@@ -920,11 +951,31 @@ struct AssetsPage {
       }
       const localized = this.f1('assets.geo.checkFailed', 'error', message);
       SHARED_RUNTIME_CONTROLLER.appendLog(localized);
-      this.toast(localized);
+      if (this.isCurrentPage(pageGeneration)) {
+        this.toast(localized);
+      } else if (this.pageActive) {
+        this.downloadingFile = '';
+        await this.loadState(this.pageGeneration);
+      }
     } finally {
-      this.downloadingFile = '';
-      this.updateFileStatus();
+      if (this.isCurrentPage(pageGeneration)) {
+        this.downloadingFile = '';
+        this.updateFileStatus();
+      }
     }
+  }
+
+  private logDetachedGeoResult(result: BuiltinGeoUpdateResult): void {
+    const notice = resolveGeoUpdateNotice(
+      result.changed,
+      SHARED_RUNTIME_CONTROLLER.isRunning(),
+      result.metadataSaved
+    );
+    let message = this.f1(notice.resultKey, 'version', result.version);
+    if (notice.appendMetadataWarning) {
+      message += `\n${this.t('assets.geo.metadataWarning')}`;
+    }
+    SHARED_RUNTIME_CONTROLLER.appendLog(message);
   }
 
   private deleteAsset(fileName: string): void {
@@ -1238,21 +1289,30 @@ struct AssetsPage {
     this.customFileStatuses = next;
   }
 
-  private async loadCustomAssets(): Promise<void> {
+  private async loadCustomAssets(pageGeneration: number): Promise<void> {
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
-      this.customAssets = await AssetStore.load(context);
-      this.refreshCustomStatuses();
+      const customAssets = await AssetStore.load(context);
+      if (this.isCurrentPage(pageGeneration)) {
+        this.customAssets = customAssets;
+        this.refreshCustomStatuses();
+      }
     } catch (error) {
-      this.toast(this.f1('assets.loadFailed', 'error', redactDiagnosticText(JSON.stringify(error))));
+      if (this.isCurrentPage(pageGeneration)) {
+        this.toast(this.f1('assets.loadFailed', 'error', redactDiagnosticText(JSON.stringify(error))));
+      }
     }
   }
 
-  private async loadState(): Promise<void> {
+  private async loadState(pageGeneration: number): Promise<void> {
     this.isStateLoaded = false;
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
-      this.language = (await SETTINGS_CONTROLLER.load(context)).language;
+      const settings = await SETTINGS_CONTROLLER.load(context);
+      if (!this.isCurrentPage(pageGeneration)) {
+        return;
+      }
+      this.language = settings.language;
 
       // 一次性迁移：清掉旧版本写入的内置下载源地址。
       try {
@@ -1264,16 +1324,20 @@ struct AssetsPage {
       } catch (err) {
         // ignore obsolete-key cleanup failure
       }
-      await this.loadGeoMetadata();
+      await this.loadGeoMetadata(pageGeneration);
     } catch (error) {
-      this.toast(this.f1('assets.loadFailed', 'error', redactDiagnosticText(JSON.stringify(error))));
+      if (this.isCurrentPage(pageGeneration)) {
+        this.toast(this.f1('assets.loadFailed', 'error', redactDiagnosticText(JSON.stringify(error))));
+      }
     } finally {
-      this.updateFileStatus();
-      this.isStateLoaded = true;
+      if (this.isCurrentPage(pageGeneration)) {
+        this.updateFileStatus();
+        this.isStateLoaded = true;
+      }
     }
   }
 
-  private async loadGeoMetadata(): Promise<boolean> {
+  private async loadGeoMetadata(pageGeneration: number): Promise<boolean> {
     const context = this.getUIContext().getHostContext() as common.Context;
     const metadata = await AssetStore.loadGeoUpdateMetadata(context);
     if (!await ASSETS_CONTROLLER.isBuiltinGeoMetadataCurrent(context, metadata)) {
@@ -1284,12 +1348,22 @@ struct AssetsPage {
       } catch (error) {
         // ignore stale-record cleanup failure
       }
+      if (!this.isCurrentPage(pageGeneration)) {
+        return false;
+      }
       this.geoAssetHashes = {};
       this.geoUpdateSummary = this.t('assets.geo.defaultSource');
       return false;
     }
+    if (!this.isCurrentPage(pageGeneration)) {
+      return false;
+    }
     this.applyGeoMetadata(metadata);
     return true;
+  }
+
+  private isCurrentPage(pageGeneration: number): boolean {
+    return this.pageActive && pageGeneration === this.pageGeneration;
   }
 
   private applyVerifiedGeoResult(result: BuiltinGeoUpdateResult): void {
@@ -1311,12 +1385,15 @@ struct AssetsPage {
     this.geoUpdateSummary = this.formatGeoUpdateSummary(metadata);
   }
 
-  private async clearGeoMetadata(): Promise<void> {
+  private async clearGeoMetadata(pageGeneration?: number): Promise<void> {
     const context = this.getUIContext().getHostContext() as common.Context;
     try {
       await AssetStore.clearGeoUpdateMetadata(context);
     } catch (error) {
       // File operation already succeeded; stale verification metadata must not remain visible.
+    }
+    if (pageGeneration !== undefined && !this.isCurrentPage(pageGeneration)) {
+      return;
     }
     this.geoAssetHashes = {};
     this.geoUpdateSummary = this.t('assets.geo.defaultSource');
