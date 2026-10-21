@@ -63,6 +63,9 @@ const RUNTIME_STATE_INTERVAL_MS: number = 4000;
 // 连续两次采样都看不到核心或 TUN 才判定失效，避免单次桥查询抖动误拆连接。
 const UNHEALTHY_SAMPLE_LIMIT: number = 2;
 const PROTECT_PROCESS_TIMEOUT_MS: number = 10000;
+// 主进程只等待 15 秒确认完整清理。系统 destroy() 若永久 pending，Extension 不能把
+// cleaningUp 永久锁死；8 秒后如实回写 cleanup incomplete，保留连接引用供用户重试停止。
+const VPN_DESTROY_TIMEOUT_MS: number = 8000;
 const NOTIFICATION_CANCEL_TIMEOUT_MS: number = 2000;
 const CONTROL_CARD_RESET_TIMEOUT_MS: number = 2000;
 const NET_SCENE_BASELINE_TIMEOUT_MS: number = 2000;
@@ -641,7 +644,11 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         let vpnDestroyed = connection === null;
         if (connection !== null) {
           try {
-            await connection.destroy();
+            await withTimeout(
+              connection.destroy(),
+              VPN_DESTROY_TIMEOUT_MS,
+              'VPN connection destroy timed out.'
+            );
             vpnDestroyed = true;
             this.emitInfo('VPN destroyed.');
           } catch (error) {
