@@ -122,9 +122,32 @@ export class AssetsController {
   // Preferences 调用超时只会结束本轮等待，不能取消 ArkData 底层任务。保留原 Promise
   // 直到真正结算，期间不再向同一串行存储队列叠加失败/成功元数据任务。
   private geoMetadataStoreInFlight: Promise<void> | null = null;
+  private geoMetadataLoadInFlight: Promise<GeoUpdateMetadata> | null = null;
 
   isGeoMetadataStorePending(): boolean {
     return this.geoMetadataStoreInFlight !== null;
+  }
+
+  async loadGeoUpdateMetadata(context: common.Context): Promise<GeoUpdateMetadata> {
+    if (this.geoMetadataLoadInFlight === null) {
+      const promise = AssetStore.loadGeoUpdateMetadata(context);
+      this.geoMetadataLoadInFlight = promise;
+      promise.then(
+        (_metadata: GeoUpdateMetadata): void => this.releaseGeoMetadataLoad(promise),
+        (_error: Object): void => this.releaseGeoMetadataLoad(promise)
+      );
+    }
+    const pending = this.geoMetadataLoadInFlight;
+    if (pending === null) {
+      throw new Error('Geo metadata read did not start');
+    }
+    return await withGeoMetadataStoreTimeout(pending);
+  }
+
+  private releaseGeoMetadataLoad(promise: Promise<GeoUpdateMetadata>): void {
+    if (this.geoMetadataLoadInFlight === promise) {
+      this.geoMetadataLoadInFlight = null;
+    }
   }
   
   private pad(val: number): string {
@@ -341,7 +364,7 @@ export class AssetsController {
 
   private async recordGeoUpdateFailure(context: common.Context): Promise<void> {
     try {
-      const previous = await AssetStore.loadGeoUpdateMetadata(context);
+      const previous = await this.loadGeoUpdateMetadata(context);
       await AssetStore.saveGeoUpdateMetadata(context, {
         version: previous.version,
         source: previous.source,

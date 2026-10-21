@@ -1299,7 +1299,10 @@ struct AssetsPage {
       }
     } catch (error) {
       if (this.isCurrentPage(pageGeneration)) {
-        this.toast(this.f1('assets.loadFailed', 'error', redactDiagnosticText(JSON.stringify(error))));
+        this.geoAssetHashes = {};
+        this.geoUpdateSummary = this.t('assets.geo.defaultSource');
+        const detail = error instanceof Error ? error.message : JSON.stringify(error);
+        this.toast(this.f1('assets.loadFailed', 'error', redactDiagnosticText(detail)));
       }
     }
   }
@@ -1333,7 +1336,7 @@ struct AssetsPage {
 
   private async loadGeoMetadata(pageGeneration: number): Promise<boolean> {
     const context = this.getUIContext().getHostContext() as common.Context;
-    const metadata = await AssetStore.loadGeoUpdateMetadata(context);
+    const metadata = await ASSETS_CONTROLLER.loadGeoUpdateMetadata(context);
     if (!await ASSETS_CONTROLLER.isBuiltinGeoMetadataCurrent(context, metadata)) {
       // 陈旧记录不能继续宣称当前文件属于某版本或某 SHA。清理失败时本页仍先隐藏它；
       // 后续再次检查更新可重建可信记录。

@@ -189,6 +189,7 @@ const loadAt = page.indexOf('  private async loadGeoMetadata(pageGeneration: num
 const loadEnd = page.indexOf('\n  private applyGeoMetadata(', loadAt);
 const load = page.slice(loadAt, loadEnd);
 if (loadAt < 0 || loadEnd < 0 ||
+  !load.includes('await ASSETS_CONTROLLER.loadGeoUpdateMetadata(context)') ||
   !load.includes('await ASSETS_CONTROLLER.isBuiltinGeoMetadataCurrent(context, metadata)') ||
   !load.includes('await AssetStore.clearGeoUpdateMetadata(context);') ||
   !load.includes("this.geoUpdateSummary = this.t('assets.geo.defaultSource');") ||
@@ -315,6 +316,10 @@ geo_controller="entry/src/main/ets/features/assets/AssetsController.ets"
 if ! grep -Fq "const GEO_METADATA_STORE_DEADLINE_MS: number = 5000;" "${geo_controller}" || \
   ! grep -Fq "function withGeoMetadataStoreTimeout<T>(promise: Promise<T>): Promise<T>" "${geo_controller}" || \
   ! grep -Fq "private geoMetadataStoreInFlight: Promise<void> | null = null;" "${geo_controller}" || \
+  ! grep -Fq "private geoMetadataLoadInFlight: Promise<GeoUpdateMetadata> | null = null;" "${geo_controller}" || \
+  ! grep -Fq "async loadGeoUpdateMetadata(context: common.Context): Promise<GeoUpdateMetadata>" "${geo_controller}" || \
+  ! grep -Fq "this.releaseGeoMetadataLoad(promise)" "${geo_controller}" || \
+  ! grep -Fq "const previous = await this.loadGeoUpdateMetadata(context);" "${geo_controller}" || \
   ! grep -Fq "isGeoMetadataStorePending(): boolean" "${geo_controller}" || \
   ! grep -Fq "private async runGeoMetadataStoreOperation(operation: () => Promise<void>): Promise<void>" "${geo_controller}" || \
   ! grep -Fq "await this.runGeoMetadataStoreOperation(" "${geo_controller}" || \
