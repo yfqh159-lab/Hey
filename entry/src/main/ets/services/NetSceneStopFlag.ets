@@ -10,17 +10,57 @@
 import { common } from '@kit.AbilityKit';
 import { fileIo as fs } from '@kit.CoreFileKit';
 
-function flagPath(context: common.Context): string {
-  return `${context.filesDir}/net_scene_stopped_at`;
+const FLAG_FILE_NAME: string = 'net_scene_stopped_at';
+const FLAG_TEMP_FILE_NAME: string = 'net_scene_stopped_at.tmp';
+const FLAG_BACKUP_FILE_NAME: string = 'net_scene_stopped_at.bak';
+
+function flagPath(context: common.Context, fileName: string = FLAG_FILE_NAME): string {
+  return `${context.filesDir}/${fileName}`;
 }
 
 function writeFlag(context: common.Context, value: number): void {
+  if (!Number.isFinite(value) || Math.floor(value) !== value || value < 0) {
+    throw new Error('Invalid network scene stop timestamp.');
+  }
+  const targetPath = flagPath(context);
+  const tempPath = flagPath(context, FLAG_TEMP_FILE_NAME);
+  const backupPath = flagPath(context, FLAG_BACKUP_FILE_NAME);
+  let file: fs.File | null = null;
   try {
-    const file = fs.openSync(flagPath(context), fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
-    fs.writeSync(file.fd, value.toString());
+    recoverInterruptedWrite(targetPath, tempPath, backupPath);
+    file = fs.openSync(tempPath, fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+    const content = value.toString();
+    const written = fs.writeSync(file.fd, content);
+    if (written !== content.length) {
+      throw new Error('Short network scene stop flag write.');
+    }
+    fs.fsyncSync(file.fd);
     fs.closeSync(file);
+    file = null;
+
+    removeIfExists(backupPath);
+    if (fs.accessSync(targetPath)) {
+      fs.renameSync(targetPath, backupPath);
+    }
+    fs.renameSync(tempPath, targetPath);
   } catch (error) {
-    // ignore
+    removeIfExistsSafely(tempPath);
+    try {
+      if (!fs.accessSync(targetPath) && fs.accessSync(backupPath)) {
+        fs.renameSync(backupPath, targetPath);
+      }
+    } catch (_restoreError) {
+      // Preserve the original write failure for the caller.
+    }
+    throw error;
+  } finally {
+    if (file !== null) {
+      try {
+        fs.closeSync(file);
+      } catch (_closeError) {
+        // The original write result remains authoritative.
+      }
+    }
   }
 }
 
@@ -38,20 +78,85 @@ export class NetSceneStopFlag {
   /** 主进程前台读取：本次启动后是否发生过后台自动断开。 */
   static async wasStopped(context: common.Context, sessionStartedAt: number = 0): Promise<boolean> {
     try {
-      const path = flagPath(context);
-      if (!fs.accessSync(path)) {
-        return false;
-      }
-      const raw = fs.readTextSync(path);
-      const num = Number(raw.trim());
-      return wasNetSceneStoppedAfter(num, sessionStartedAt);
-    } catch (error) {
+      const stoppedAt = selectNetSceneStopTimestamp(
+        readTextIfExists(flagPath(context)),
+        readTextIfExists(flagPath(context, FLAG_TEMP_FILE_NAME)),
+        readTextIfExists(flagPath(context, FLAG_BACKUP_FILE_NAME))
+      );
+      return stoppedAt !== null && wasNetSceneStoppedAfter(stoppedAt, sessionStartedAt);
+    } catch (_error) {
       return false;
     }
   }
 }
 
+export function parseNetSceneStopTimestamp(content: string | null): number | null {
+  if (content === null || content.trim().length === 0) {
+    return null;
+  }
+  const value = Number(content.trim());
+  if (!Number.isFinite(value) || Math.floor(value) !== value || value < 0) {
+    return null;
+  }
+  return value;
+}
+
+export function selectNetSceneStopTimestamp(
+  primaryContent: string | null,
+  tempContent: string | null,
+  backupContent: string | null
+): number | null {
+  const temp = parseNetSceneStopTimestamp(tempContent);
+  if (temp !== null) {
+    return temp;
+  }
+  const primary = parseNetSceneStopTimestamp(primaryContent);
+  if (primary !== null) {
+    return primary;
+  }
+  return parseNetSceneStopTimestamp(backupContent);
+}
+
 export function wasNetSceneStoppedAfter(stoppedAt: number, sessionStartedAt: number): boolean {
   return !Number.isNaN(stoppedAt) && stoppedAt > 0 &&
     !Number.isNaN(sessionStartedAt) && stoppedAt > Math.max(0, sessionStartedAt);
+}
+
+function recoverInterruptedWrite(targetPath: string, tempPath: string, backupPath: string): void {
+  if (fs.accessSync(tempPath)) {
+    const temp = parseNetSceneStopTimestamp(fs.readTextSync(tempPath));
+    if (temp !== null) {
+      removeIfExists(backupPath);
+      if (fs.accessSync(targetPath)) {
+        fs.renameSync(targetPath, backupPath);
+      }
+      fs.renameSync(tempPath, targetPath);
+      return;
+    }
+    removeIfExists(tempPath);
+  }
+  if (!fs.accessSync(targetPath) && fs.accessSync(backupPath)) {
+    fs.renameSync(backupPath, targetPath);
+  }
+}
+
+function readTextIfExists(path: string): string | null {
+  if (!fs.accessSync(path)) {
+    return null;
+  }
+  return fs.readTextSync(path);
+}
+
+function removeIfExists(path: string): void {
+  if (fs.accessSync(path)) {
+    fs.unlinkSync(path);
+  }
+}
+
+function removeIfExistsSafely(path: string): void {
+  try {
+    removeIfExists(path);
+  } catch (_error) {
+    // Best effort only; a future read validates every candidate before use.
+  }
 }

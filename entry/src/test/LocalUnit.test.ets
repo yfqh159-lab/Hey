@@ -59,7 +59,7 @@ import { LogEntry, logLevelLabel, normalizeLogLevel } from '../main/ets/features
 import { parseCoreLog } from '../main/ets/services/CoreLogReader';
 import { nativeDelayFailureStatus } from '../main/ets/services/DelayTester';
 import { isRuntimeHealthPort } from '../main/ets/services/RuntimeHealthProbe';
-import { wasNetSceneStoppedAfter } from '../main/ets/services/NetSceneStopFlag';
+import { parseNetSceneStopTimestamp, selectNetSceneStopTimestamp, wasNetSceneStoppedAfter } from '../main/ets/services/NetSceneStopFlag';
 import { PersistedVpnRuntimeState, VPN_RUNTIME_HEARTBEAT_STALE_MS, isPersistedVpnRuntimeHealthy, parsePersistedVpnRuntimeState, selectPersistedVpnRuntimeState } from '../main/ets/services/VpnRuntimeStateStore';
 import { buildAssetDownloadProxyPorts, resolveAssetDownloadProxyPlan } from '../main/ets/features/assets/AssetsController';
 import {
@@ -3140,6 +3140,22 @@ export default function localUnitTest() {
       expect(wasNetSceneStoppedAfter(200, 200)).assertFalse();
       expect(wasNetSceneStoppedAfter(201, 200)).assertTrue();
       expect(wasNetSceneStoppedAfter(Number.NaN, 200)).assertFalse();
+    });
+
+    it('uses only complete network-scene stop flag writes', 0, () => {
+      expect(parseNetSceneStopTimestamp('201')).assertEqual(201);
+      expect(parseNetSceneStopTimestamp('0')).assertEqual(0);
+      expect(parseNetSceneStopTimestamp('')).assertEqual(null);
+      expect(parseNetSceneStopTimestamp('201.5')).assertEqual(null);
+      expect(parseNetSceneStopTimestamp('-1')).assertEqual(null);
+      expect(parseNetSceneStopTimestamp('broken')).assertEqual(null);
+
+      // A complete pending write carries the newest stop/clear intent. A partial
+      // pending write must leave the committed primary or backup authoritative.
+      expect(selectNetSceneStopTimestamp('100', '201', '90')).assertEqual(201);
+      expect(selectNetSceneStopTimestamp('100', '2x', '90')).assertEqual(100);
+      expect(selectNetSceneStopTimestamp('broken', '', '90')).assertEqual(90);
+      expect(selectNetSceneStopTimestamp('broken', 'partial', '')).assertEqual(null);
     });
 
     it('prefers a complete pending VPN state and falls back from a partial write', 0, () => {

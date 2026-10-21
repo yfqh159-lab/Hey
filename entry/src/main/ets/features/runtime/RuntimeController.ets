@@ -114,7 +114,10 @@ export class RuntimeController {
     const snapshot = await this.controller.start(context, profile, settings);
     this.applySnapshot(snapshot, language);
     // 新的一次启动：清除后台自动断开标志（此后再置位才代表本次启动后的自动断开）。
-    NetSceneStopFlag.clear(context);
+    NetSceneStopFlag.clear(context).catch(() => {
+      // 会话开始时间仍会隔离旧标志；清理失败不应把成功的数据面改成启动失败。
+      this.appendLog('Network scene stop flag reset failed.');
+    });
     if (this.runtimeMode === APP_MODE_PROXY_ONLY) {
       this.appendLog(this.status === ConnectionStatus.RUNNING ? translate(language, 'log.proxyStarted') : translate(language, 'log.proxyStartIncomplete'));
     } else {

@@ -332,7 +332,12 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       if (action === NET_ACTION_DISCONNECT) {
         this.emitInfo('Net scene: trusted network, auto-disconnecting.', `kind=${ctx.kind}`);
         // 写跨进程标志，供主进程回前台校正「运行中」滞留状态。
-        await NetSceneStopFlag.markStopped(this.context, Date.now());
+        try {
+          await NetSceneStopFlag.markStopped(this.context, Date.now());
+        } catch (error) {
+          // 标志只辅助 UI 跨进程校正；落盘失败不能阻止实际 VPN 清理。
+          this.emitInfo('Net scene stop flag write failed.', this.errorMessage(error));
+        }
         this.requestCleanup('Network scene auto-disconnect.', `session=${this.sessionId}`);
       }
     } catch (error) {
