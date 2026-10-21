@@ -41,8 +41,8 @@ using CGoFreeFunc = void (*)(char*);
 
 std::atomic_bool g_xrayRunning(false);
 std::atomic_bool g_tunRunning(false);
-// gvisor 的 Stop 由 Go 实现，极端情况下可能长时间阻塞。停止期间禁止再启动另一条
-// TUN 数据面，避免旧引擎仍占用 fd/全局状态时出现两个实例重叠。
+// TUN 引擎的 Stop/quit 极端情况下可能长时间阻塞。停止期间禁止再启动另一条数据面，
+// 避免旧引擎仍占用 fd/全局状态时出现两个实例重叠。
 std::atomic_bool g_tunStopPending(false);
 std::atomic<int64_t> g_uploadBytes(0);
 std::atomic<int64_t> g_downloadBytes(0);
@@ -104,8 +104,8 @@ std::atomic_bool g_hevWorkerRunning(false);
 constexpr int TUN_ENGINE_NONE = 0;
 constexpr int TUN_ENGINE_GVISOR = 1;
 constexpr int TUN_ENGINE_HEV = 2;
-constexpr int TUN2SOCKS_STOP_WAIT_MS = 3000;
-constexpr int TUN2SOCKS_STOP_POLL_MS = 20;
+constexpr int TUN_STOP_WAIT_MS = 3000;
+constexpr int TUN_STOP_POLL_MS = 20;
 std::atomic<int> g_tunEngine(TUN_ENGINE_NONE);
 
 const char* BASE64_TABLE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -1279,6 +1279,9 @@ napi_value StartHevTun(napi_env env, napi_callback_info info)
         start(reinterpret_cast<const unsigned char*>(configYaml.c_str()),
             static_cast<unsigned int>(configYaml.size()), tunFd);
         g_hevWorkerRunning.store(false);
+        // 正常运行时该值本来就是 false；若 stop 已超时并把线程 detach，这里负责在
+        // main 最终退出后解除启动门闩。
+        g_tunStopPending.store(false);
     });
     g_tunRunning.store(true);
     g_tunEngine.store(TUN_ENGINE_HEV);
@@ -1297,15 +1300,39 @@ napi_value StopTun2Socks(napi_env env, napi_callback_info info)
     const int engine = g_tunEngine.exchange(TUN_ENGINE_NONE);
     g_tunRunning.store(false);
     if (engine == TUN_ENGINE_HEV) {
-        // hev：quit 让阻塞的 main 返回，再 join 回收线程。
+        // hev：quit 让阻塞的 main 返回。正常情况回收线程；若底层异常卡住则在 3 秒后
+        // detach，继续完成 VPN 清理，同时保留 pending 门闩直到工作线程真正退出。
+        g_tunStopPending.store(true);
         if (g_hevQuit != nullptr) {
             g_hevQuit();
         }
+        const auto deadline = std::chrono::steady_clock::now() +
+            std::chrono::milliseconds(TUN_STOP_WAIT_MS);
+        while (g_hevWorkerRunning.load() && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(TUN_STOP_POLL_MS));
+        }
+        if (!g_hevWorkerRunning.load()) {
+            if (g_hevThread.joinable()) {
+                g_hevThread.join();
+            }
+            g_tunStopPending.store(false);
+            return CreateResult(env, true, "hev tun engine stopped.");
+        }
         if (g_hevThread.joinable()) {
+            g_hevThread.detach();
+        } else {
+            // Defensive fallback: no worker owns the pending flag.
+            g_tunStopPending.store(false);
+        }
+        return CreateResult(env, true, "hev tun stop is still pending after timeout.");
+    }
+    if (engine == TUN_ENGINE_NONE) {
+        // g_tunRunning may also be used by legacy native-TUN callers. Do not accidentally
+        // dispatch a gvisor Stop when no tun2socks engine owns the data plane.
+        if (g_hevThread.joinable() && !g_hevWorkerRunning.load()) {
             g_hevThread.join();
         }
-        g_hevWorkerRunning.store(false);
-        return CreateResult(env, true, "hev tun stop requested.");
+        return CreateResult(env, true, "tun data plane stopped without an adapter engine.");
     }
     // gvisor：先有限等待正常退出，确保上层随后停 Xray、销毁 VPN 时数据面已不再使用
     // SOCKS 入站和 TUN fd。若 Go Stop 极端阻塞，3 秒后退化为后台等待，避免卡死
@@ -1323,9 +1350,9 @@ napi_value StopTun2Socks(napi_env env, napi_callback_info info)
         completed->store(true);
     });
     const auto deadline = std::chrono::steady_clock::now() +
-        std::chrono::milliseconds(TUN2SOCKS_STOP_WAIT_MS);
+        std::chrono::milliseconds(TUN_STOP_WAIT_MS);
     while (!completed->load() && std::chrono::steady_clock::now() < deadline) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(TUN2SOCKS_STOP_POLL_MS));
+        std::this_thread::sleep_for(std::chrono::milliseconds(TUN_STOP_POLL_MS));
     }
     if (completed->load()) {
         stopThread.join();
