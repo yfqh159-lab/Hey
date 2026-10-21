@@ -8,6 +8,7 @@ import {
   NET_ACTION_DISCONNECT,
   decideNetAutomationAction,
   networkContextSignature,
+  networkTransportSignature,
   shouldReloadActiveCoreAfterNetworkChange
 } from '../core/NetworkAutomation';
 import { NetSceneStopFlag } from '../services/NetSceneStopFlag';
@@ -109,6 +110,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   // 网络场景自动化（后台断开）：VPN 扩展进程内轮询网络，切到可信网络即拆隧道。
   private netScenePollTimerId: number = -1;
   private netSceneSignature: string = '';
+  private netSceneTransportSignature: string = '';
   private netSceneSeeded: boolean = false;
   private netScenePollInFlight: boolean = false;
 
@@ -298,6 +300,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     this.stopNetScenePoll();
     this.netSceneSeeded = false;
     this.netSceneSignature = '';
+    this.netSceneTransportSignature = '';
     this.netScenePollTimerId = setInterval(() => {
       this.pollNetScene();
     }, NET_SCENE_POLL_MS);
@@ -325,10 +328,12 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         return;
       }
       const signature = networkContextSignature(ctx);
+      const transportSignature = networkTransportSignature(ctx);
       // 首次只 seed 不动作——避免拆掉用户「在可信网络手动开的 VPN」；仅对之后的网络切换生效。
       if (!this.netSceneSeeded) {
         this.netSceneSeeded = true;
         this.netSceneSignature = signature;
+        this.netSceneTransportSignature = transportSignature;
         this.emitInfo('Underlying network observed.',
           `kind=${ctx.kind}; ssid=${ctx.ssid === undefined ? '<none>' : '<redacted>'}; automation=${settings.netAutomationEnabled}`);
         return;
@@ -336,7 +341,9 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       if (signature === this.netSceneSignature) {
         return;
       }
+      const transportChanged = transportSignature !== this.netSceneTransportSignature;
       this.netSceneSignature = signature;
+      this.netSceneTransportSignature = transportSignature;
       this.emitInfo('Underlying network changed.',
         `kind=${ctx.kind}; ssid=${ctx.ssid === undefined ? '<none>' : '<redacted>'}; automation=${settings.netAutomationEnabled}`);
       const cfg: NetAutomationConfig = {
@@ -359,7 +366,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         this.requestCleanup('Network scene auto-disconnect.', `session=${this.sessionId}`);
         return;
       }
-      if (shouldReloadActiveCoreAfterNetworkChange(ctx, action)) {
+      if (transportChanged && shouldReloadActiveCoreAfterNetworkChange(ctx, action)) {
         // 蜂窝→Wi-Fi 常是 make-before-break：旧核心连接可能仍挂在即将消失的承载上。
         // 只重载当前核心并保留 VPN/TUN，迫使域名解析和新出站使用当前默认网络；一次网络
         // 签名变化最多执行一次。失败时清理整个会话，等待用户手动重连。

@@ -10,7 +10,7 @@ import { buildH2HttpSettings, splitH2Hosts } from '../main/ets/core/H2Transport'
 import { toIdnDomain, toIdnUrl } from '../main/ets/core/IdnUrl';
 import { formatTranslation, missingTranslationKeys, normalizeLanguage, resolveLanguage, resolveSystemLanguage, translate } from '../main/ets/core/I18n';
 import { resolveImportedNodeName } from '../main/ets/core/ImportedNodeNames';
-import { AutoAction, NetAutomationConfig, NetContext, decideNetAutomationAction, isTrustedNetwork, networkContextSignature, selectUnderlyingNetworkCandidate, shouldReloadActiveCoreAfterNetworkChange } from '../main/ets/core/NetworkAutomation';
+import { AutoAction, NetAutomationConfig, NetContext, decideNetAutomationAction, isTrustedNetwork, networkContextSignature, networkTransportSignature, selectUnderlyingNetworkCandidate, shouldReloadActiveCoreAfterNetworkChange } from '../main/ets/core/NetworkAutomation';
 import { defaultJsonConfigNodeName, resolveJsonConfigNodeName } from '../main/ets/core/JsonConfigNames';
 import { selectRuntimeLocalSocksPort, shouldExposeLocalHttpProxy, shouldUseDynamicLocalSocksPort, withRuntimeLocalSocksPort } from '../main/ets/core/LocalProxy';
 import { parseManualOutboundEditState } from '../main/ets/core/ManualOutboundEditState';
@@ -4952,6 +4952,15 @@ export default function localUnitTest() {
       const next = networkContextSignature({ kind: 'wifi', networkId: 18 });
       expect(first).assertEqual(same);
       expect(first === next).assertFalse();
+    });
+
+    it('separates SSID visibility changes from real transport handovers', 0, () => {
+      expect(networkTransportSignature({ kind: 'wifi', ssid: 'home', networkId: 12 }))
+        .assertEqual(networkTransportSignature({ kind: 'wifi', networkId: 12 }));
+      expect(networkTransportSignature({ kind: 'wifi', networkId: 12 }) ===
+        networkTransportSignature({ kind: 'wifi', networkId: 13 })).assertFalse();
+      expect(networkTransportSignature({ kind: 'wifi', ssid: 'home' }) ===
+        networkTransportSignature({ kind: 'wifi', ssid: 'office' })).assertFalse();
     });
 
     it('keeps network handle out of trust decisions', 0, () => {

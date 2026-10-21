@@ -13,6 +13,7 @@ import {
   NET_ACTION_DISCONNECT,
   decideNetAutomationAction,
   networkContextSignature,
+  networkTransportSignature,
   shouldReloadActiveCoreAfterNetworkChange
 } from '../core/NetworkAutomation';
 import { SettingsStore } from '../storage/SettingsStore';
@@ -43,6 +44,7 @@ export class NetworkSceneManager {
   private evaluationPending: boolean = false;
   private pendingForce: boolean = false;
   private lastHandledSignature: string = '';
+  private lastHandledTransportSignature: string = '';
   // 隔离 UIAbility 销毁/重建前后的异步评估；旧任务即使稍后恢复也不得操作新会话。
   private lifecycleGeneration: number = 0;
 
@@ -99,6 +101,7 @@ export class NetworkSceneManager {
     this.evaluationPending = false;
     this.pendingForce = false;
     this.lastHandledSignature = '';
+    this.lastHandledTransportSignature = '';
     hilog.info(DOMAIN, TAG, 'listener stopped');
   }
 
@@ -150,7 +153,9 @@ export class NetworkSceneManager {
         return;
       }
       const signature = networkContextSignature(ctx);
-      const signatureChanged = this.lastHandledSignature.length > 0 && signature !== this.lastHandledSignature;
+      const transportSignature = networkTransportSignature(ctx);
+      const transportChanged = this.lastHandledTransportSignature.length > 0 &&
+        transportSignature !== this.lastHandledTransportSignature;
       if (!force && signature === this.lastHandledSignature) {
         return; // 同一网络只处理一次，避免抖动/较劲
       }
@@ -175,6 +180,7 @@ export class NetworkSceneManager {
       const action = decideNetAutomationAction(ctx, cfg, running);
       const runtimeRunning = SHARED_RUNTIME_CONTROLLER.isRunning();
       this.lastHandledSignature = signature;
+      this.lastHandledTransportSignature = transportSignature;
       hilog.info(DOMAIN, TAG, 'evaluate kind=%{public}s running=%{public}s action=%{public}s',
         ctx.kind, running ? '1' : '0', action);
       // 诊断：写进运行日志，便于确认后台是否收到回调、SSID 是否可读。
@@ -191,7 +197,7 @@ export class NetworkSceneManager {
         const language = this.currentLanguage();
         // VPN 核心由 Extension 的后台轮询恢复；Proxy-only 与 UI 同进程，需要在确认是
         // 真实签名变化（而非首次/强制补判）后重建预解析配置并原地重载核心。
-        if (signatureChanged && shouldReloadActiveCoreAfterNetworkChange(ctx, action)) {
+        if (transportChanged && shouldReloadActiveCoreAfterNetworkChange(ctx, action)) {
           await SHARED_RUNTIME_CONTROLLER.recoverProxyOnlyAfterNetworkChange(context, language);
         }
         // 恢复完成后再经当前代理复测出口，避免把旧承载的结果继续展示为当前出口。

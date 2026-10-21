@@ -33,12 +33,23 @@ export interface UnderlyingNetworkCandidate {
 }
 
 /**
- * 网络变化去重签名。即使 SSID 因权限或隐藏网络不可见，不同底层 NetHandle 仍能触发复测。
- * 该签名只在进程内比较，不落盘、不作为设备或网络身份。
+ * 网络场景评估签名：SSID 可见性改变时也重新判断可信网络；不同底层 NetHandle 同样
+ * 会触发评估。该签名只在进程内比较，不落盘、不作为设备或网络身份。
  */
 export function networkContextSignature(ctx: NetContext): string {
   const networkId = ctx.networkId === undefined ? '' : `${ctx.networkId}`;
   return `${ctx.kind}|${ctx.ssid ?? ''}|${networkId}`;
+}
+
+/**
+ * 真实承载去重签名：有 NetHandle 时以 kind + handle 为准，忽略同一承载上 SSID 因
+ * 权限/系统抖动产生的可见性变化；拿不到 handle 时才用 SSID 区分同类 Wi-Fi。
+ */
+export function networkTransportSignature(ctx: NetContext): string {
+  if (ctx.networkId !== undefined) {
+    return `${ctx.kind}|id:${ctx.networkId}`;
+  }
+  return `${ctx.kind}|ssid:${ctx.ssid ?? ''}`;
 }
 
 /**
@@ -125,7 +136,7 @@ export function decideNetAutomationAction(
 }
 
 /**
- * 已运行 VPN 的底层承载发生真实变化后，是否应重载核心连接。
+ * 已运行 VPN 或本地代理的底层承载发生真实变化后，是否应重载核心连接。
  * - 可信网络自动断开优先，不能先重载后再拆隧道。
  * - `none` 是切网中的瞬时断网，等待下一个可用承载，避免在无网络时把核心重载失败。
  * - 这里只决定已有会话的内部恢复，绝不创建 VPN，也不改变用户手动停止意图。
