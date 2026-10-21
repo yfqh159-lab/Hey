@@ -525,7 +525,7 @@ struct ScannerPage {
       if (value.toLowerCase().startsWith('http://') || value.toLowerCase().startsWith('https://')) {
         const validationMessage = SubscriptionManager.validateSubscriptionUrl(value, false);
         if (validationMessage.length > 0) {
-          this.lastError = localizeCoreMessage(this.language, validationMessage);
+          this.lastError = redactDiagnosticText(localizeCoreMessage(this.language, validationMessage));
           SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
           return;
         }
@@ -537,6 +537,7 @@ struct ScannerPage {
           const duplicateMessage = this.t('scanner.subscriptionAlreadyAdded');
           SHARED_RUNTIME_CONTROLLER.appendLog(duplicateMessage);
           promptAction.showToast({ message: duplicateMessage });
+          this.clearImportValue();
           router.pushUrl({ url: AppRoute.SUBSCRIPTIONS });
           return;
         }
@@ -553,13 +554,14 @@ struct ScannerPage {
           this.language
         );
         if (SubscriptionStore.findGroupByUrl(state.subscriptionGroups, value) === null) {
-          this.lastError = state.subscriptionMessage;
+          this.lastError = redactDiagnosticText(state.subscriptionMessage);
           SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
           return;
         }
         const addedMessage = this.t('scanner.subscriptionAdded');
         SHARED_RUNTIME_CONTROLLER.appendLog(addedMessage);
         promptAction.showToast({ message: addedMessage });
+        this.clearImportValue();
         router.pushUrl({ url: AppRoute.SUBSCRIPTIONS });
         return;
       }
@@ -612,6 +614,7 @@ struct ScannerPage {
             SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('scanner.duplicateNodes', 'count', duplicateCount.toString()));
           }
           promptAction.showToast({ message: batchMessage });
+          this.clearImportValue();
           router.back();
           return;
         }
@@ -662,6 +665,7 @@ struct ScannerPage {
           SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('scanner.duplicateNodes', 'count', duplicateCount.toString()));
         }
         promptAction.showToast({ message: successMessage });
+        this.clearImportValue();
         router.back();
         return;
       }
@@ -673,12 +677,13 @@ struct ScannerPage {
         validation.normalizedJson,
         validation.configType
       )) {
-        this.lastError = this.f1('scanner.duplicateNode', 'name', nodeName);
+        this.lastError = this.f1('scanner.duplicateNode', 'name', redactDiagnosticText(nodeName));
         SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
         return;
       }
       SHARED_RUNTIME_CONTROLLER.appendLog(this.t('log.profileSaved'));
       promptAction.showToast({ message: this.t('scanner.nodeImported') });
+      this.clearImportValue();
       router.back();
     } catch (error) {
       this.lastError = this.f1('error.saveProfile', 'error', redactDiagnosticText(JSON.stringify(error)));

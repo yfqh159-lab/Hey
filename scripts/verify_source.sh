@@ -103,7 +103,8 @@ if ! grep -Fq "private pendingSensitiveImport: string = '';" "${scanner_source}"
   ! grep -Fq 'this.setSensitiveImportValue(text);' "${scanner_source}" ||
   ! grep -Fq "'scanner.previewEndpoint', 'endpoint', redactDiagnosticText(endpointText)" "${scanner_source}" ||
   grep -Fq 'this.importBuffer = value.trim();' "${scanner_source}" ||
-  grep -Fq 'this.importBuffer = text.trim();' "${scanner_source}"; then
+  grep -Fq 'this.importBuffer = text.trim();' "${scanner_source}" ||
+  grep -Fq 'this.lastError = state.subscriptionMessage;' "${scanner_source}"; then
   printf 'scanner external payload privacy guard failed\n' >&2
   exit 1
 fi
@@ -137,6 +138,27 @@ if ! command -v node >/dev/null 2>&1; then
   printf 'node is required for the translation-key consistency check.\n' >&2
   exit 1
 fi
+
+node <<'NODE'
+const fs = require('fs');
+const source = fs.readFileSync('entry/src/main/ets/pages/Scanner.ets', 'utf8');
+const start = source.indexOf('  private async importResult(): Promise<void> {');
+const end = source.indexOf('\n  private updateImportPreview(', start);
+if (start < 0 || end < 0) throw new Error('Scanner importResult method could not be inspected');
+const body = source.slice(start, end);
+const navigation = /router[.](?:back[(][)]|pushUrl[(][{] url: AppRoute[.]SUBSCRIPTIONS [}][)]);/g;
+let match;
+let count = 0;
+while ((match = navigation.exec(body)) !== null) {
+  count++;
+  const prefix = body.slice(Math.max(0, match.index - 120), match.index);
+  if (!prefix.includes('this.clearImportValue();')) {
+    throw new Error('Scanner retained sensitive import text while navigating after success');
+  }
+}
+if (count !== 5) throw new Error(`Expected 5 successful Scanner navigation paths, found ${count}`);
+NODE
+printf 'scanner successful import cleanup verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');
