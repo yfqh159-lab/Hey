@@ -5,6 +5,7 @@ import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { resolveImportedNodeName } from '../core/ImportedNodeNames';
 import { AppLanguage, XrayConfigType } from '../core/Profile';
 import { NODES_CONTROLLER } from '../features/nodes/NodesController';
+import { extractNodeEndpoint, formatEndpointDescription } from '../features/nodes/NodeOperations';
 import { SETTINGS_CONTROLLER } from '../features/settings/SettingsController';
 import { AppRoute } from '../shell/AppRoute';
 import { SectionHeader } from '../components/SectionHeader';
@@ -21,6 +22,11 @@ struct ImportPage {
   @State private importBuffer: string = '';
   @State private lastError: string = '';
   @State private isBusy: boolean = false;
+  @State private linkPreviewTitle: string = '';
+  @State private linkPreviewDetail: string = '';
+  @State private linkPreviewValid: boolean = false;
+  // 只有用户看到当前输入对应的脱敏摘要后，下一次点击才允许入库。输入一旦变化立即失效。
+  private previewedImportValue: string = '';
 
   aboutToAppear(): void {
     this.loadState();
@@ -95,9 +101,11 @@ struct ImportPage {
           .fontColor(AppColor.textPrimary)
           .placeholderColor(AppColor.textTertiary)
           .backgroundColor(Color.Transparent)
+          .enabled(!this.isBusy)
           .onChange((value: string) => {
             this.importBuffer = value;
             this.lastError = '';
+            this.clearLinkPreview();
           })
 
         if (this.importBuffer.length > 0) {
@@ -108,6 +116,7 @@ struct ImportPage {
               .fontWeight(FontWeight.Bold)
           }
           .backgroundColor(AppColor.surfaceAlt)
+          .enabled(!this.isBusy)
           .width(28)
           .height(28)
           .borderRadius(14)
@@ -115,6 +124,7 @@ struct ImportPage {
           .onClick(() => {
             this.importBuffer = '';
             this.lastError = '';
+            this.clearLinkPreview();
           })
         }
       }
@@ -132,6 +142,25 @@ struct ImportPage {
       .lineHeight(16)
       .padding({ left: Space.xs, right: Space.xs })
 
+    if (this.linkPreviewTitle.length > 0) {
+      Column({ space: Space.xs + 2 }) {
+        Text(this.linkPreviewTitle)
+          .fontSize(FontSz.body)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.linkPreviewValid ? AppColor.success : AppColor.danger)
+          .width('100%')
+        Text(this.linkPreviewDetail)
+          .fontSize(FontSz.footnote)
+          .fontColor(AppColor.textSecondary)
+          .width('100%')
+          .lineHeight(17)
+      }
+      .width('100%')
+      .padding(Space.md)
+      .backgroundColor(this.linkPreviewValid ? AppColor.successTint : AppColor.dangerTint)
+      .borderRadius(Radius.md)
+    }
+
     Row({ space: Space.md }) {
       Button() {
         Row() {
@@ -142,7 +171,7 @@ struct ImportPage {
               .color(AppColor.onBrand)
               .margin({ right: Space.xs + 2 })
           }
-          Text(this.t('import.parseButton'))
+          Text(this.t(this.linkPreviewValid ? 'action.importResult' : 'import.parseButton'))
             .fontSize(FontSz.callout)
             .fontWeight(FontWeight.Medium)
             .fontColor(this.importBuffer.trim().length > 0 ? AppColor.onBrand : AppColor.textTertiary)
@@ -154,7 +183,11 @@ struct ImportPage {
       .backgroundColor(this.importBuffer.trim().length > 0 ? AppColor.brand : AppColor.surfaceAlt)
       .borderRadius(Radius.pill)
       .onClick(() => {
-        this.importLink();
+        if (this.linkPreviewValid && this.previewedImportValue === this.importBuffer.trim()) {
+          this.importLink();
+        } else {
+          this.previewLink();
+        }
       })
 
       Button() {
@@ -356,6 +389,13 @@ struct ImportPage {
       const context = this.getUIContext().getHostContext() as common.Context;
       if (value.toLowerCase().startsWith('http://') || value.toLowerCase().startsWith('https://')) {
         this.lastError = this.t('error.importSubscriptionNotAllowed');
+        this.clearLinkPreview();
+        return;
+      }
+
+      // 任何未经过当前输入预览的调用都只能回到预览阶段，不能绕过二次确认。
+      if (!this.linkPreviewValid || this.previewedImportValue !== value) {
+        this.previewLink();
         return;
       }
 
@@ -366,7 +406,9 @@ struct ImportPage {
         const nativeResult = convertNativeShareTextToOutbounds(value);
         if (!nativeResult.ok) {
           this.lastError = nativeResult.message.length > 0 ?
-            `${validation.message}\n${nativeResult.message}` : validation.message;
+            redactDiagnosticText(`${validation.message}\n${nativeResult.message}`) :
+            redactDiagnosticText(validation.message);
+          this.clearLinkPreview();
           return;
         }
 
@@ -395,7 +437,7 @@ struct ImportPage {
         if (importedCount === 0) {
           this.lastError = duplicateCount > 0 ?
             this.f1('scanner.duplicateNodes', 'count', duplicateCount.toString()) :
-            (lastValidationError.length > 0 ? lastValidationError : validation.message);
+            redactDiagnosticText(lastValidationError.length > 0 ? lastValidationError : validation.message);
           return;
         }
 
@@ -417,7 +459,7 @@ struct ImportPage {
         validation.normalizedJson,
         validation.configType
       )) {
-        this.lastError = this.f1('scanner.duplicateNode', 'name', nodeName);
+        this.lastError = this.f1('scanner.duplicateNode', 'name', redactDiagnosticText(nodeName));
         return;
       }
       try {
@@ -431,6 +473,91 @@ struct ImportPage {
     } finally {
       this.isBusy = false;
     }
+  }
+
+  private previewLink(): void {
+    const value = this.importBuffer.trim();
+    this.lastError = '';
+    this.clearLinkPreview();
+    if (value.length === 0) {
+      this.lastError = this.t('error.emptyImport');
+      return;
+    }
+    if (value.toLowerCase().startsWith('http://') || value.toLowerCase().startsWith('https://')) {
+      this.lastError = this.t('error.importSubscriptionNotAllowed');
+      return;
+    }
+
+    const validation = NODES_CONTROLLER.validateConfig(value, this.language);
+    if (validation.valid) {
+      this.showSingleNodePreview(
+        resolveImportedNodeName(validation.normalizedJson, this.t('import.linkNodeName')),
+        validation.protocol,
+        validation.normalizedJson
+      );
+      this.previewedImportValue = value;
+      return;
+    }
+
+    // ArkTS 解析器不覆盖的兼容格式只在用户明确点击“解析”时调用一次 native 转换；
+    // 这里只统计通过二次校验的结果，不落库、不切换节点，也不启动网络请求。
+    const nativeResult = convertNativeShareTextToOutbounds(value);
+    if (nativeResult.ok) {
+      let validCount = 0;
+      let firstName = '';
+      let firstProtocol = '';
+      let firstJson = '';
+      for (let index = 0; index < nativeResult.outbounds.length; index++) {
+        const outbound = nativeResult.outbounds[index];
+        const imported = NODES_CONTROLLER.validateConfig(outbound.outboundJson, this.language, 'outbound');
+        if (!imported.valid) {
+          continue;
+        }
+        validCount++;
+        if (validCount === 1) {
+          firstName = resolveImportedNodeName(imported.normalizedJson, outbound.name);
+          firstProtocol = imported.protocol;
+          firstJson = imported.normalizedJson;
+        }
+      }
+      if (validCount === 1) {
+        this.showSingleNodePreview(firstName, firstProtocol, firstJson);
+        this.previewedImportValue = value;
+        return;
+      }
+      if (validCount > 1) {
+        this.linkPreviewTitle = this.f1('scanner.previewNodes', 'count', validCount.toString());
+        this.linkPreviewDetail = this.t('scanner.previewNodesDetail');
+        this.linkPreviewValid = true;
+        this.previewedImportValue = value;
+        return;
+      }
+    }
+
+    this.linkPreviewTitle = this.t('scanner.previewInvalid');
+    this.linkPreviewDetail = nativeResult.message.length > 0 ?
+      redactDiagnosticText(`${validation.message}\n${nativeResult.message}`) :
+      redactDiagnosticText(validation.message);
+    this.linkPreviewValid = false;
+  }
+
+  private showSingleNodePreview(name: string, protocol: string, normalizedJson: string): void {
+    const endpoint = extractNodeEndpoint(normalizedJson);
+    const endpointText = formatEndpointDescription(endpoint.address, endpoint.port);
+    this.linkPreviewTitle = this.f1('scanner.previewNode', 'name', redactDiagnosticText(name));
+    this.linkPreviewDetail = this.f1('scanner.previewProtocol', 'protocol', protocol.toUpperCase());
+    if (endpointText.length > 0) {
+      this.linkPreviewDetail += `\n${this.f1(
+        'scanner.previewEndpoint', 'endpoint', redactDiagnosticText(endpointText))}`;
+    }
+    this.linkPreviewValid = true;
+  }
+
+  private clearLinkPreview(): void {
+    this.linkPreviewTitle = '';
+    this.linkPreviewDetail = '';
+    this.linkPreviewValid = false;
+    this.previewedImportValue = '';
   }
 
   private t(key: string): string {

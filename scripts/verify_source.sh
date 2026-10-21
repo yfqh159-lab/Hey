@@ -110,6 +110,29 @@ if ! grep -Fq "private pendingSensitiveImport: string = '';" "${scanner_source}"
 fi
 printf 'scanner external payload privacy verification passed\n'
 
+# Manual link entry is a separate daily add path from camera/photo scanning. It must
+# parse into a redacted summary on the first action and require a second action for the
+# exact unchanged input before any node-store write.
+node <<'NODE'
+const fs = require('fs');
+const source = fs.readFileSync('entry/src/main/ets/pages/Import.ets', 'utf8');
+const previewAt = source.indexOf('  private previewLink(): void');
+const previewEnd = source.indexOf('\n  private showSingleNodePreview(', previewAt);
+const importAt = source.indexOf('  private async importLink(): Promise<void>');
+const importEnd = source.indexOf('\n  private previewLink(): void', importAt);
+const clickAt = source.indexOf('if (this.linkPreviewValid && this.previewedImportValue === this.importBuffer.trim())');
+if (!source.includes("private previewedImportValue: string = '';") || previewAt < 0 || previewEnd < 0 ||
+  importAt < 0 || importEnd < 0 || clickAt < 0 ||
+  !source.slice(clickAt, previewAt).includes('this.previewLink();') ||
+  !source.slice(importAt, importEnd).includes('this.previewedImportValue !== value') ||
+  !source.slice(previewAt, previewEnd).includes('this.previewedImportValue = value;') ||
+  source.slice(previewAt, previewEnd).includes('addManualNodeIfUnique(') ||
+  !source.includes("'scanner.previewEndpoint', 'endpoint', redactDiagnosticText(endpointText)")) {
+  throw new Error('manual link import can save before an unchanged redacted preview is confirmed');
+}
+NODE
+printf 'manual link preview confirmation verification passed\n'
+
 # User-facing documentation must not promise that camera/share/clipboard payloads are
 # shown in full. That would contradict the screenshot-safe confirmation UI and can make
 # reviewers treat a credential disclosure as intended behavior.
