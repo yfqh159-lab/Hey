@@ -17,6 +17,7 @@ export interface PersistedVpnRuntimeState {
   profileUpdatedAt?: number;
   xrayRunning: boolean;
   tunRunning: boolean;
+  cleanupComplete?: boolean;
 }
 
 export function parsePersistedVpnRuntimeState(content: string): PersistedVpnRuntimeState | null {
@@ -26,6 +27,8 @@ export function parsePersistedVpnRuntimeState(content: string): PersistedVpnRunt
       typeof value.active !== 'boolean' || typeof value.startedAt !== 'number' ||
       typeof value.heartbeatAt !== 'number' || typeof value.coreType !== 'string' ||
       typeof value.xrayRunning !== 'boolean' || typeof value.tunRunning !== 'boolean' ||
+      (value.cleanupComplete !== undefined && typeof value.cleanupComplete !== 'boolean') ||
+      (value.cleanupComplete === true && (value.active || value.xrayRunning || value.tunRunning)) ||
       value.startedAt <= 0 || value.heartbeatAt < 0 ||
       (value.profileUpdatedAt !== undefined &&
         (typeof value.profileUpdatedAt !== 'number' || Number.isNaN(value.profileUpdatedAt) ||
@@ -63,6 +66,14 @@ export function isPersistedVpnRuntimeSessionReady(
   return state !== null && expectedSessionId.length > 0 && state.sessionId === expectedSessionId &&
     Number.isFinite(requestedAt) && requestedAt > 0 && state.startedAt >= requestedAt &&
     isPersistedVpnRuntimeHealthy(state, now);
+}
+
+export function isPersistedVpnRuntimeSessionStopped(
+  state: PersistedVpnRuntimeState | null,
+  expectedSessionId: string
+): boolean {
+  return state !== null && expectedSessionId.length > 0 && state.sessionId === expectedSessionId &&
+    !state.active && !state.xrayRunning && !state.tunRunning && state.cleanupComplete === true;
 }
 
 export function selectPersistedVpnRuntimeState(
@@ -157,7 +168,8 @@ export class VpnRuntimeStateStore {
     sessionId: string,
     startedAt: number,
     coreType: string,
-    profileUpdatedAt: number = 0
+    profileUpdatedAt: number = 0,
+    cleanupComplete: boolean = false
   ): PersistedVpnRuntimeState {
     return {
       sessionId,
@@ -167,7 +179,8 @@ export class VpnRuntimeStateStore {
       coreType: coreType === 'singbox' ? 'singbox' : 'xray',
       profileUpdatedAt,
       xrayRunning: false,
-      tunRunning: false
+      tunRunning: false,
+      cleanupComplete
     };
   }
 

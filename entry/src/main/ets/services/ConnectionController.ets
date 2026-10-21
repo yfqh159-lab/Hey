@@ -19,7 +19,8 @@ import { OUTBOUND_DOMAIN_RESOLVER } from './OutboundDomainResolver';
 import { waitForRuntimeSocksHealth } from './RuntimeHealthProbe';
 import {
   VpnRuntimeStateStore,
-  isPersistedVpnRuntimeSessionReady
+  isPersistedVpnRuntimeSessionReady,
+  isPersistedVpnRuntimeSessionStopped
 } from './VpnRuntimeStateStore';
 
 const LOG_DOMAIN: number = 0x0001;
@@ -33,6 +34,7 @@ const DIAGNOSTIC_POLL_INTERVAL_MS: number = 250;
 const VPN_STARTED_MESSAGE: string = 'Native VPN bridge started.';
 const VPN_START_FAILED_MESSAGE: string = 'VPN start failed.';
 const VPN_CLEANUP_FINISHED_MESSAGE: string = 'VPN cleanup finished.';
+const VPN_CLEANUP_INCOMPLETE_MESSAGE: string = 'VPN cleanup incomplete.';
 
 export interface ConnectionSnapshot {
   status: ConnectionStatus;
@@ -313,6 +315,7 @@ export class ConnectionController {
 
     this.status = ConnectionStatus.STOPPING;
     const requestedAt = Date.now();
+    let systemStopAttempted = false;
     try {
       if (this.runtimeMode === APP_MODE_PROXY_ONLY) {
         this.stopProxyOnly(context);
@@ -328,20 +331,32 @@ export class ConnectionController {
       await this.withTimeout(vpnExtension.startVpnExtensionAbility(createStopCommandVpnWant(targetSessionId)),
         START_VPN_TIMEOUT_MS,
         '停止 VPN 超时：VPN 扩展没有响应停止命令。');
-      const cleanupEvent = await this.waitForDiagnosticEvent(context, requestedAt, STOP_VPN_CLEANUP_TIMEOUT_MS, (event: DiagnosticEvent) => {
-        return event.source === 'vpn' && this.matchesVpnSession(event, targetSessionId) &&
-          event.message === VPN_CLEANUP_FINISHED_MESSAGE;
-      });
+      const cleanupEvent = await this.waitForVpnCleanupEvent(context, requestedAt, targetSessionId);
       if (cleanupEvent === null) {
         throw new Error('停止 VPN 未确认完成：VPN 扩展尚未回写清理完成状态。');
       }
-      await vpnExtension.stopVpnExtensionAbility(createStopVpnWant());
+      systemStopAttempted = true;
+      await this.withTimeout(vpnExtension.stopVpnExtensionAbility(createStopVpnWant()),
+        START_VPN_TIMEOUT_MS, 'Stopping VPN Extension timed out.');
+      if (cleanupEvent.message === VPN_CLEANUP_INCOMPLETE_MESSAGE) {
+        throw new Error(this.formatDiagnosticEvent(cleanupEvent));
+      }
       this.status = ConnectionStatus.IDLE;
       this.startedAt = 0;
       this.lastError = '';
       this.vpnSessionId = '';
       hilog.info(LOG_DOMAIN, LOG_TAG, 'VPN stop command completed.');
     } catch (error) {
+      if (!systemStopAttempted) {
+        try {
+          systemStopAttempted = true;
+          await this.withTimeout(vpnExtension.stopVpnExtensionAbility(createStopVpnWant()),
+            START_VPN_TIMEOUT_MS, 'Fallback VPN Extension stop timed out.');
+        } catch (stopError) {
+          hilog.error(LOG_DOMAIN, LOG_TAG, 'fallback VPN extension stop failed: %{public}s',
+            redactDiagnosticText(JSON.stringify(stopError)));
+        }
+      }
       const businessError = error as BusinessError;
       this.status = ConnectionStatus.ERROR;
       const action = this.runtimeMode === APP_MODE_PROXY_ONLY ? '停止仅代理模式失败' : '停止 VPN 失败';
@@ -475,6 +490,55 @@ export class ConnectionController {
       level: 'info',
       source: 'vpn',
       message: VPN_STARTED_MESSAGE,
+      details: `session=${sessionId}; confirmation=runtime-state`
+    };
+  }
+
+  private async waitForVpnCleanupEvent(
+    context: common.Context,
+    requestedAt: number,
+    sessionId: string
+  ): Promise<DiagnosticEvent | null> {
+    const deadline = Date.now() + STOP_VPN_CLEANUP_TIMEOUT_MS;
+    while (Date.now() <= deadline) {
+      const event = await this.findDiagnosticEvent(context, requestedAt, (candidate: DiagnosticEvent) => {
+        return candidate.source === 'vpn' && this.matchesVpnSession(candidate, sessionId) &&
+          (candidate.message === VPN_CLEANUP_FINISHED_MESSAGE ||
+            candidate.message === VPN_CLEANUP_INCOMPLETE_MESSAGE);
+      });
+      if (event !== null) {
+        return event;
+      }
+      const persisted = VpnRuntimeStateStore.read(context);
+      const now = Date.now();
+      if (isPersistedVpnRuntimeSessionStopped(persisted, sessionId)) {
+        return {
+          at: persisted?.heartbeatAt ?? now,
+          level: 'info',
+          source: 'vpn',
+          message: VPN_CLEANUP_FINISHED_MESSAGE,
+          details: `session=${sessionId}; confirmation=runtime-state`
+        };
+      }
+      await this.sleep(DIAGNOSTIC_POLL_INTERVAL_MS);
+    }
+    const event = await this.findDiagnosticEvent(context, requestedAt, (candidate: DiagnosticEvent) => {
+      return candidate.source === 'vpn' && this.matchesVpnSession(candidate, sessionId) &&
+        (candidate.message === VPN_CLEANUP_FINISHED_MESSAGE ||
+          candidate.message === VPN_CLEANUP_INCOMPLETE_MESSAGE);
+    });
+    if (event !== null) {
+      return event;
+    }
+    const persisted = VpnRuntimeStateStore.read(context);
+    if (!isPersistedVpnRuntimeSessionStopped(persisted, sessionId)) {
+      return null;
+    }
+    return {
+      at: persisted?.heartbeatAt ?? Date.now(),
+      level: 'info',
+      source: 'vpn',
+      message: VPN_CLEANUP_FINISHED_MESSAGE,
       details: `session=${sessionId}; confirmation=runtime-state`
     };
   }

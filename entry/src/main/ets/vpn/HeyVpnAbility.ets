@@ -45,6 +45,7 @@ import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { SPEED_NOTIFICATION_MANAGER } from '../services/SpeedNotificationManager';
 import { CONTROL_CARD_MANAGER } from '../services/ControlCardManager';
 import { DEFAULT_LANGUAGE } from '../core/I18n';
+import { isVpnCleanupComplete } from '../core/RuntimeHealth';
 
 const LOG_DOMAIN: number = 0x0001;
 const LOG_TAG: string = 'HeyVpnAbility';
@@ -415,11 +416,12 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     // 通知由 UI 进程发布，但 VPN 可能在 UI 被挂起/回收后由扩展自行清理。立即并行撤销，
     // 不能让“正在运行”的常驻通知晚于真实隧道状态；失败或超时不得阻塞 TUN/核心释放。
     const notificationCancel = this.cancelSpeedNotificationSafely();
-    const controlCardReset = this.resetControlCardSafely();
+    let cleanupCompleted = false;
+    let cleanupDetails = '';
     try {
       do {
         this.cleanupAgainRequested = false;
-        const stoppedStateStored = this.persistStoppedRuntimeState('before data-plane cleanup');
+        this.persistStoppedRuntimeState('before data-plane cleanup', false);
         this.stopNetScenePoll();
         this.stopStatsTimer();
         this.emitInfo('VPN cleanup started.', `tunFd=${this.tunFd}`);
@@ -434,9 +436,11 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         this.emitInfo('sing-box stop requested.', singboxResult.message);
 
         const connection = this.vpnConnection;
+        let vpnDestroyed = connection === null;
         if (connection !== null) {
           try {
             await connection.destroy();
+            vpnDestroyed = true;
             this.emitInfo('VPN destroyed.');
           } catch (error) {
             const businessError = error as BusinessError;
@@ -444,23 +448,29 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
           }
         }
 
-        if (this.vpnConnection === connection) {
+        if (vpnDestroyed && this.vpnConnection === connection) {
           this.vpnConnection = null;
         }
         this.tunFd = -1;
         this.runtimeHealthProbePort = 0;
-        if (!stoppedStateStored) {
-          this.persistStoppedRuntimeState('after VPN destroy');
-        }
+        cleanupCompleted = isVpnCleanupComplete(
+          tun2socksResult.ok, xrayResult.ok, singboxResult.ok, vpnDestroyed);
+        cleanupDetails = `tun=${tun2socksResult.ok}; xray=${xrayResult.ok}; singbox=${singboxResult.ok}; vpn=${vpnDestroyed}`;
+        const controlCardUpdate = this.updateControlCardAfterCleanupSafely(cleanupCompleted);
         // 保持 cleaningUp 闩锁直到附属界面状态也完成（或超时）；期间的重入停止请求只会
         // 设置 cleanupAgainRequested，并由下一轮重新扫描全部原生资源。
         await notificationCancel;
-        await controlCardReset;
+        await controlCardUpdate;
+        this.persistStoppedRuntimeState('after cleanup completion', cleanupCompleted);
       } while (this.cleanupAgainRequested);
     } finally {
       this.cleaningUp = false;
     }
-    this.emitInfo('VPN cleanup finished.', `session=${this.sessionId}`);
+    if (cleanupCompleted) {
+      this.emitInfo('VPN cleanup finished.', `session=${this.sessionId}`);
+    } else {
+      this.emitError('VPN cleanup incomplete.', `session=${this.sessionId}; ${cleanupDetails}`);
+    }
   }
 
   private async cancelSpeedNotificationSafely(): Promise<void> {
@@ -475,23 +485,23 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     }
   }
 
-  private async resetControlCardSafely(): Promise<void> {
+  private async updateControlCardAfterCleanupSafely(cleanupComplete: boolean): Promise<void> {
     try {
       await withTimeout(
         CONTROL_CARD_MANAGER.sync(
           this.context,
-          ConnectionStatus.IDLE,
+          cleanupComplete ? ConnectionStatus.IDLE : ConnectionStatus.ERROR,
           '00:00',
           this.activeLanguage,
-          '',
+          cleanupComplete ? '' : 'VPN cleanup incomplete.',
           false,
           APP_MODE_VPN
         ),
         CONTROL_CARD_RESET_TIMEOUT_MS,
-        'Control card reset timed out.'
+        'Control card cleanup update timed out.'
       );
     } catch (error) {
-      this.emitInfo('Control card reset did not complete.', this.errorMessage(error));
+      this.emitInfo('Control card cleanup update did not complete.', this.errorMessage(error));
     }
   }
 
@@ -607,13 +617,14 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     this.requestCleanup('Unhealthy VPN runtime cleanup requested.', `session=${this.sessionId}`);
   }
 
-  private persistStoppedRuntimeState(stage: string): boolean {
+  private persistStoppedRuntimeState(stage: string, cleanupComplete: boolean): boolean {
     const stored = VpnRuntimeStateStore.write(this.context,
       VpnRuntimeStateStore.stopped(
         this.sessionId,
         this.startedAt > 0 ? this.startedAt : Date.now(),
         this.activeCoreType,
-        this.activeProfileUpdatedAt));
+        this.activeProfileUpdatedAt,
+        cleanupComplete));
     if (!stored) {
       this.emitError('VPN stopped state write failed.', `stage=${stage}; session=${this.sessionId}`);
     }

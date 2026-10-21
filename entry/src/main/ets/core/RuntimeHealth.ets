@@ -8,6 +8,15 @@ import {
 
 export const VPN_RUNTIME_UNHEALTHY_CONFIRM_MS: number = 12000;
 
+export function isVpnCleanupComplete(
+  tunStopped: boolean,
+  xrayStopped: boolean,
+  singboxStopped: boolean,
+  vpnDestroyed: boolean
+): boolean {
+  return tunStopped && xrayStopped && singboxStopped && vpnDestroyed;
+}
+
 /**
  * 本地代理与 UI 位于同一进程，native bridge 明确报告停止时可立即判定异常；
  * bridge 的运行标志本身不代表监听器一定仍存活，后续还需 SOCKS 端口探测。
