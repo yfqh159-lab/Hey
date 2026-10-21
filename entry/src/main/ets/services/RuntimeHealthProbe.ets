@@ -36,6 +36,39 @@ export async function probeRuntimeSocksHealth(
   }
 }
 
+/**
+ * 等待核心的 SOCKS 数据入口真正开始监听。原生 start 返回只代表启动调用成功，
+ * 不能据此把 VPN/TUN 标记为可用。等待有明确上限，失败由调用方回滚整个会话。
+ */
+export async function waitForRuntimeSocksHealth(
+  port: number,
+  timeoutMs: number = 5000,
+  retryIntervalMs: number = 100
+): Promise<RuntimeHealthProbeResult> {
+  if (!isRuntimeHealthPort(port) || timeoutMs <= 0 || retryIntervalMs <= 0) {
+    return { ok: false, status: 'invalid-endpoint' };
+  }
+  const deadline = Date.now() + timeoutMs;
+  do {
+    const remaining = Math.max(1, deadline - Date.now());
+    const probe = await probeRuntimeSocksHealth(port, Math.min(500, remaining));
+    if (probe.ok) {
+      return probe;
+    }
+    const sleepMs = Math.min(retryIntervalMs, deadline - Date.now());
+    if (sleepMs > 0) {
+      await delay(sleepMs);
+    }
+  } while (Date.now() < deadline);
+  return { ok: false, status: 'startup-timeout' };
+}
+
 export function isRuntimeHealthPort(port: number): boolean {
   return Math.floor(port) === port && port >= 1 && port <= 65535;
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise<void>((resolve: () => void) => {
+    setTimeout(resolve, milliseconds);
+  });
 }

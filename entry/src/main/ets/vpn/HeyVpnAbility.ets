@@ -29,7 +29,7 @@ import { buildHevTunConfigYaml } from '../core/HevTunConfig';
 import { isSingboxCore } from '../core/CoreSelection';
 import { DiagnosticLog } from '../services/DiagnosticLog';
 import { VpnRuntimeStateStore } from '../services/VpnRuntimeStateStore';
-import { isRuntimeHealthPort, probeRuntimeSocksHealth } from '../services/RuntimeHealthProbe';
+import { isRuntimeHealthPort, probeRuntimeSocksHealth, waitForRuntimeSocksHealth } from '../services/RuntimeHealthProbe';
 
 const LOG_DOMAIN: number = 0x0001;
 const LOG_TAG: string = 'HeyVpnAbility';
@@ -124,8 +124,8 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     const configJson = this.getStringParameter(want, 'xrayConfigJson', '');
     const useSingbox = isSingboxCore(this.getStringParameter(want, 'coreType', 'xray'));
     this.activeCoreType = useSingbox ? 'singbox' : 'xray';
-    // 自定义完整配置未必包含 Hey 的回环 SOCKS 入口；只探测主进程
-    // 随已生成配置明确传入的端口。
+    // TUN 数据面固定把流量交给主进程传入的回环 SOCKS 入口；完整配置若没有
+    // 对应监听器也必须启动失败，不能在不可转发时虚报 VPN 已连接。
     const requestedHealthPort = Number(this.getStringParameter(want, VPN_HEALTH_PORT_KEY, '0'));
     this.runtimeHealthProbePort = isRuntimeHealthPort(requestedHealthPort) ? requestedHealthPort : 0;
 
@@ -187,6 +187,16 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       }
       this.ensureStartAllowed('core startup');
       this.emitInfo(`${useSingbox ? 'sing-box' : 'Xray'} started.`, coreResult.message);
+
+      if (this.runtimeHealthProbePort <= 0) {
+        throw new Error('VPN data-plane SOCKS health port is missing.');
+      }
+      const coreReady = await waitForRuntimeSocksHealth(this.runtimeHealthProbePort);
+      this.ensureStartAllowed('core SOCKS readiness');
+      if (!coreReady.ok) {
+        throw new Error(`Core SOCKS data entry did not become ready: ${coreReady.status}`);
+      }
+      this.emitInfo('Core SOCKS data entry is ready.', `port=${this.runtimeHealthProbePort}`);
 
       // 数据面引擎二选一：useHevTun=true 走 hev-socks5-tunnel（高性能，libhevsocks5tun.so），
       // 否则走默认 gvisor/xjasonlyu（libheytun2socks.so）。两者都把 TUN fd 转发到同一个

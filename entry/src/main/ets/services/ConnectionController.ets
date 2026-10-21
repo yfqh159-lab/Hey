@@ -15,11 +15,14 @@ import { getNativeFreePorts, getNativeStats, startNativeXray, stopNativeXray, te
 import { DiagnosticEvent, DiagnosticLog } from './DiagnosticLog';
 import { clearCoreLog, clearSingboxLog } from './CoreLogReader';
 import { OUTBOUND_DOMAIN_RESOLVER } from './OutboundDomainResolver';
+import { waitForRuntimeSocksHealth } from './RuntimeHealthProbe';
 
 const LOG_DOMAIN: number = 0x0001;
 const LOG_TAG: string = 'HeyVpn';
 const START_VPN_TIMEOUT_MS: number = 10000;
-const START_VPN_READY_TIMEOUT_MS: number = 12000;
+// 扩展内依次创建 VPN、尝试最长 10 秒的进程网络保护，再等待最长 5 秒的 SOCKS
+// 监听器。主进程的就绪窗口必须覆盖整条启动链，不能先行误判超时并拆掉正在启动的会话。
+const START_VPN_READY_TIMEOUT_MS: number = 25000;
 const STOP_VPN_CLEANUP_TIMEOUT_MS: number = 15000;
 const DIAGNOSTIC_POLL_INTERVAL_MS: number = 250;
 const VPN_STARTED_MESSAGE: string = 'Native VPN bridge started.';
@@ -115,7 +118,7 @@ export class ConnectionController {
 
     try {
       if (this.runtimeMode === APP_MODE_PROXY_ONLY) {
-        this.startProxyOnly(context);
+        await this.startProxyOnly(context);
         this.status = ConnectionStatus.RUNNING;
         this.startedAt = Date.now();
         return this.getSnapshot();
@@ -126,7 +129,7 @@ export class ConnectionController {
       await this.withTimeout(vpnExtension.startVpnExtensionAbility(createVpnWant(
         this.generatedConfig.configJson,
         CORE_TYPE_XRAY,
-        this.generatedConfig.runtimeHealthPort
+        this.generatedConfig.runtimeHealthPort ?? VPN_DATA_SOCKS_PORT
       )), START_VPN_TIMEOUT_MS, '启动 VPN 超时：系统 VPN 授权服务没有响应。若 hilog 中出现 com.huawei.hmos.vpndialog bundle not exist，说明当前系统镜像缺少 VPN 授权组件，请改用真机测试。');
       hilog.info(LOG_DOMAIN, LOG_TAG, 'startVpnExtensionAbility returned.');
       const startEvent = await this.waitForDiagnosticEvent(context, requestedAt, START_VPN_READY_TIMEOUT_MS, (event: DiagnosticEvent) => {
@@ -216,7 +219,7 @@ export class ConnectionController {
     return this.getSnapshot();
   }
 
-  private startProxyOnly(context: common.Context): void {
+  private async startProxyOnly(context: common.Context): Promise<void> {
     if (this.generatedConfig === null) {
       throw new Error('仅代理模式缺少运行配置。');
     }
@@ -241,6 +244,14 @@ export class ConnectionController {
     const xrayResult = startNativeXray(this.generatedConfig.configJson, context.filesDir);
     if (!xrayResult.ok) {
       throw new Error(xrayResult.message);
+    }
+    const healthPort = this.generatedConfig.runtimeHealthPort;
+    if (healthPort !== undefined) {
+      const ready = await waitForRuntimeSocksHealth(healthPort);
+      if (!ready.ok) {
+        stopNativeXray();
+        throw new Error(`本地代理 SOCKS 入口未就绪：${ready.status}`);
+      }
     }
     DiagnosticLog.append(context, {
       at: Date.now(),
