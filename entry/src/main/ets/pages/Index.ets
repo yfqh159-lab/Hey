@@ -5,7 +5,7 @@ import { IconButton } from '../components/IconButton';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { BOTTOM_SAFE_HEIGHT_KEY, TOP_SAFE_HEIGHT_KEY } from '../core/Immersive';
 import { shouldExposeLocalHttpProxy } from '../core/LocalProxy';
-import { AppLanguage, AppSettings, ConnectionStatus, normalizeHomeDelayTestInterval, normalizeRealPingConcurrency, ProxyNode, ProxyProfile, resolveDelayTestUrl, RuntimeStats, SubscriptionGroup, SubscriptionProfile, XrayConfigType } from '../core/Profile';
+import { AppLanguage, AppSettings, ConnectionStatus, isProxyOnlyRuntimeMode, normalizeHomeDelayTestInterval, normalizeRealPingConcurrency, ProxyNode, ProxyProfile, resolveDelayTestUrl, RuntimeStats, SubscriptionGroup, SubscriptionProfile, XrayConfigType } from '../core/Profile';
 import { CoreSelectionStore, requiredCoreForProtocol, CORE_TYPE_SINGBOX } from '../core/CoreSelection';
 import { DELAY_TEST_BATCH_PORT_BASE, LOCAL_HTTP_PROXY_PORT, normalizeOutboundInput } from '../core/XrayConfig';
 import { DeepLinkControlAction, DeepLinkIntent, parseDeepLink, subscriptionNameFromDeepLink } from '../core/DeepLink';
@@ -2622,10 +2622,12 @@ struct Index {
   private statusLabel(): string {
     if (this.status === ConnectionStatus.RUNNING) {
       if (this.egressIpChecking) {
-        return this.t('home.connectionVerifying');
+        return this.t(isProxyOnlyRuntimeMode(this.currentSettings.mode) ?
+          'home.proxyConnectionVerifying' : 'home.connectionVerifying');
       }
       if (this.egressIp.length === 0) {
-        return this.t('home.connectionUnverified');
+        return this.t(isProxyOnlyRuntimeMode(this.currentSettings.mode) ?
+          'home.proxyConnectionUnverified' : 'home.connectionUnverified');
       }
     }
     return this.t('status.' + this.status);
