@@ -148,7 +148,12 @@ export class ConnectionController {
 
     // 内核分流：sing-box（预览）走独立的配置生成 + native 生命周期。
     // anytls / tuic 等 sing-box 独有协议 Xray 没有对应 outbound，无论全局开关如何都强制走 sing-box。
-    const coreType = await CoreSelectionStore.load(context);
+    let coreType: CoreType;
+    try {
+      coreType = await CoreSelectionStore.load(context);
+    } catch (error) {
+      return this.failStartPreparation(startGeneration, error as Object);
+    }
     if (!this.isCurrentStart(startGeneration)) {
       return this.getSnapshot();
     }

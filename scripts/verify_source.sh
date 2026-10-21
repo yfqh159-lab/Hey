@@ -605,6 +605,12 @@ if (requestedModeAssignment < 0 || firstCoreSelectionAwait < 0 ||
   requestedModeAssignment > firstCoreSelectionAwait) {
   throw new Error('connection mode must be fixed before the first cancellable startup await');
 }
+const coreLoadCatch = startBody.indexOf('return this.failStartPreparation(startGeneration, error as Object);', firstCoreSelectionAwait);
+const postCoreGenerationCheck = startBody.indexOf('if (!this.isCurrentStart(startGeneration))', firstCoreSelectionAwait);
+if (!startBody.includes('let coreType: CoreType;') || coreLoadCatch < firstCoreSelectionAwait ||
+  postCoreGenerationCheck < coreLoadCatch) {
+  throw new Error('core selection read failures can leave connection startup stuck');
+}
 const proxyBranch = startBody.indexOf('if (this.runtimeMode === APP_MODE_PROXY_ONLY) {');
 const proxyStart = startBody.indexOf('await this.startProxyOnly(context);', proxyBranch);
 const proxyReturn = startBody.indexOf('return this.getSnapshot();', proxyStart);
