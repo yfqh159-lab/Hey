@@ -3355,6 +3355,10 @@ export default function localUnitTest() {
       expect(parsePersistedVpnRuntimeState('{"sessionId":"session-new","active":true,"startedAt":1001,' +
         '"heartbeatAt":1010,"coreType":"xray","xrayRunning":true,"tunRunning":true,' +
         '"cleanupComplete":true}')).assertEqual(null);
+      expect(parsePersistedVpnRuntimeState('{"sessionId":"session-new","active":false,"startedAt":1001,' +
+        '"heartbeatAt":1010,"coreType":"xray","xrayRunning":true,"tunRunning":false}')).assertEqual(null);
+      expect(parsePersistedVpnRuntimeState('{"sessionId":"session-new","active":false,"startedAt":1001,' +
+        '"heartbeatAt":1010,"coreType":"xray","xrayRunning":false,"tunRunning":true}')).assertEqual(null);
     });
 
     it('distinguishes incomplete cleanup from an initial stopped state', 0, () => {

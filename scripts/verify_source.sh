@@ -1153,6 +1153,7 @@ const fs = require('fs');
 const connection = fs.readFileSync('entry/src/main/ets/services/ConnectionController.ets', 'utf8');
 const health = fs.readFileSync('entry/src/main/ets/core/RuntimeHealth.ets', 'utf8');
 const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeController.ets', 'utf8');
+const runtimeStateStore = fs.readFileSync('entry/src/main/ets/services/VpnRuntimeStateStore.ets', 'utf8');
 const vpn = fs.readFileSync('entry/src/main/ets/vpn/HeyVpnAbility.ets', 'utf8');
 if (!connection.includes('vpnSessionId: string;') ||
   !connection.includes('vpnSessionId: this.vpnSessionId')) {
@@ -1161,6 +1162,9 @@ if (!connection.includes('vpnSessionId: string;') ||
 if (!health.includes('expectedSessionId: string') || !health.includes('eventDetails: string | undefined') ||
   !health.includes('eventDetails.startsWith(`${marker};`)')) {
   throw new Error('VPN diagnostic errors are not matched to the exact active session');
+}
+if (!runtimeStateStore.includes('(!value.active && (value.xrayRunning || value.tunRunning))')) {
+  throw new Error('an inactive VPN state can still claim running core/TUN resources');
 }
 const applyAt = runtime.indexOf('  private async applyDiagnosticError(');
 const apply = runtime.slice(applyAt);

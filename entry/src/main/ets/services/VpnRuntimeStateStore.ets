@@ -31,6 +31,7 @@ export function parsePersistedVpnRuntimeState(content: string): PersistedVpnRunt
       typeof value.xrayRunning !== 'boolean' || typeof value.tunRunning !== 'boolean' ||
       (value.cleanupComplete !== undefined && typeof value.cleanupComplete !== 'boolean') ||
       (value.cleanupAttempted !== undefined && typeof value.cleanupAttempted !== 'boolean') ||
+      (!value.active && (value.xrayRunning || value.tunRunning)) ||
       (value.cleanupComplete === true && (value.active || value.xrayRunning || value.tunRunning)) ||
       (value.cleanupAttempted === true && (value.active || value.xrayRunning || value.tunRunning)) ||
       value.startedAt <= 0 || value.heartbeatAt < 0 ||
