@@ -1647,6 +1647,10 @@ if (invalidateAt < 0 || recoverAt < 0 || recheckAt < 0 ||
   throw new Error('network handover must invalidate stale egress checks before recovery and recheck');
 }
 if (!networkScene.includes('const MAX_REGISTER_RETRIES: number = 3;') ||
+  !networkScene.includes('const REGISTER_CONFIRM_TIMEOUT_MS: number = 5000;') ||
+  !networkScene.includes('private registerConfirmTimer: number = -1;') ||
+  !networkScene.includes('register net connection confirmation timed out') ||
+  !networkScene.includes('private clearRegisterConfirmTimer(): void') ||
   !networkScene.includes('private handleRegisterFailure(') ||
   !networkScene.includes('private scheduleRegisterRetry(') ||
   !networkScene.includes('this.registerRetryCount >= MAX_REGISTER_RETRIES') ||

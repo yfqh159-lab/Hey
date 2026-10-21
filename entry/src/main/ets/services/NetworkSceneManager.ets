@@ -27,6 +27,7 @@ const TAG: string = 'NetScene';
 const DEBOUNCE_MS: number = 2500;
 const REGISTER_RETRY_DELAY_MS: number = 1500;
 const MAX_REGISTER_RETRIES: number = 3;
+const REGISTER_CONFIRM_TIMEOUT_MS: number = 5000;
 const EVALUATION_STEP_TIMEOUT_MS: number = 5000;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
@@ -56,6 +57,7 @@ export class NetworkSceneManager {
   private context: common.Context | null = null;
   private owner: Object | null = null;
   private started: boolean = false;
+  private registerConfirmTimer: number = -1;
   private registerRetryTimer: number = -1;
   private registerRetryCount: number = 0;
   private debounceTimer: number = -1;
@@ -109,16 +111,27 @@ export class NetworkSceneManager {
         this.scheduleEvaluateForListener(createdConnection, generation));
       createdConnection.on('netCapabilitiesChange', () =>
         this.scheduleEvaluateForListener(createdConnection, generation));
+      // 某些系统实现可能既不回调成功也不回调失败。没有确认或任何网络事件时不能
+      // 永久把 started 当成健康；超时释放该实例并沿用有界注册重试。
+      this.registerConfirmTimer = setTimeout(() => {
+        this.registerConfirmTimer = -1;
+        if (this.isCurrentListener(createdConnection, context, generation)) {
+          hilog.warn(DOMAIN, TAG, 'register net connection confirmation timed out');
+          this.handleRegisterFailure(createdConnection, context, generation);
+        }
+      }, REGISTER_CONFIRM_TIMEOUT_MS);
       createdConnection.register((error: Object) => {
+        if (!this.isCurrentListener(createdConnection, context, generation)) {
+          return;
+        }
+        this.clearRegisterConfirmTimer();
         if (error !== undefined && error !== null) {
           hilog.warn(DOMAIN, TAG, 'register net connection failed: %{public}s',
             redactDiagnosticText(JSON.stringify(error)));
           this.handleRegisterFailure(createdConnection, context, generation);
           return;
         }
-        if (this.isCurrentListener(createdConnection, context, generation)) {
-          this.registerRetryCount = 0;
-        }
+        this.registerRetryCount = 0;
       });
       hilog.info(DOMAIN, TAG, 'listener started');
       // 启动后立刻补判一次当前网络
@@ -141,6 +154,7 @@ export class NetworkSceneManager {
       return;
     }
     this.lifecycleGeneration++;
+    this.clearRegisterConfirmTimer();
     if (this.registerRetryTimer !== -1) {
       clearTimeout(this.registerRetryTimer);
       this.registerRetryTimer = -1;
@@ -177,6 +191,9 @@ export class NetworkSceneManager {
     if (this.netConnection !== netConnection || this.lifecycleGeneration !== generation || !this.started) {
       return;
     }
+    // 实际事件证明注册已生效，即使设备遗漏 register 回调也不应误拆健康监听。
+    this.clearRegisterConfirmTimer();
+    this.registerRetryCount = 0;
     this.scheduleEvaluate(false);
   }
 
@@ -197,6 +214,7 @@ export class NetworkSceneManager {
     if (!this.isCurrentListener(netConnection, context, generation)) {
       return;
     }
+    this.clearRegisterConfirmTimer();
     this.lifecycleGeneration++;
     this.started = false;
     this.netConnection = undefined;
@@ -216,6 +234,13 @@ export class NetworkSceneManager {
         redactDiagnosticText(JSON.stringify(error)));
     }
     this.scheduleRegisterRetry(context);
+  }
+
+  private clearRegisterConfirmTimer(): void {
+    if (this.registerConfirmTimer !== -1) {
+      clearTimeout(this.registerConfirmTimer);
+      this.registerConfirmTimer = -1;
+    }
   }
 
   private scheduleRegisterRetry(context: common.Context): void {
