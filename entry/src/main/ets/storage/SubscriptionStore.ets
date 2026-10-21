@@ -45,27 +45,32 @@ export class SubscriptionStore {
   // whole transaction in one process-wide queue; serializing only Preferences.put/flush
   // would still let two callers read the same old profile and lose whichever update saves first.
   private static mutationTail: Promise<void> = Promise.resolve();
+  // Reads participate in a separate physical-storage queue so backup recovery cannot overwrite
+  // a newer primary record while a queued mutation is saving it.
+  private static storageTail: Promise<void> = Promise.resolve();
 
-  static async load(context: common.Context): Promise<SubscriptionProfile> {
-    const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-    const primaryRaw = (await store.get(SUBSCRIPTION_KEY, '')).toString();
-    const backupRaw = (await store.get(SUBSCRIPTION_BACKUP_KEY, '')).toString();
-    const selection = SubscriptionStore.selectStoredProfile(primaryRaw, backupRaw);
-    if (selection.profile !== null && selection.source !== 'backup') {
-      return selection.profile;
-    }
-    if (selection.profile !== null) {
-      // 返回上一份完整数据优先于把损坏主副本当成空库。尽力修复主键；修复失败不阻断
-      // 本次只读恢复，后续任何显式保存仍会正常向上层报告错误。
-      try {
-        await store.put(SUBSCRIPTION_KEY, JSON.stringify(selection.profile));
-        await store.flush();
-      } catch (_error) {
-        // keep recovered in-memory value
+  static load(context: common.Context): Promise<SubscriptionProfile> {
+    return SubscriptionStore.enqueueStorage(async (): Promise<SubscriptionProfile> => {
+      const store = await preferences.getPreferences(context, PREFERENCES_NAME);
+      const primaryRaw = (await store.get(SUBSCRIPTION_KEY, '')).toString();
+      const backupRaw = (await store.get(SUBSCRIPTION_BACKUP_KEY, '')).toString();
+      const selection = SubscriptionStore.selectStoredProfile(primaryRaw, backupRaw);
+      if (selection.profile !== null && selection.source !== 'backup') {
+        return selection.profile;
       }
-      return selection.profile;
-    }
-    throw new Error('Stored node database is unreadable; the existing data was not overwritten.');
+      if (selection.profile !== null) {
+        // 返回上一份完整数据优先于把损坏主副本当成空库。修复与正常保存共用存储队列，
+        // 因此旧备份不会越过一个更新的主副本再把它覆盖。
+        try {
+          await store.put(SUBSCRIPTION_KEY, JSON.stringify(selection.profile));
+          await store.flush();
+        } catch (_error) {
+          // keep recovered in-memory value
+        }
+        return selection.profile;
+      }
+      throw new Error('Stored node database is unreadable; the existing data was not overwritten.');
+    });
   }
 
   static selectStoredProfile(primaryRaw: string, backupRaw: string): StoredSubscriptionSelection {
@@ -638,25 +643,39 @@ export class SubscriptionStore {
     return task;
   }
 
-  private static async save(context: common.Context, profile: SubscriptionProfile, preservePrevious: boolean = true): Promise<void> {
-    // 节点/订阅写入失败必须交给上层决定提示或重试；否则扫码导入、选择或删除会在
-    // 内存中看似成功，应用重启后却恢复旧数据。
-    const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-    const nextRaw = JSON.stringify(profile);
-    if (preservePrevious) {
-      const currentRaw = (await store.get(SUBSCRIPTION_KEY, '')).toString();
-      if (SubscriptionStore.parseStoredProfile(currentRaw) !== null) {
-        await store.put(SUBSCRIPTION_BACKUP_KEY, currentRaw);
-      } else {
-        const backupRaw = (await store.get(SUBSCRIPTION_BACKUP_KEY, '')).toString();
-        if (SubscriptionStore.parseStoredProfile(backupRaw) === null) {
-          // 首次保存也建立一份可恢复副本；已有有效备份则绝不拿损坏主副本覆盖它。
-          await store.put(SUBSCRIPTION_BACKUP_KEY, nextRaw);
+  private static enqueueStorage<T>(operation: () => Promise<T>): Promise<T> {
+    const task = SubscriptionStore.storageTail.then(
+      (): Promise<T> => operation(),
+      (): Promise<T> => operation()
+    );
+    SubscriptionStore.storageTail = task.then(
+      (): void => {},
+      (_error: Object): void => {}
+    );
+    return task;
+  }
+
+  private static save(context: common.Context, profile: SubscriptionProfile, preservePrevious: boolean = true): Promise<void> {
+    return SubscriptionStore.enqueueStorage(async (): Promise<void> => {
+      // 节点/订阅写入失败必须交给上层决定提示或重试；否则扫码导入、选择或删除会在
+      // 内存中看似成功，应用重启后却恢复旧数据。
+      const store = await preferences.getPreferences(context, PREFERENCES_NAME);
+      const nextRaw = JSON.stringify(profile);
+      if (preservePrevious) {
+        const currentRaw = (await store.get(SUBSCRIPTION_KEY, '')).toString();
+        if (SubscriptionStore.parseStoredProfile(currentRaw) !== null) {
+          await store.put(SUBSCRIPTION_BACKUP_KEY, currentRaw);
+        } else {
+          const backupRaw = (await store.get(SUBSCRIPTION_BACKUP_KEY, '')).toString();
+          if (SubscriptionStore.parseStoredProfile(backupRaw) === null) {
+            // 首次保存也建立一份可恢复副本；已有有效备份则绝不拿损坏主副本覆盖它。
+            await store.put(SUBSCRIPTION_BACKUP_KEY, nextRaw);
+          }
         }
       }
-    }
-    await store.put(SUBSCRIPTION_KEY, nextRaw);
-    await store.flush();
+      await store.put(SUBSCRIPTION_KEY, nextRaw);
+      await store.flush();
+    });
   }
 
   private static parseStoredProfile(raw: string): SubscriptionProfile | null {

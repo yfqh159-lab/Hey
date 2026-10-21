@@ -284,6 +284,18 @@ if (!store.includes('private static mutationTail: Promise<void> = Promise.resolv
   !store.includes('SubscriptionStore.findDuplicateNodeInProfile(profile, outboundJson, configType)')) {
   throw new Error('subscription mutation queue or atomic duplicate check is missing');
 }
+const loadAt = store.indexOf('  static load(context: common.Context)');
+const selectionAt = store.indexOf('  static selectStoredProfile(', loadAt);
+const loadBody = store.slice(loadAt, selectionAt);
+const saveAt = store.indexOf('  private static save(context: common.Context');
+const parseAt = store.indexOf('  private static parseStoredProfile(', saveAt);
+const saveBody = store.slice(saveAt, parseAt);
+if (!store.includes('private static storageTail: Promise<void> = Promise.resolve();') ||
+  !store.includes('SubscriptionStore.storageTail = task.then(') ||
+  !loadBody.includes('return SubscriptionStore.enqueueStorage(') ||
+  !saveBody.includes('return SubscriptionStore.enqueueStorage(')) {
+  throw new Error('subscription reads, backup recovery and saves do not share the storage queue');
+}
 for (const marker of [
   'const nodesSnapshot = SubscriptionStore.normalizeNodes(nodes);',
   'const updatesSnapshot = new Array<NodeDelayUpdate>();',
