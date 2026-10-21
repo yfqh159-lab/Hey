@@ -17,11 +17,31 @@ export const MAX_GEO_HTTP_DATA_BYTES: number = 100 * 1024 * 1024;
 // GitHub Release 元数据和单文件校验和都应是很小的文本。给 HTTP 层单独设置上限，
 // 避免异常端点在 JSON/校验解析前把无界响应整体装入应用内存。
 export const MAX_GEO_TEXT_BYTES: number = 2 * 1024 * 1024;
+export const GEO_UPDATE_TEMP_SUFFIX: string = '.geo-update.tmp';
+export const GEO_UPDATE_BACKUP_SUFFIX: string = '.geo-update.bak';
+export const GEO_UPDATE_STATE_FILE: string = '.geo-update.state';
+export const GEO_UPDATE_COMMIT_FILE: string = '.geo-update.committed';
 
 export const BUILTIN_GEO_DATA_FILE_NAMES: Array<string> = [
   GEOSITE_FILE_NAME,
   GEOIP_FILE_NAME
 ];
+
+/**
+ * 独立 VPN Extension 进程不得在另一个进程正处于 Geo 原子替换窗口时加载核心。
+ * `.tmp` 下载本身不影响仍在使用的正式文件；状态、提交或备份工件则表示 rename
+ * 事务尚未由 UI 冷启动恢复/收尾，必须 fail-closed。
+ */
+export function hasPendingGeoReplacementArtifacts(fileNames: Array<string>): boolean {
+  for (let index = 0; index < fileNames.length; index++) {
+    const name = fileNames[index];
+    if (name === GEO_UPDATE_STATE_FILE || name === GEO_UPDATE_COMMIT_FILE ||
+      name.endsWith(GEO_UPDATE_BACKUP_SUFFIX) || name.endsWith('.dat.update.bak')) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export interface GeoTransactionState {
   stagedMask: number;

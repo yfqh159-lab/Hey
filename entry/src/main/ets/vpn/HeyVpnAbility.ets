@@ -51,6 +51,7 @@ import { SPEED_NOTIFICATION_MANAGER } from '../services/SpeedNotificationManager
 import { CONTROL_CARD_MANAGER } from '../services/ControlCardManager';
 import { DEFAULT_LANGUAGE } from '../core/I18n';
 import { isVpnCleanupComplete } from '../core/RuntimeHealth';
+import { assertGeoAssetsStableForCore } from '../services/GeoCoreReadiness';
 
 const LOG_DOMAIN: number = 0x0001;
 const LOG_TAG: string = 'HeyVpnAbility';
@@ -234,6 +235,10 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
 
     try {
       this.emitInfo('VPN start requested.', `core=${useSingbox ? 'singbox' : 'xray'}, configBytes=${configJson.length}`);
+      // 系统可能在 UIAbility 不存在时单独重建 VPN Extension。若共享沙箱里仍有 Geo
+      // rename 事务工件，不能让扩展进程与 UI 并发恢复，也不能把半套文件交给核心。
+      assertGeoAssetsStableForCore(this.context.filesDir);
+      this.ensureStartAllowed('Geo data transaction check', sessionGeneration);
       // 明确的新启动在创建任何数据面前废弃上一会话的自动断开标志，并等待文件操作
       // 完成。运行后不再异步清除，避免覆盖本会话刚写入的可信网络断开证据。
       try {

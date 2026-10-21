@@ -7,6 +7,10 @@ import fs from '@ohos.file.fs';
 import {
   BUILTIN_GEO_DATA_FILE_NAMES,
   DEFAULT_GEO_RELEASE_API,
+  GEO_UPDATE_BACKUP_SUFFIX,
+  GEO_UPDATE_COMMIT_FILE,
+  GEO_UPDATE_STATE_FILE,
+  GEO_UPDATE_TEMP_SUFFIX,
   GeoRecoveryAction,
   GeoTransactionState,
   MAX_GEO_DATA_BYTES,
@@ -74,10 +78,6 @@ interface StagedGeoAsset {
   installed: boolean;
 }
 
-const GEO_UPDATE_TEMP_SUFFIX: string = '.geo-update.tmp';
-const GEO_UPDATE_BACKUP_SUFFIX: string = '.geo-update.bak';
-const GEO_UPDATE_STATE_FILE: string = '.geo-update.state';
-const GEO_UPDATE_COMMIT_FILE: string = '.geo-update.committed';
 const GEO_METADATA_INVALID_FILE: string = '.geo-metadata.invalid';
 const MAX_ASSET_REDIRECTS: number = 5;
 

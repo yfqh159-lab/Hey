@@ -1248,9 +1248,17 @@ const controlCardManager = fs.readFileSync('entry/src/main/ets/services/ControlC
 const subscriptionWorker = fs.readFileSync('entry/src/main/ets/work/SubscriptionUpdateWorkAbility.ets', 'utf8');
 const indexPage = fs.readFileSync('entry/src/main/ets/pages/Index.ets', 'utf8');
 const vpn = fs.readFileSync('entry/src/main/ets/vpn/HeyVpnAbility.ets', 'utf8');
+const geoReadiness = fs.readFileSync('entry/src/main/ets/services/GeoCoreReadiness.ets', 'utf8');
 if (!connection.includes('vpnSessionId: string;') ||
   !connection.includes('vpnSessionId: this.vpnSessionId')) {
   throw new Error('runtime snapshots no longer expose the owning VPN session for diagnostic matching');
+}
+const vpnStartAt = vpn.indexOf('  private async startVpn(');
+const vpnConnectionCreateAt = vpn.indexOf('vpnExtension.createVpnConnection(this.context)', vpnStartAt);
+const geoFenceAt = vpn.indexOf('assertGeoAssetsStableForCore(this.context.filesDir);', vpnStartAt);
+if (vpnStartAt < 0 || geoFenceAt < vpnStartAt || vpnConnectionCreateAt < geoFenceAt ||
+  !geoReadiness.includes('hasPendingGeoReplacementArtifacts(names)')) {
+  throw new Error('VPN Extension can load a core while a Geo replacement transaction is incomplete');
 }
 if (!health.includes('expectedSessionId: string') || !health.includes('eventDetails: string | undefined') ||
   !health.includes('eventDetails.startsWith(`${marker};`)')) {
