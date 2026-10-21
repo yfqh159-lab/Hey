@@ -247,8 +247,10 @@ export class AssetsController {
   ): Promise<void> {
     onStart();
 
-    const tempPath = `${context.filesDir}/${fileName}.tmp`;
-    const targetPath = `${context.filesDir}/${fileName.endsWith('.dat') ? fileName : fileName + '.dat'}`;
+    const targetFileName = fileName.endsWith('.dat') ? fileName : `${fileName}.dat`;
+    const targetPath = `${context.filesDir}/${targetFileName}`;
+    // 临时文件始终从最终目标派生，便于冷启动统一识别和清理中断的单文件替换。
+    const tempPath = `${targetPath}.tmp`;
     const proxyPort = await this.resolveDownloadProxyPort(context);
 
     try {
@@ -588,6 +590,8 @@ export class AssetsController {
       if (written !== data.byteLength) {
         throw new Error(`short write for ${path}`);
       }
+      // rename 前确保下载数据、事务状态或 commit 标记已经提交到底层文件系统。
+      fs.fsyncSync(file.fd);
     } finally {
       fs.closeSync(file);
     }
@@ -713,6 +717,41 @@ export class AssetsController {
     this.removeFileStrictIfExists(statePath);
     // 与正常完成路径相同，提交标记最后删除，避免留下“有状态、无提交标记”的假回滚窗口。
     this.removeFileStrictIfExists(commitPath);
+    this.recoverInterruptedStandaloneAssetReplacements(context);
+  }
+
+  // 高级单文件 URL 更新和自定义 .dat 更新走 target -> .update.bak -> temp -> target。
+  // 若进程在中间退出：target 已存在说明新文件已经原子安装，丢弃旧备份；target 缺失则
+  // 恢复旧备份。该恢复必须在 Xray 首次加载 Geo 文件之前完成。
+  private recoverInterruptedStandaloneAssetReplacements(context: common.Context): void {
+    const names = fs.listFileSync(context.filesDir);
+    const backupSuffix = '.dat.update.bak';
+    for (let index = 0; index < names.length; index++) {
+      const backupName = names[index];
+      if (!backupName.endsWith(backupSuffix)) {
+        continue;
+      }
+      const targetName = backupName.substring(0, backupName.length - '.update.bak'.length);
+      if (targetName.length <= '.dat'.length) {
+        continue;
+      }
+      const targetPath = `${context.filesDir}/${targetName}`;
+      const backupPath = `${context.filesDir}/${backupName}`;
+      if (this.fileExists(targetPath)) {
+        this.removeFileStrictIfExists(backupPath);
+      } else {
+        fs.renameSync(backupPath, targetPath);
+      }
+      this.removeFileStrictIfExists(`${targetPath}.tmp`);
+    }
+
+    // 没有旧文件的首次安装可能只留下 temp；它尚未提交，不能在启动时提升为正式文件。
+    for (let index = 0; index < names.length; index++) {
+      const tempName = names[index];
+      if (tempName.endsWith('.dat.tmp')) {
+        this.removeFileStrictIfExists(`${context.filesDir}/${tempName}`);
+      }
+    }
   }
 
   private geoTransactionBit(fileName: string): number {
@@ -787,6 +826,7 @@ export class AssetsController {
         }
       }
 
+      fs.fsyncSync(destFile.fd);
       fs.closeSync(srcFile);
       fs.closeSync(destFile);
       srcFile = null;
