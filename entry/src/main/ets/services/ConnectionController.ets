@@ -328,6 +328,19 @@ export class ConnectionController {
     return this.getSnapshot();
   }
 
+  // 主界面进程被系统回收、VPN Extension 仍存活时，根据扩展进程的近期健康状态恢复控制态。
+  // 这里只接管已有会话，不启动或重连任何网络组件。
+  reconcileRunning(startedAt: number, coreType: string): ConnectionSnapshot {
+    if (this.status === ConnectionStatus.IDLE || this.status === ConnectionStatus.ERROR) {
+      this.status = ConnectionStatus.RUNNING;
+      this.startedAt = startedAt > 0 ? startedAt : Date.now();
+      this.lastError = '';
+      this.runtimeMode = APP_MODE_VPN;
+      this.effectiveCoreType = isSingboxCore(coreType) ? CORE_TYPE_SINGBOX : CORE_TYPE_XRAY;
+    }
+    return this.getSnapshot();
+  }
+
   private stopProxyOnly(context: common.Context): void {
     DiagnosticLog.append(context, {
       at: Date.now(),

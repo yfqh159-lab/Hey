@@ -29,6 +29,7 @@ import { METRICS_SERVER_URL, VPN_DATA_SOCKS_HOST, VPN_DATA_SOCKS_PORT } from '..
 import { buildHevTunConfigYaml } from '../core/HevTunConfig';
 import { isSingboxCore } from '../core/CoreSelection';
 import { DiagnosticLog } from '../services/DiagnosticLog';
+import { VpnRuntimeStateStore } from '../services/VpnRuntimeStateStore';
 
 const LOG_DOMAIN: number = 0x0001;
 const LOG_TAG: string = 'HeyVpnAbility';
@@ -36,6 +37,7 @@ const STATS_INTERVAL_MS: number = 2000;
 // 即使用户关闭速度显示，也要持续回写低频健康心跳。主进程与 VPN Extension
 // 分属不同进程，不能用主进程 native 全局变量判断隧道是否仍在运行。
 const HEALTH_INTERVAL_MS: number = 5000;
+const RUNTIME_STATE_INTERVAL_MS: number = 4000;
 // 网络场景轮询间隔：VPN 扩展进程后台存活，自驱动定时器可跑（区别于后台收不到的 connection.on 事件）。
 const NET_SCENE_POLL_MS: number = 5000;
 
@@ -44,6 +46,9 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   private tunFd: number = -1;
   private statsTimerId: number = -1;
   private sessionId: string = '';
+  private startedAt: number = 0;
+  private activeCoreType: string = 'xray';
+  private lastRuntimeStateAt: number = 0;
   private cleaningUp: boolean = false;
   // 网络场景自动化（后台断开）：VPN 扩展进程内轮询网络，切到可信网络即拆隧道。
   private netScenePollTimerId: number = -1;
@@ -51,7 +56,8 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   private netSceneSeeded: boolean = false;
 
   onCreate(want: Want): void {
-    this.sessionId = Date.now().toString();
+    this.startedAt = Date.now();
+    this.sessionId = this.startedAt.toString();
     this.emitInfo('VPN ability created.', `session=${this.sessionId}`);
     if (this.isStopCommand(want)) {
       this.requestCleanup('VPN stop command received on create.', 'startId=0');
@@ -80,6 +86,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   private async startVpn(want: Want): Promise<void> {
     const configJson = this.getStringParameter(want, 'xrayConfigJson', '');
     const useSingbox = isSingboxCore(this.getStringParameter(want, 'coreType', 'xray'));
+    this.activeCoreType = useSingbox ? 'singbox' : 'xray';
 
     try {
       this.emitInfo('VPN start requested.', `core=${useSingbox ? 'singbox' : 'xray'}, configBytes=${configJson.length}`);
@@ -137,6 +144,17 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         throw new Error(tun2socksResult.message);
       }
       this.emitInfo('tun data plane started.', `engine=${useHevTun ? 'hev' : 'gvisor'}, ${VPN_DATA_SOCKS_HOST}:${VPN_DATA_SOCKS_PORT}, mtu=${vpnMtu}, core=${useSingbox ? 'singbox' : 'xray'}, ${tun2socksResult.message}`);
+
+      this.lastRuntimeStateAt = Date.now();
+      VpnRuntimeStateStore.write(this.context, {
+        sessionId: this.sessionId,
+        active: true,
+        startedAt: this.startedAt,
+        heartbeatAt: this.lastRuntimeStateAt,
+        coreType: this.activeCoreType,
+        xrayRunning: true,
+        tunRunning: true
+      });
 
       this.startStatsTimer(settings.speedEnabled ? STATS_INTERVAL_MS : HEALTH_INTERVAL_MS);
       if (!settings.speedEnabled) {
@@ -234,6 +252,8 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       return;
     }
     this.cleaningUp = true;
+    VpnRuntimeStateStore.write(this.context,
+      VpnRuntimeStateStore.stopped(this.sessionId, this.startedAt > 0 ? this.startedAt : Date.now(), this.activeCoreType));
     this.stopNetScenePoll();
     this.stopStatsTimer();
     this.emitInfo('VPN cleanup started.', `tunFd=${this.tunFd}`);
@@ -288,6 +308,19 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     if (traffic.ok) {
       uploadBytes = traffic.uploadBytes;
       downloadBytes = traffic.downloadBytes;
+    }
+    const now = Date.now();
+    if (now - this.lastRuntimeStateAt >= RUNTIME_STATE_INTERVAL_MS) {
+      this.lastRuntimeStateAt = now;
+      VpnRuntimeStateStore.write(this.context, {
+        sessionId: this.sessionId,
+        active: true,
+        startedAt: this.startedAt,
+        heartbeatAt: now,
+        coreType: this.activeCoreType,
+        xrayRunning: stats.xrayRunning,
+        tunRunning: stats.tunRunning
+      });
     }
     DiagnosticLog.append(this.context, {
       at: Date.now(),

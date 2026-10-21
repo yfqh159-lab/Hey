@@ -124,6 +124,12 @@ traffic stats.
   process polls the current network, because it is the only component
   HarmonyOS keeps alive in the background. The app never classifies a network
   on its own — the list is entirely yours.
+- VPN continuity state: the VPN Extension writes a credential-free health
+  heartbeat in the shared app sandbox. If the UI process is recreated while the
+  extension is still healthy, it adopts that existing session without starting
+  a new connection. A stale or unhealthy session is cleaned up and left in an
+  error state for manual reconnect; the app never reconnects after a manual
+  disconnect.
 - Data files and diagnostics: one-tap, user-initiated `geoip.dat` and
   `geosite.dat` checks from the maintained default release, published SHA-256
   verification, safe replacement/rollback, advanced user-supplied URLs with
@@ -140,6 +146,10 @@ traffic stats.
 - End-to-end VPN behavior still needs real-device coverage across more
   HarmonyOS NEXT devices and system versions. Some emulator/system images lack
   the VPN authorization component.
+- Background timers, lock-screen continuity, UI-process recreation, and
+  Wi-Fi/cellular handover still require target-device acceptance testing. The
+  heartbeat improves truthful recovery but does not bypass HarmonyOS process or
+  power-management limits.
 - sing-box is a preview runtime in the app: it is packaged and selectable, but
   the app only starts it for VPN mode with a single supported outbound.
 

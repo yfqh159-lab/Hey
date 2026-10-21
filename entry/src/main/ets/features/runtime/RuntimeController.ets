@@ -6,6 +6,7 @@ import { LOCAL_HTTP_PROXY_PORT } from '../../core/XrayConfig';
 import { CoreSelectionStore, isSingboxCore } from '../../core/CoreSelection';
 import { ConnectionController, ConnectionSnapshot } from '../../services/ConnectionController';
 import { NetSceneStopFlag } from '../../services/NetSceneStopFlag';
+import { isPersistedVpnRuntimeHealthy, VpnRuntimeStateStore } from '../../services/VpnRuntimeStateStore';
 import { DiagnosticEvent, DiagnosticLog } from '../../services/DiagnosticLog';
 import { clearCoreLog, readCoreLogEntries } from '../../services/CoreLogReader';
 import { LogEntry, normalizeLogLevel } from '../logs/LogModel';
@@ -125,6 +126,7 @@ export class RuntimeController {
   }
 
   async refresh(context: common.Context, language: AppLanguage): Promise<RuntimeViewState> {
+    await this.reconcilePersistedVpnState(context, language);
     this.stats = this.controller.getStats();
     // 运行中显示实际使用的内核（anytls/tuic 会强制切到 sing-box）；空闲时显示全局设置。
     const snap = this.controller.getSnapshot();
@@ -141,6 +143,42 @@ export class RuntimeController {
     const seconds = Math.max(0, Math.floor((Date.now() - this.startedAt) / 1000));
     this.elapsedText = formatDuration(seconds);
     return this.snapshot();
+  }
+
+  private async reconcilePersistedVpnState(context: common.Context, language: AppLanguage): Promise<void> {
+    if (this.runtimeMode === APP_MODE_PROXY_ONLY || this.status === ConnectionStatus.STARTING ||
+      this.status === ConnectionStatus.STOPPING) {
+      return;
+    }
+    const persisted = VpnRuntimeStateStore.read(context);
+    if (persisted === null) {
+      return;
+    }
+
+    if (!persisted.active) {
+      if (this.status === ConnectionStatus.RUNNING) {
+        this.reconcileStopped();
+      }
+      return;
+    }
+
+    const healthy = isPersistedVpnRuntimeHealthy(persisted, Date.now());
+    if (this.status === ConnectionStatus.IDLE) {
+      if (await NetSceneStopFlag.wasStopped(context)) {
+        return;
+      }
+      const snapshot = this.controller.reconcileRunning(persisted.startedAt, persisted.coreType);
+      this.applySnapshot(snapshot, language);
+      this.runtimeMode = APP_MODE_VPN;
+      if (healthy) {
+        this.appendLog(translate(language, 'runtime.vpnSessionRecovered'));
+        return;
+      }
+    }
+
+    if (this.status === ConnectionStatus.RUNNING && !healthy) {
+      await this.cleanupUnhealthyVpn(context, language);
+    }
   }
 
   snapshot(): RuntimeViewState {

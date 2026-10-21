@@ -46,6 +46,7 @@ import { BROWSER_DIALER_MODE_OPTIONS, CORE_LOG_LEVEL_OPTIONS, DEFAULT_BROWSER_DI
 import { countLogLevels, filterLogEntries, filterLogItems, formatLogcatText, formatLogEntriesText } from '../main/ets/features/logs/LogOperations';
 import { LogEntry, logLevelLabel, normalizeLogLevel } from '../main/ets/features/logs/LogModel';
 import { parseCoreLog } from '../main/ets/services/CoreLogReader';
+import { PersistedVpnRuntimeState, VPN_RUNTIME_HEARTBEAT_STALE_MS, isPersistedVpnRuntimeHealthy, parsePersistedVpnRuntimeState } from '../main/ets/services/VpnRuntimeStateStore';
 import { buildAssetDownloadProxyPorts } from '../main/ets/features/assets/AssetsController';
 import {
   applyDelayTestPostActionsToGroups,
@@ -2551,6 +2552,31 @@ export default function localUnitTest() {
       const en = localizeDiagnosticHeartbeat('en', 0, 0, false, false);
       expect(en.indexOf('Heartbeat') >= 0).assertTrue();
       expect(en.indexOf('✗') >= 0).assertTrue();
+    });
+
+    it('accepts only fresh and fully healthy persisted VPN sessions', 0, () => {
+      const now = 100000;
+      const healthy: PersistedVpnRuntimeState = {
+        sessionId: 'session-1',
+        active: true,
+        startedAt: 50000,
+        heartbeatAt: now - 1000,
+        coreType: 'xray',
+        xrayRunning: true,
+        tunRunning: true
+      };
+      expect(isPersistedVpnRuntimeHealthy(healthy, now)).assertTrue();
+      healthy.tunRunning = false;
+      expect(isPersistedVpnRuntimeHealthy(healthy, now)).assertFalse();
+      healthy.tunRunning = true;
+      healthy.active = false;
+      expect(isPersistedVpnRuntimeHealthy(healthy, now)).assertFalse();
+      healthy.active = true;
+      healthy.heartbeatAt = now - VPN_RUNTIME_HEARTBEAT_STALE_MS - 1;
+      expect(isPersistedVpnRuntimeHealthy(healthy, now)).assertFalse();
+      healthy.heartbeatAt = now - 1000;
+      expect(parsePersistedVpnRuntimeState(JSON.stringify(healthy))?.sessionId).assertEqual('session-1');
+      expect(parsePersistedVpnRuntimeState('{"active":true}')).assertEqual(null);
     });
 
     it('filters nodes by regex or literal fallback', 0, () => {
