@@ -371,6 +371,16 @@ if ! grep -Fq 'private settingsSaveInFlight: boolean = false;' "${settings_page_
 fi
 printf 'general settings save serialization verification passed\n'
 
+if ! grep -Fq "@StorageLink(RUNTIME_SETTINGS_RESTART_PENDING_KEY) @Watch('onPendingRuntimeSettingsRestartChanged')" \
+  "entry/src/main/ets/pages/Index.ets" || \
+  ! grep -Fq "if (!this.pageVisible || !this.pendingRuntimeSettingsRestartSignal)" \
+  "entry/src/main/ets/pages/Index.ets" || \
+  ! grep -Fq "if (!await this.recoverForegroundAuthority())" "entry/src/main/ets/pages/Index.ets" || \
+  ! grep -Fq "await this.handlePendingRuntimeSettingsRestart();" "entry/src/main/ets/pages/Index.ets"; then
+  throw_error "late settings-save restart signals must be consumed from authoritative visible-home state"
+fi
+printf 'late settings restart handoff verification passed\n'
+
 # Settings pages persist complete AppSettings snapshots. Serialize every store read and
 # write globally so one page cannot load stale data during another page's save and later
 # overwrite unrelated settings. Language changes must keep their read-modify-write inside

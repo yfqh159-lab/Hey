@@ -9,7 +9,10 @@ import { CoreSelectionStore, requiredCoreForProtocol, CORE_TYPE_SINGBOX } from '
 import { DELAY_TEST_BATCH_PORT_BASE, normalizeOutboundInput } from '../core/XrayConfig';
 import { DeepLinkControlAction, DeepLinkIntent, parseDeepLink, subscriptionNameFromDeepLink } from '../core/DeepLink';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
-import { consumeRuntimeSettingsRestartDecision } from '../core/SettingsChange';
+import {
+  consumeRuntimeSettingsRestartDecision,
+  RUNTIME_SETTINGS_RESTART_PENDING_KEY
+} from '../core/SettingsChange';
 import { resolveImportedNodeName } from '../core/ImportedNodeNames';
 import { shouldShowProxySharingStartWarning } from '../core/ProxySharingWarning';
 import {
@@ -144,6 +147,8 @@ struct Index {
   @StorageLink('pendingDeepLink') @Watch('onPendingExternalIntentChanged') private pendingDeepLinkSignal: string = '';
   @StorageLink('pendingSharedTextImport') @Watch('onPendingExternalIntentChanged') private pendingSharedTextImportSignal: string = '';
   @StorageLink('pendingAutoStartupLaunch') @Watch('onPendingExternalIntentChanged') private pendingAutoStartupSignal: boolean = false;
+  @StorageLink(RUNTIME_SETTINGS_RESTART_PENDING_KEY) @Watch('onPendingRuntimeSettingsRestartChanged')
+  private pendingRuntimeSettingsRestartSignal: boolean = false;
   // 首屏、重试按钮和启停控件依赖这两个值重绘；普通字段不会触发 ArkUI 更新。
   @State private initialStateLoading: boolean = false;
   @State private initialStateReady: boolean = false;
@@ -151,6 +156,8 @@ struct Index {
   // 系统 AUTO_STARTUP 待办可能正在等待权威状态/节点存储。用户明确停止会递增代际，
   // 使已经取走 boolean 待办但尚未真正 start 的续体失效，禁止停止完成后又连回去。
   private explicitStopGeneration: number = 0;
+  private pageVisible: boolean = false;
+  private pendingRuntimeSettingsRestartHandling: boolean = false;
 
   aboutToAppear(): void {
     if (!this.initialStateLoading && !this.initialStateReady) {
@@ -175,6 +182,7 @@ struct Index {
   }
 
   onPageShow(): void {
+    this.pageVisible = true;
     // 从订阅 / 导入等子页返回时，重新加载设置与节点，保证列表实时刷新
     if (this.initialStateReady) {
       this.refreshFromStorage();
@@ -182,6 +190,7 @@ struct Index {
   }
 
   onPageHide(): void {
+    this.pageVisible = false;
     // 退到后台 / 离开页面时立刻落盘累计总量，减少硬杀进程时的丢量。
     this.persistTrafficTotals(true);
   }
@@ -211,6 +220,37 @@ struct Index {
       return;
     }
     this.consumePendingExternalIntentSoon();
+  }
+
+  private onPendingRuntimeSettingsRestartChanged(): void {
+    if (!this.pendingRuntimeSettingsRestartSignal || !this.pageVisible || !this.initialStateReady) {
+      return;
+    }
+    this.consumePendingRuntimeSettingsRestartSoon();
+  }
+
+  private consumePendingRuntimeSettingsRestartSoon(): void {
+    if (this.pendingRuntimeSettingsRestartHandling) {
+      return;
+    }
+    this.pendingRuntimeSettingsRestartHandling = true;
+    setTimeout(async () => {
+      try {
+        if (!this.pageVisible || !this.pendingRuntimeSettingsRestartSignal) {
+          return;
+        }
+        // 保存完成信号可能晚于 onPageShow 的那轮读取。重新取得设置与真实运行态后再
+        // 决定是否停后重启，不能拿旧模式把刚保存的 TUN/本地代理选择覆盖回去。
+        if (!await this.recoverForegroundAuthority()) {
+          return;
+        }
+        await this.handlePendingRuntimeSettingsRestart();
+      } catch (error) {
+        this.recordForegroundRecoveryError(error as Object);
+      } finally {
+        this.pendingRuntimeSettingsRestartHandling = false;
+      }
+    }, 0);
   }
 
   private hasPendingExternalIntent(): boolean {
@@ -1930,6 +1970,9 @@ struct Index {
       // Watch 可能在初始化期间到达；此时刻再消费，确保先完成运行态接管。
       if (this.initialStateReady && this.hasPendingExternalIntent()) {
         this.consumePendingExternalIntentSoon();
+      }
+      if (this.initialStateReady && this.pageVisible && this.pendingRuntimeSettingsRestartSignal) {
+        this.consumePendingRuntimeSettingsRestartSoon();
       }
     }
   }
