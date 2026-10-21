@@ -72,6 +72,7 @@ const VPN_CREATE_TIMEOUT_MS: number = 8000;
 // 主进程只等待 15 秒确认完整清理。系统 destroy() 若永久 pending，Extension 不能把
 // cleaningUp 永久锁死；8 秒后如实回写 cleanup incomplete，保留连接引用供用户重试停止。
 const VPN_DESTROY_TIMEOUT_MS: number = 8000;
+const VPN_START_SETTINGS_TIMEOUT_MS: number = 5000;
 const NOTIFICATION_CANCEL_TIMEOUT_MS: number = 2000;
 const CONTROL_CARD_RESET_TIMEOUT_MS: number = 2000;
 const NET_SCENE_BASELINE_TIMEOUT_MS: number = 2000;
@@ -282,9 +283,6 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       // Go-on-musl 的 TLS/栈问题），导致扩展进程当场死亡、无法回写启动状态。预检本就是
       // 非阻塞诊断，startNativeXray 才是真相来源，直接走它（与 1.1 行为一致）。
 
-      const creatingConnection = vpnExtension.createVpnConnection(this.context);
-      this.vpnConnection = creatingConnection;
-      this.emitInfo('Creating VPN connection.');
       const settings = await this.resolveStartSettings(want);
       this.activeLanguage = settings.language;
       this.ensureStartAllowed('settings load', sessionGeneration);
@@ -308,6 +306,11 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         settings.trafficMode === 'rules' && settings.routeOnlyEnabled
       );
       const dnsAddresses = vpnConfig.dnsAddresses ?? [];
+      // 设置快照、兼容读取和网络基线都完成后才取得连接对象；前置任务失败或超时时，
+      // 不必对一个从未 create() 的 VpnConnection 执行额外销毁。
+      const creatingConnection = vpnExtension.createVpnConnection(this.context);
+      this.vpnConnection = creatingConnection;
+      this.emitInfo('Creating VPN connection.');
       this.vpnCreateInFlight = true;
       const createPromise = creatingConnection.create(vpnConfig);
       this.observeVpnCreateCompletion(creatingConnection, createPromise, sessionGeneration);
@@ -446,7 +449,11 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     const snapshotJson = this.getStringParameter(want, VPN_SETTINGS_SNAPSHOT_KEY, '');
     if (snapshotJson.length === 0) {
       // 兼容升级前或系统重投递的旧启动请求；新请求始终携带原子设置快照。
-      return SETTINGS_CONTROLLER.load(this.context);
+      return withTimeout(
+        this.loadSettingsForNetScene(),
+        VPN_START_SETTINGS_TIMEOUT_MS,
+        'Legacy VPN start settings load timed out.'
+      );
     }
     const selection = SettingsStore.selectStoredSettings(snapshotJson, '');
     if (selection.settings === null) {

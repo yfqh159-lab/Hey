@@ -1600,9 +1600,14 @@ if (!controller.includes('handoverConfigJson,\n        runtimeSettings') ||
 }
 const startAt = ability.indexOf('  private async startVpn(');
 const resolverAt = ability.indexOf('  private async resolveStartSettings(', startAt);
-if (startAt < 0 || resolverAt < 0 ||
+const settingsAt = ability.indexOf('const settings = await this.resolveStartSettings(want);', startAt);
+const createConnectionAt = ability.indexOf('vpnExtension.createVpnConnection(this.context)', startAt);
+if (startAt < 0 || resolverAt < 0 || settingsAt < startAt || createConnectionAt < settingsAt ||
   !ability.slice(startAt, resolverAt).includes('const settings = await this.resolveStartSettings(want);') ||
   !ability.slice(resolverAt).includes("const selection = SettingsStore.selectStoredSettings(snapshotJson, '');") ||
+  !ability.includes('const VPN_START_SETTINGS_TIMEOUT_MS: number = 5000;') ||
+  !ability.slice(resolverAt).includes('this.loadSettingsForNetScene(),') ||
+  !ability.slice(resolverAt).includes("'Legacy VPN start settings load timed out.'") ||
   !ability.slice(resolverAt).includes("throw new Error('VPN start settings snapshot is invalid.');")) {
   throw new Error('VPN Extension does not validate and use the launch settings snapshot');
 }
