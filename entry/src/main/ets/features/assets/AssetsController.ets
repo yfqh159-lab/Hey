@@ -120,7 +120,7 @@ export class AssetsController {
   }
 
   private async performBuiltinGeoUpdate(context: common.Context): Promise<BuiltinGeoUpdateResult> {
-    await this.recoverGeoTransaction(context);
+    this.recoverInterruptedBuiltinGeoUpdate(context);
     const proxyPort = await this.resolveDownloadProxyPort(context);
     const releaseText = await this.requestTextWithFallback(DEFAULT_GEO_RELEASE_API, proxyPort);
     const parsed = parseDefaultGeoRelease(releaseText);
@@ -700,7 +700,9 @@ export class AssetsController {
     this.removeFileIfExists(`${context.filesDir}/${GEO_UPDATE_STATE_FILE}`);
   }
 
-  private async recoverGeoTransaction(context: common.Context): Promise<void> {
+  // 必须能在 EntryAbility.onCreate 中同步执行，并且早于 prepareNativeXrayAssets：
+  // 上次进程若在两个核心 Geo 文件替换之间退出，任何核心加载前都先恢复成完整的一组。
+  recoverInterruptedBuiltinGeoUpdate(context: common.Context): void {
     const commitPath = `${context.filesDir}/${GEO_UPDATE_COMMIT_FILE}`;
     const statePath = `${context.filesDir}/${GEO_UPDATE_STATE_FILE}`;
     const committed = this.fileExists(commitPath);

@@ -10,11 +10,20 @@ import { APP_LANGUAGE_STORAGE_KEY, DEFAULT_LANGUAGE } from '../core/I18n';
 import { SettingsStore } from '../storage/SettingsStore';
 import { NETWORK_SCENE_MANAGER } from '../services/NetworkSceneManager';
 import { prepareNativeXrayAssets } from '../native/HeyNative';
+import { ASSETS_CONTROLLER } from '../features/assets/AssetsController';
 
 const DOMAIN = 0x0000;
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+    // Geo 双文件替换可能因上次进程被杀而中断。必须先同步恢复事务，再初始化
+    // XRAY_LOCATION_ASSET/加载 Go runtime，避免核心观察到半新半旧的数据文件。
+    try {
+      ASSETS_CONTROLLER.recoverInterruptedBuiltinGeoUpdate(this.context);
+    } catch (error) {
+      hilog.error(DOMAIN, 'testTag', 'Failed to recover interrupted Geo update before core initialization: %{public}s',
+        error instanceof Error ? error.message : JSON.stringify(error));
+    }
     // 必须早于扫码/分享解析等任何可能懒加载 Go c-shared 核心的页面逻辑。
     // Go runtime 初始化后再由 musl setenv 改写 environ 可能触发原生崩溃。
     const assetInit = prepareNativeXrayAssets(this.context.filesDir);
