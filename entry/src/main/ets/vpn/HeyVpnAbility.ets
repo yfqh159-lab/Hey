@@ -388,12 +388,14 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         }
         this.tunFd = -1;
         this.runtimeHealthProbePort = 0;
+        // 保持 cleaningUp 闩锁直到附属界面状态也完成（或超时）；期间的重入停止请求只会
+        // 设置 cleanupAgainRequested，并由下一轮重新扫描全部原生资源。
+        await notificationCancel;
+        await controlCardReset;
       } while (this.cleanupAgainRequested);
     } finally {
       this.cleaningUp = false;
     }
-    await notificationCancel;
-    await controlCardReset;
     this.emitInfo('VPN cleanup finished.', `session=${this.sessionId}`);
   }
 
