@@ -696,6 +696,7 @@ struct AssetsPage {
         // 单文件高级来源成功后，默认整组发布元数据不再适用；失败时必须保留
         // 旧文件及其最后一次有效校验信息，不能在请求前就清空。
         this.clearGeoMetadata();
+        this.notifyGeoReloadRequiredIfRunning();
       },
       () => {},
       () => {
@@ -897,6 +898,7 @@ struct AssetsPage {
     ASSETS_CONTROLLER.deleteAsset(context, fileName, this.language, () => {
       this.updateFileStatus();
       this.clearGeoMetadata();
+      this.notifyGeoReloadRequiredIfRunning();
     });
   }
 
@@ -952,6 +954,7 @@ struct AssetsPage {
     );
     if (imported) {
       await this.clearGeoMetadata();
+      this.notifyGeoReloadRequiredIfRunning();
     }
     this.tempImportUri = '';
   }
@@ -1194,6 +1197,15 @@ struct AssetsPage {
     }
     this.geoAssetHashes = {};
     this.geoUpdateSummary = this.t('assets.geo.defaultSource');
+  }
+
+  private notifyGeoReloadRequiredIfRunning(): void {
+    if (!SHARED_RUNTIME_CONTROLLER.isRunning()) {
+      return;
+    }
+    const message = this.t('assets.geo.changedReconnect');
+    SHARED_RUNTIME_CONTROLLER.appendLog(message);
+    this.toast(message);
   }
 
   private formatGeoUpdateSummary(metadata: GeoUpdateMetadata): string {
