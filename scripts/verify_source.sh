@@ -158,6 +158,11 @@ printf 'trusted-network no-restart verification passed\n'
 # single-flight and reject stale normalized snapshots so rapid edits cannot be reverted.
 settings_page_source='entry/src/main/ets/pages/Settings.ets'
 if ! grep -Fq 'private settingsSaveInFlight: boolean = false;' "${settings_page_source}" ||
+  ! grep -Fq '@State private settingsLoaded: boolean = false;' "${settings_page_source}" ||
+  ! grep -Fq 'private settingsLoadGeneration: number = 0;' "${settings_page_source}" ||
+  ! grep -Fq 'if (!this.settingsLoaded)' "${settings_page_source}" ||
+  ! grep -Fq 'this.settingsLoaded = true;' "${settings_page_source}" ||
+  ! grep -Fq 'loadGeneration !== this.settingsLoadGeneration' "${settings_page_source}" ||
   ! grep -Fq 'private settingsEditGeneration: number = 0;' "${settings_page_source}" ||
   ! grep -Fq 'while (this.settingsSavePending)' "${settings_page_source}" ||
   ! grep -Fq 'generation === this.settingsEditGeneration && !this.settingsSavePending' "${settings_page_source}" ||

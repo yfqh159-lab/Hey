@@ -131,12 +131,15 @@ struct SettingsPage {
   @State private sheetUnit: string = '';
   @State private sheetRange: string = '';
   @State private sheetDefault: string = '';
+  @State private settingsLoaded: boolean = false;
   private settingsSaveInFlight: boolean = false;
   private settingsSavePending: boolean = false;
   private settingsSaveShowMessage: boolean = false;
   private settingsEditGeneration: number = 0;
+  private settingsLoadGeneration: number = 0;
 
   aboutToAppear(): void {
+    this.settingsLoaded = false;
     this.loadState();
   }
 
@@ -147,48 +150,76 @@ struct SettingsPage {
         showBack: true
       })
 
-      Stack({ alignContent: Alignment.TopStart }) {
-        List() {
-          ListItem() {
-            this.SearchBar()
-          }
-
-          ForEach(this.visibleSections(), (sec: SettingGroup) => {
-            ListItemGroup({ header: this.GroupHeader(sec) }) {
-              ListItem() {
-                Column() {
-                  ForEach(sec.items, (item: SettingItem, index: number) => {
-                    this.SettingRow(item, index !== sec.items.length - 1)
-                  }, (item: SettingItem) => item.key)
-                }
-                .width('100%')
-                .backgroundColor(AppColor.surface)
-                .borderRadius(Radius.lg)
-                .border({ width: 0.5, color: AppColor.border })
-                .clip(true)
-              }
-              .padding({ left: Space.lg, right: Space.lg, bottom: Space.md })
+      if (!this.settingsLoaded) {
+        this.SettingsLoadState()
+      } else {
+        Stack({ alignContent: Alignment.TopStart }) {
+          List() {
+            ListItem() {
+              this.SearchBar()
             }
-          }, (sec: SettingGroup) => sec.id + '|' + sec.items.map((it: SettingItem) => it.key).join(','))
 
-          ListItem() {
-            this.FooterArea()
+            ForEach(this.visibleSections(), (sec: SettingGroup) => {
+              ListItemGroup({ header: this.GroupHeader(sec) }) {
+                ListItem() {
+                  Column() {
+                    ForEach(sec.items, (item: SettingItem, index: number) => {
+                      this.SettingRow(item, index !== sec.items.length - 1)
+                    }, (item: SettingItem) => item.key)
+                  }
+                  .width('100%')
+                  .backgroundColor(AppColor.surface)
+                  .borderRadius(Radius.lg)
+                  .border({ width: 0.5, color: AppColor.border })
+                  .clip(true)
+                }
+                .padding({ left: Space.lg, right: Space.lg, bottom: Space.md })
+              }
+            }, (sec: SettingGroup) => sec.id + '|' + sec.items.map((it: SettingItem) => it.key).join(','))
+
+            ListItem() {
+              this.FooterArea()
+            }
           }
-        }
-        .sticky(StickyStyle.Header)
-        .scrollBar(BarState.Off)
-        .width('100%')
-        .height('100%')
-        .backgroundColor(AppColor.bg)
+          .sticky(StickyStyle.Header)
+          .scrollBar(BarState.Off)
+          .width('100%')
+          .height('100%')
+          .backgroundColor(AppColor.bg)
 
-        this.SettingSheet()
+          this.SettingSheet()
+        }
+        .layoutWeight(1)
+        .width('100%')
       }
-      .layoutWeight(1)
-      .width('100%')
     }
     .height('100%')
     .width('100%')
     .backgroundColor(AppColor.bg)
+  }
+
+  @Builder
+  private SettingsLoadState() {
+    Column({ space: Space.md }) {
+      if (this.lastError.length === 0) {
+        LoadingProgress()
+          .width(32)
+          .height(32)
+          .color(AppColor.brand)
+      } else {
+        Text(this.lastError)
+          .fontSize(FontSz.footnote)
+          .fontColor(AppColor.danger)
+          .width('100%')
+          .padding(Space.md)
+          .backgroundColor(AppColor.dangerTint)
+          .borderRadius(Radius.md)
+      }
+    }
+    .layoutWeight(1)
+    .width('100%')
+    .padding({ left: Space.lg, right: Space.lg, top: Space.xl })
+    .alignItems(HorizontalAlign.Center)
   }
 
   @Builder
@@ -508,12 +539,23 @@ struct SettingsPage {
   }
 
   private async loadState(): Promise<void> {
+    const loadGeneration = ++this.settingsLoadGeneration;
+    this.settingsLoaded = false;
+    this.lastError = '';
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
-      this.applyDraft(SETTINGS_CONTROLLER.toDraft(await SETTINGS_CONTROLLER.load(context)));
-      this.settingCoreType = await CoreSelectionStore.load(context);
+      const settings = await SETTINGS_CONTROLLER.load(context);
+      const coreType = await CoreSelectionStore.load(context);
+      if (loadGeneration !== this.settingsLoadGeneration) {
+        return;
+      }
+      this.applyDraft(SETTINGS_CONTROLLER.toDraft(settings));
+      this.settingCoreType = coreType;
+      this.settingsLoaded = true;
     } catch (error) {
-      this.lastError = this.f1('error.loadSettings', 'error', redactDiagnosticText(JSON.stringify(error)));
+      if (loadGeneration === this.settingsLoadGeneration) {
+        this.lastError = this.f1('error.loadSettings', 'error', redactDiagnosticText(JSON.stringify(error)));
+      }
     }
   }
 
@@ -678,6 +720,9 @@ struct SettingsPage {
   }
 
   private persistSettings(showMessage: boolean): void {
+    if (!this.settingsLoaded) {
+      return;
+    }
     this.settingsEditGeneration++;
     this.settingsSavePending = true;
     this.settingsSaveShowMessage = this.settingsSaveShowMessage || showMessage;
