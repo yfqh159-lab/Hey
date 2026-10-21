@@ -90,7 +90,7 @@ require_hdc() {
 case "${1:-}" in
   build)
     require_hvigor
-    "${ROOT_DIR}/scripts/verify_prebuilt_native.sh"
+    "${ROOT_DIR}/scripts/verify_source.sh"
     run_hvigor clean --no-daemon --stacktrace
     run_hvigor --mode module \
       -p product=default -p module=entry@default -p buildMode=debug \
@@ -99,6 +99,7 @@ case "${1:-}" in
     ;;
   test)
     require_hvigor
+    "${ROOT_DIR}/scripts/verify_source.sh"
     run_hvigor --mode module \
       -p module=entry@default -p isLocalTest=true test --no-daemon --stacktrace
     ;;
@@ -117,6 +118,14 @@ case "${1:-}" in
     ;;
   doctor)
     doctor_failed=0
+    for required_tool in node unzip; do
+      if command -v "${required_tool}" >/dev/null 2>&1; then
+        printf 'OK: %s: %s\n' "${required_tool}" "$(command -v "${required_tool}")"
+      else
+        printf 'MISSING: %s is required by source or packaged-HAP verification.\n' "${required_tool}"
+        doctor_failed=1
+      fi
+    done
     if tool_available "${HVIGOR}"; then
       printf 'OK: hvigorw: %s\n' "${HVIGOR}"
     else

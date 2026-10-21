@@ -168,7 +168,7 @@ HDC=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/
 ./scripts/device_vpn_smoke_test.sh build
 ```
 
-先运行 `./scripts/device_vpn_smoke_test.sh doctor` 可一次查看 hvigor、SDK、本地签名配置、
+先运行 `./scripts/device_vpn_smoke_test.sh doctor` 可一次查看 Node.js、unzip、hvigor、SDK、本地签名配置、
 签名 HAP、hdc 设备及系统 VPN 授权组件；缺少多项时会全部列出并以非零状态结束，而不是只报告
 第一个缺失工具。
 
@@ -184,7 +184,8 @@ entry/build/default/outputs/default/entry-default-signed.hap
 ./scripts/device_vpn_smoke_test.sh test
 ```
 
-`build` 命令会先校验仓库中的全部原生产物，再确认签名 HAP 内确实包含
+`build` 和 `test` 会先运行 `verify_source.sh` 的完整源码门禁（包括工程骨架、合规、原生产物、
+网络调用点、运行模式隔离、VPN 自包排除和翻译资源）；`build` 随后还会确认签名 HAP 内确实包含
 `libheyvpn.so`、Xray、sing-box 和两套 TUN 适配器。若本机签名配置生成了不同路径的
 产物，脚本会显示预期路径；此时可用 `HAP=/绝对路径/文件.hap` 指定实际文件。
 

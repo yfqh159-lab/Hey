@@ -220,8 +220,8 @@ HDC=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/
 ./scripts/device_vpn_smoke_test.sh build
 ```
 
-Run `./scripts/device_vpn_smoke_test.sh doctor` first to inspect hvigor, the SDK,
-the local signing profile, signed HAP, hdc target, and system VPN authorization
+Run `./scripts/device_vpn_smoke_test.sh doctor` first to inspect Node.js, unzip,
+hvigor, the SDK, the local signing profile, signed HAP, hdc target, and system VPN authorization
 component in one pass. It reports all missing prerequisites and exits nonzero
 instead of stopping after the first missing tool.
 
@@ -237,9 +237,11 @@ Run the unit tests:
 ./scripts/device_vpn_smoke_test.sh test
 ```
 
-The `build` command runs the module-level `assembleHap` task for the `default`
-product and `entry@default` target in debug mode. It first verifies all
-repository-native artifacts, then checks
+The `build` and `test` commands first run the complete `verify_source.sh` gate
+(project skeleton, compliance, native artifacts, network call sites, runtime
+mode separation, VPN self-exclusion, and translations). The `build` command
+then runs the module-level `assembleHap` task for the `default` product and
+`entry@default` target in debug mode and checks
 that `libheyvpn.so`, Xray, sing-box, and both TUN adapters are present in the
 signed HAP. It fails with the expected output path if local signing produced a
 different artifact; set `HAP=/absolute/path/to/file.hap` in that case.
