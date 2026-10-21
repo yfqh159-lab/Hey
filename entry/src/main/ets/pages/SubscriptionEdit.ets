@@ -10,7 +10,7 @@ import { DEFAULT_SUBSCRIPTION_USER_AGENT } from '../services/SubscriptionManager
 import { SETTINGS_CONTROLLER } from '../features/settings/SettingsController';
 import { PageHeader } from '../shell/PageHeader';
 import { ensureReadPasteboardPermission } from '../utils/ClipboardPermission';
-import { isScanCancelled, scanQrCode } from '../utils/QrScan';
+import { isScanCancelled, requestCameraPermission, scanQrCode } from '../utils/QrScan';
 import { formatOne, formatTwo } from '../utils/LocalizationPresenter';
 import { router, promptAction } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
@@ -548,6 +548,10 @@ struct SubscriptionEditPage {
   private async scanSubscriptionUrl(): Promise<void> {
     try {
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      if (!await requestCameraPermission(context)) {
+        this.getUIContext().getPromptAction().showToast({ message: this.t('scanner.cameraPermissionRequired') });
+        return;
+      }
       const value = await scanQrCode(context);
       if (value.length > 0) {
         this.subscriptionUrl = value;

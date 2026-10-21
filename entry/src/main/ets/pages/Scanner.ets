@@ -1,4 +1,4 @@
-import { abilityAccessCtrl, common, Permissions } from '@kit.AbilityKit';
+import { common } from '@kit.AbilityKit';
 import { router, promptAction } from '@kit.ArkUI';
 import { picker } from '@kit.CoreFileKit';
 import { scanBarcode, scanCore, detectBarcode } from '@kit.ScanKit';
@@ -15,12 +15,11 @@ import { AppRoute } from '../shell/AppRoute';
 import { PageHeader } from '../shell/PageHeader';
 import { formatOne, localizeCoreMessage } from '../utils/LocalizationPresenter';
 import { ensureReadPasteboardPermission } from '../utils/ClipboardPermission';
+import { isScanCancelled, requestCameraPermission, scanQrCode } from '../utils/QrScan';
 import { SubscriptionStore } from '../storage/SubscriptionStore';
 import { convertNativeShareTextToOutbounds } from '../services/NativeShareConverter';
 import { SubscriptionManager } from '../services/SubscriptionManager';
 import { AppColor } from '../theme/Theme';
-
-const CAMERA_PERMISSION: Permissions = 'ohos.permission.CAMERA';
 
 @Entry
 @Component
@@ -352,21 +351,14 @@ struct ScannerPage {
   private async startCameraScan(): Promise<void> {
     try {
       const context = getContext(this) as common.UIAbilityContext;
-      if (!await this.requestCameraPermission(context)) {
+      if (!await requestCameraPermission(context)) {
         this.lastError = this.t('scanner.cameraPermissionDenied');
         return;
       }
-      const options: scanBarcode.ScanOptions = {
-        scanTypes: [scanCore.ScanType.QR_CODE],
-        enableMultiMode: false,
-        enableAlbum: true
-      };
-
-      const result = await scanBarcode.startScanForResult(context, options);
-      await this.importScannedValue(result?.originalValue);
+      await this.importScannedValue(await scanQrCode(context));
     } catch (error) {
       console.error('Scan barcode failed or cancelled:', JSON.stringify(error));
-      if (!this.isUserCancelled(error)) {
+      if (!isScanCancelled(error)) {
         this.lastError = this.f1('scanner.scanFailed', 'error', this.errorMessage(error));
       }
     }
@@ -391,7 +383,7 @@ struct ScannerPage {
       await this.importScannedValue(this.firstScanValue(results), this.t('scanner.decodeFailed'));
     } catch (error) {
       console.error('Decode QR image failed or cancelled:', JSON.stringify(error));
-      if (!this.isUserCancelled(error)) {
+      if (!isScanCancelled(error)) {
         this.lastError = this.f1('scanner.photoImportFailed', 'error', this.errorMessage(error));
       }
     }
@@ -662,22 +654,6 @@ struct ScannerPage {
 
   private f1(key: string, name: string, value: string): string {
     return formatOne(this.language, key, name, value);
-  }
-
-  private isUserCancelled(error: Object): boolean {
-    const record = error as Record<string, Object>;
-    const code = record['code'];
-    return code === 20001 || code === '20001' || code === 1000500002 || code === '1000500002';
-  }
-
-  private async requestCameraPermission(context: common.UIAbilityContext): Promise<boolean> {
-    try {
-      const atManager = abilityAccessCtrl.createAtManager();
-      const result = await atManager.requestPermissionsFromUser(context, [CAMERA_PERMISSION]);
-      return result.authResults.length === 1 && result.authResults[0] === 0;
-    } catch (error) {
-      return false;
-    }
   }
 
   private errorMessage(error: Object): string {

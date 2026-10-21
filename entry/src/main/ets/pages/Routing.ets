@@ -4,7 +4,6 @@ import { util } from '@kit.ArkTS';
 import fs from '@ohos.file.fs';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { promptAction } from '@kit.ArkUI';
-import { scanBarcode, scanCore } from '@kit.ScanKit';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { AppLanguage, ProxyNode, RoutingRule } from '../core/Profile';
 import { markRuntimeSettingsRestartNeeded } from '../core/SettingsChange';
@@ -16,6 +15,7 @@ import { SectionHeader } from '../components/SectionHeader';
 import { PageHeader } from '../shell/PageHeader';
 import { formatOne } from '../utils/LocalizationPresenter';
 import { ensureReadPasteboardPermission } from '../utils/ClipboardPermission';
+import { isScanCancelled, requestCameraPermission, scanQrCode } from '../utils/QrScan';
 import { AppColor, FontSz, Radius, Space } from '../theme/Theme';
 import { RoutingRuleDialog } from './routing/RoutingRuleDialog';
 
@@ -602,20 +602,17 @@ struct RoutingPage {
   private async scanRulesFromQr(): Promise<void> {
     try {
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-      const options: scanBarcode.ScanOptions = {
-        scanTypes: [scanCore.ScanType.QR_CODE],
-        enableMultiMode: false,
-        enableAlbum: true
-      };
-      const result = await scanBarcode.startScanForResult(context, options);
-      if (!result || !result.originalValue || result.originalValue.trim().length === 0) {
+      if (!await requestCameraPermission(context)) {
+        this.getUIContext().getPromptAction().showToast({ message: this.t('scanner.cameraPermissionRequired') });
         return;
       }
-      this.confirmQrImport(result.originalValue.trim());
+      const value = await scanQrCode(context);
+      if (value.length === 0) {
+        return;
+      }
+      this.confirmQrImport(value);
     } catch (error) {
-      const errorRecord = error as Record<string, Object>;
-      const code = errorRecord['code'];
-      if (code === 20001 || code === '20001') {
+      if (isScanCancelled(error)) {
         return;
       }
       const message = this.f1('routing.rule.scanFailed', 'error', JSON.stringify(error));

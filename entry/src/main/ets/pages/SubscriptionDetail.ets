@@ -12,7 +12,7 @@ import { AppColor, FontSz, Radius, Space } from '../theme/Theme';
 import { PageHeader } from '../shell/PageHeader';
 import { formatOne } from '../utils/LocalizationPresenter';
 import { ensureReadPasteboardPermission } from '../utils/ClipboardPermission';
-import { isScanCancelled, scanQrCode } from '../utils/QrScan';
+import { isScanCancelled, requestCameraPermission, scanQrCode } from '../utils/QrScan';
 import { router, promptAction } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { scanCore } from '@kit.ScanKit';
@@ -390,6 +390,10 @@ struct SubscriptionDetailPage {
   private async scanSubscriptionUrl(): Promise<void> {
     try {
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      if (!await requestCameraPermission(context)) {
+        this.getUIContext().getPromptAction().showToast({ message: this.t('scanner.cameraPermissionRequired') });
+        return;
+      }
       const value = await scanQrCode(context);
       if (value.length > 0) {
         this.subscriptionUrl = value;

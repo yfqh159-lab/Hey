@@ -1,7 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { picker } from '@kit.CoreFileKit';
-import { scanBarcode, scanCore } from '@kit.ScanKit';
 import fs from '@ohos.file.fs';
 import { hasDuplicateAssetName, isEditableCustomAssetUrl, normalizeScannedAssetUrl } from '../core/AssetUrls';
 import { GEOIP_FILE_NAME, GEOSITE_FILE_NAME } from '../core/GeoAssets';
@@ -15,6 +14,7 @@ import { ASSETS_CONTROLLER } from '../features/assets/AssetsController';
 import { BOTTOM_SAFE_HEIGHT_KEY } from '../core/Immersive';
 import { AppColor, FontSz, Radius, Space } from '../theme/Theme';
 import { formatOne } from '../utils/LocalizationPresenter';
+import { isScanCancelled, requestCameraPermission, scanQrCode } from '../utils/QrScan';
 
 // 底部抽屉里渲染的单个选项（选择模式）。已按当前值算好高亮 / 置灰 / 危险色。
 interface SheetOption {
@@ -949,16 +949,15 @@ struct AssetsPage {
   private async scanAssetUrlFromQr(): Promise<void> {
     try {
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-      const options: scanBarcode.ScanOptions = {
-        scanTypes: [scanCore.ScanType.QR_CODE],
-        enableMultiMode: false,
-        enableAlbum: true
-      };
-      const result = await scanBarcode.startScanForResult(context, options);
-      if (!result || !result.originalValue || result.originalValue.trim().length === 0) {
+      if (!await requestCameraPermission(context)) {
+        this.toast(this.t('scanner.cameraPermissionRequired'));
         return;
       }
-      const assetUrl = normalizeScannedAssetUrl(result.originalValue);
+      const value = await scanQrCode(context);
+      if (value.length === 0) {
+        return;
+      }
+      const assetUrl = normalizeScannedAssetUrl(value);
       if (!assetUrl.valid) {
         this.toast(this.t('assets.scanInvalidUrl'));
         return;
@@ -974,9 +973,7 @@ struct AssetsPage {
       this.sheetHint = '';
       this.sheetKind = 'edit';
     } catch (error) {
-      const errorRecord = error as Record<string, Object>;
-      const code = errorRecord['code'];
-      if (code === 20001 || code === '20001') {
+      if (isScanCancelled(error)) {
         return;
       }
       this.toast(this.f1('assets.scanFailed', 'error', JSON.stringify(error)));
