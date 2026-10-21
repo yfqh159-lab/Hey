@@ -491,13 +491,11 @@ export class SubscriptionStore {
   }
 
   private static async save(context: common.Context, profile: SubscriptionProfile): Promise<void> {
-    try {
-      const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-      await store.put(SUBSCRIPTION_KEY, JSON.stringify(profile));
-      await store.flush();
-    } catch (error) {
-      // ignore
-    }
+    // 节点/订阅写入失败必须交给上层决定提示或重试；否则扫码导入、选择或删除会在
+    // 内存中看似成功，应用重启后却恢复旧数据。
+    const store = await preferences.getPreferences(context, PREFERENCES_NAME);
+    await store.put(SUBSCRIPTION_KEY, JSON.stringify(profile));
+    await store.flush();
   }
 
   private static normalize(raw: SubscriptionProfile): SubscriptionProfile {
