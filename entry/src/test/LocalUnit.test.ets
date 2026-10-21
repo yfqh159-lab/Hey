@@ -162,6 +162,33 @@ export default function localUnitTest() {
       expect(output.includes('abc123')).assertFalse();
     });
 
+    it('redacts pretty json proxy credentials and private keys', 0, () => {
+      const input = '{ "users": [{ "user": "alice", "pass": "proxy-secret" }], ' +
+        '"password" : "node-secret", "secretKey": "wg-private", "preSharedKey": "wg-psk" }';
+      const output = redactDiagnosticText(input);
+      expect(output).assertContain('"pass": "[redacted]"');
+      expect(output).assertContain('"password" : "[redacted]"');
+      expect(output).assertContain('"secretKey": "[redacted]"');
+      expect(output).assertContain('"preSharedKey": "[redacted]"');
+      expect(output.includes('proxy-secret')).assertFalse();
+      expect(output.includes('node-secret')).assertFalse();
+      expect(output.includes('wg-private')).assertFalse();
+      expect(output.includes('wg-psk')).assertFalse();
+    });
+
+    it('redacts spaced assignments and complete authorization headers', 0, () => {
+      const input = 'password = hunter2&token=abc123; Authorization: Bearer bearer-secret\n' +
+        'authorization = Basic assignment-secret; HTTP 401';
+      const output = redactDiagnosticText(input);
+      expect(output).assertContain('password = [redacted]&token=[redacted]');
+      expect(output).assertContain('Authorization: [redacted]\nHTTP 401');
+      expect(output).assertContain('authorization = [redacted]; HTTP 401');
+      expect(output.includes('hunter2')).assertFalse();
+      expect(output.includes('abc123')).assertFalse();
+      expect(output.includes('bearer-secret')).assertFalse();
+      expect(output.includes('assignment-secret')).assertFalse();
+    });
+
     it('leaves ordinary diagnostic status unchanged', 0, () => {
       const input = 'workId=41; scheduled=true; core=true; tun=true';
       expect(redactDiagnosticText(input)).assertEqual(input);

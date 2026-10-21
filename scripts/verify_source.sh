@@ -2215,6 +2215,7 @@ if (unsafe.length > 0) {
 }
 
 const diagnosticLog = fs.readFileSync('entry/src/main/ets/services/DiagnosticLog.ets', 'utf8');
+const redaction = fs.readFileSync('entry/src/main/ets/core/DiagnosticRedaction.ets', 'utf8');
 for (const operation of ['append', 'clear', 'rotate']) {
   if (!diagnosticLog.includes(`DiagnosticLog.closeFile(file, '${operation}');`)) {
     throw new Error(`diagnostic ${operation} path can leak its file descriptor after an exception`);
@@ -2222,6 +2223,16 @@ for (const operation of ['append', 'clear', 'rotate']) {
 }
 if (!diagnosticLog.includes('details: redactDiagnosticText(JSON.stringify(error))')) {
   throw new Error('malformed diagnostic parse errors can bypass the log redaction boundary');
+}
+for (const field of ["'pass'", "'secretkey'", "'privatekey'", "'presharedkey'", "'private_key'", "'pre_shared_key'"]) {
+  if (!redaction.includes(field)) {
+    throw new Error(`diagnostic redaction does not cover ${field}`);
+  }
+}
+if (!redaction.includes('redactJsonField(redacted, SENSITIVE_JSON_FIELDS[index])') ||
+  !redaction.includes('redactAssignment(redacted, SENSITIVE_ASSIGNMENT_KEYS[index])') ||
+  !redaction.includes('redactAuthorizationHeader(redacted)')) {
+  throw new Error('diagnostic redaction no longer handles formatted JSON, assignments, and auth headers');
 }
 NODE
 printf 'ArkTS console/hilog error redaction verification passed\n'

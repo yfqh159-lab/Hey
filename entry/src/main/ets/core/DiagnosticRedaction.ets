@@ -14,15 +14,31 @@ const SENSITIVE_URL_SCHEMES: Array<string> = [
   'wg://'
 ];
 
-const SENSITIVE_VALUE_MARKERS: Array<string> = [
-  '"password":"',
-  '"token":"',
-  '"uuid":"',
-  '"id":"',
-  'password=',
-  'token=',
-  'authorization=',
-  'authorization:'
+const SENSITIVE_JSON_FIELDS: Array<string> = [
+  'password',
+  'pass',
+  'token',
+  'authorization',
+  'uuid',
+  'id',
+  'secretkey',
+  'privatekey',
+  'presharedkey',
+  'private_key',
+  'pre_shared_key'
+];
+
+const SENSITIVE_ASSIGNMENT_KEYS: Array<string> = [
+  'password',
+  'pass',
+  'token',
+  'authorization',
+  'uuid',
+  'secretkey',
+  'privatekey',
+  'presharedkey',
+  'private_key',
+  'pre_shared_key'
 ];
 
 const REDACTED_URL: string = '[redacted-url]';
@@ -32,9 +48,13 @@ const REDACTED_VALUE: string = '[redacted]';
 // status/error context while removing credentials and complete private URLs.
 export function redactDiagnosticText(value: string): string {
   let redacted = redactUrls(value);
-  for (let index = 0; index < SENSITIVE_VALUE_MARKERS.length; index++) {
-    redacted = redactMarkedValues(redacted, SENSITIVE_VALUE_MARKERS[index]);
+  for (let index = 0; index < SENSITIVE_JSON_FIELDS.length; index++) {
+    redacted = redactJsonField(redacted, SENSITIVE_JSON_FIELDS[index]);
   }
+  for (let index = 0; index < SENSITIVE_ASSIGNMENT_KEYS.length; index++) {
+    redacted = redactAssignment(redacted, SENSITIVE_ASSIGNMENT_KEYS[index]);
+  }
+  redacted = redactAuthorizationHeader(redacted);
   redacted = redactUuidCredentials(redacted);
   redacted = redactHostPortEndpoints(redacted);
   redacted = redactIpv6Addresses(redacted);
@@ -86,18 +106,86 @@ function isUrlTerminator(character: string): boolean {
     character === ')' || character === ']' || character === '}';
 }
 
-function redactMarkedValues(value: string, marker: string): string {
+function redactJsonField(value: string, field: string): string {
   let result = value;
   let lower = result.toLowerCase();
   let searchFrom = 0;
+  const marker = `"${field.toLowerCase()}"`;
   while (searchFrom < result.length) {
     const markerIndex = lower.indexOf(marker, searchFrom);
     if (markerIndex < 0) {
       break;
     }
-    const valueStart = markerIndex + marker.length;
+    let cursor = skipWhitespace(result, markerIndex + marker.length);
+    if (cursor >= result.length || result.charAt(cursor) !== ':') {
+      searchFrom = markerIndex + marker.length;
+      continue;
+    }
+    cursor = skipWhitespace(result, cursor + 1);
+    const quoted = cursor < result.length && result.charAt(cursor) === '"';
+    const valueStart = quoted ? cursor + 1 : cursor;
+    const valueEnd = quoted ? quotedValueEnd(result, valueStart) : unquotedValueEnd(result, valueStart);
+    result = `${result.substring(0, valueStart)}${REDACTED_VALUE}${result.substring(valueEnd)}`;
+    lower = result.toLowerCase();
+    searchFrom = valueStart + REDACTED_VALUE.length;
+  }
+  return result;
+}
+
+function redactAssignment(value: string, key: string): string {
+  let result = value;
+  let lower = result.toLowerCase();
+  let searchFrom = 0;
+  while (searchFrom < result.length) {
+    const keyIndex = lower.indexOf(key, searchFrom);
+    if (keyIndex < 0) {
+      break;
+    }
+    if (!isAssignmentBoundary(result, keyIndex, key.length)) {
+      searchFrom = keyIndex + key.length;
+      continue;
+    }
+    let cursor = skipWhitespace(result, keyIndex + key.length);
+    if (cursor >= result.length || result.charAt(cursor) !== '=') {
+      searchFrom = keyIndex + key.length;
+      continue;
+    }
+    cursor = skipWhitespace(result, cursor + 1);
+    const quoted = cursor < result.length && (result.charAt(cursor) === '"' || result.charAt(cursor) === "'");
+    const quote = quoted ? result.charAt(cursor) : '';
+    const valueStart = quoted ? cursor + 1 : cursor;
+    const valueEnd = quoted ? quotedValueEnd(result, valueStart, quote) :
+      (key === 'authorization' ? authorizationValueEnd(result, valueStart) : unquotedValueEnd(result, valueStart));
+    result = `${result.substring(0, valueStart)}${REDACTED_VALUE}${result.substring(valueEnd)}`;
+    lower = result.toLowerCase();
+    searchFrom = valueStart + REDACTED_VALUE.length;
+  }
+  return result;
+}
+
+function redactAuthorizationHeader(value: string): string {
+  let result = value;
+  let lower = result.toLowerCase();
+  let searchFrom = 0;
+  const marker = 'authorization';
+  while (searchFrom < result.length) {
+    const markerIndex = lower.indexOf(marker, searchFrom);
+    if (markerIndex < 0) {
+      break;
+    }
+    if (!isAssignmentBoundary(result, markerIndex, marker.length)) {
+      searchFrom = markerIndex + marker.length;
+      continue;
+    }
+    let cursor = skipWhitespace(result, markerIndex + marker.length);
+    if (cursor >= result.length || result.charAt(cursor) !== ':') {
+      searchFrom = markerIndex + marker.length;
+      continue;
+    }
+    const valueStart = skipWhitespace(result, cursor + 1);
     let valueEnd = valueStart;
-    while (valueEnd < result.length && !isValueTerminator(result.charAt(valueEnd))) {
+    while (valueEnd < result.length && result.charAt(valueEnd) !== '\r' && result.charAt(valueEnd) !== '\n' &&
+      result.charAt(valueEnd) !== ',' && result.charAt(valueEnd) !== ';') {
       valueEnd++;
     }
     result = `${result.substring(0, valueStart)}${REDACTED_VALUE}${result.substring(valueEnd)}`;
@@ -105,6 +193,66 @@ function redactMarkedValues(value: string, marker: string): string {
     searchFrom = valueStart + REDACTED_VALUE.length;
   }
   return result;
+}
+
+function skipWhitespace(value: string, start: number): number {
+  let cursor = start;
+  while (cursor < value.length && (value.charAt(cursor) === ' ' || value.charAt(cursor) === '\t' ||
+    value.charAt(cursor) === '\r' || value.charAt(cursor) === '\n')) {
+    cursor++;
+  }
+  return cursor;
+}
+
+function isAssignmentBoundary(value: string, start: number, length: number): boolean {
+  const before = start > 0 ? value.charAt(start - 1) : '';
+  const afterIndex = start + length;
+  const after = afterIndex < value.length ? value.charAt(afterIndex) : '';
+  return !isNameCharacter(before) && !isNameCharacter(after);
+}
+
+function isNameCharacter(character: string): boolean {
+  if (character.length === 0) {
+    return false;
+  }
+  const code = character.charCodeAt(0);
+  return (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122) ||
+    character === '_' || character === '-';
+}
+
+function quotedValueEnd(value: string, start: number, quote: string = '"'): number {
+  let cursor = start;
+  let escaped = false;
+  while (cursor < value.length) {
+    const character = value.charAt(cursor);
+    if (!escaped && character === quote) {
+      return cursor;
+    }
+    if (!escaped && character === '\\') {
+      escaped = true;
+    } else {
+      escaped = false;
+    }
+    cursor++;
+  }
+  return cursor;
+}
+
+function unquotedValueEnd(value: string, start: number): number {
+  let cursor = start;
+  while (cursor < value.length && !isValueTerminator(value.charAt(cursor))) {
+    cursor++;
+  }
+  return cursor;
+}
+
+function authorizationValueEnd(value: string, start: number): number {
+  let cursor = start;
+  while (cursor < value.length && value.charAt(cursor) !== '\r' && value.charAt(cursor) !== '\n' &&
+    value.charAt(cursor) !== '&' && value.charAt(cursor) !== ',' && value.charAt(cursor) !== ';') {
+    cursor++;
+  }
+  return cursor;
 }
 
 function isValueTerminator(character: string): boolean {
