@@ -359,13 +359,18 @@ struct Index {
         this.applyNodesState(await NODES_CONTROLLER.load(context, this.language));
         SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('log.deepLinkSub', 'name', name));
       } else {
-        const saved = await NODES_CONTROLLER.saveProfile(context, intent.payload, this.language);
-        if (saved.profile === null) {
-          this.lastError = saved.lastError;
+        const validation = NODES_CONTROLLER.validateConfig(intent.payload, this.language);
+        if (!validation.valid) {
+          this.lastError = validation.message;
           return;
         }
-        const nodeName = this.nodeNameFromOutbound(saved.profile.outboundJson);
-        if (!await this.addExternalNodeIfUnique(context, nodeName, saved.profile.outboundJson, saved.profile.configType)) {
+        const nodeName = this.nodeNameFromOutbound(validation.normalizedJson);
+        if (!await this.addExternalNodeIfUnique(
+          context,
+          nodeName,
+          validation.normalizedJson,
+          validation.configType
+        )) {
           this.lastError = this.f1('scanner.duplicateNode', 'name', nodeName);
           SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
           return;
@@ -491,19 +496,21 @@ struct Index {
   }
 
   private async importSharedConfigPayload(context: common.Context, payload: string): Promise<number> {
-    const saved = await NODES_CONTROLLER.saveProfile(context, payload, this.language);
-    if (saved.profile !== null) {
-      const nodeName = resolveImportedNodeName(saved.profile.outboundJson, this.t('import.sharedTextNodeName'));
+    const validation = NODES_CONTROLLER.validateConfig(payload, this.language);
+    if (validation.valid) {
+      const nodeName = resolveImportedNodeName(validation.normalizedJson, this.t('import.sharedTextNodeName'));
       if (!await this.addExternalNodeIfUnique(
         context,
         nodeName,
-        saved.profile.outboundJson,
-        saved.profile.configType
+        validation.normalizedJson,
+        validation.configType
       )) {
         SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('scanner.duplicateNode', 'name', nodeName));
         return 0;
       }
-      SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('log.deepLinkConfig', 'name', this.nodeNameFromOutbound(saved.profile.outboundJson)));
+      SHARED_RUNTIME_CONTROLLER.appendLog(
+        this.f1('log.deepLinkConfig', 'name', this.nodeNameFromOutbound(validation.normalizedJson))
+      );
       return 1;
     }
 
@@ -512,26 +519,44 @@ struct Index {
     const parsedNodes = SubscriptionManager.parseSubscriptionContent(payload, '');
     if (parsedNodes.length > 0) {
       let importedCount = 0;
+      let duplicateCount = 0;
+      let lastValidationError = '';
       for (let index = 0; index < parsedNodes.length; index++) {
         const parsedNode = parsedNodes[index];
+        const imported = NODES_CONTROLLER.validateConfig(
+          parsedNode.outboundJson,
+          this.language,
+          parsedNode.configType
+        );
+        if (!imported.valid) {
+          lastValidationError = imported.message;
+          continue;
+        }
         if (await this.addExternalNodeIfUnique(
           context,
           parsedNode.name,
-          parsedNode.outboundJson,
-          parsedNode.configType
+          imported.normalizedJson,
+          imported.configType
         )) {
           importedCount++;
+        } else {
+          duplicateCount++;
         }
       }
-      if (importedCount < parsedNodes.length) {
-        SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('scanner.duplicateNodes', 'count', `${parsedNodes.length - importedCount}`));
+      if (duplicateCount > 0) {
+        SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('scanner.duplicateNodes', 'count', `${duplicateCount}`));
+      }
+      if (importedCount === 0 && duplicateCount === 0 && lastValidationError.length > 0) {
+        this.lastError = lastValidationError;
+        SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
       }
       return importedCount;
     }
 
     const nativeResult = convertNativeShareTextToOutbounds(payload);
     if (!nativeResult.ok) {
-      this.lastError = nativeResult.message.length > 0 ? `${saved.lastError}\n${nativeResult.message}` : saved.lastError;
+      this.lastError = nativeResult.message.length > 0 ?
+        `${validation.message}\n${nativeResult.message}` : validation.message;
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
       return 0;
     }
@@ -540,17 +565,17 @@ struct Index {
     let lastValidationError = '';
     for (let index = 0; index < nativeResult.outbounds.length; index++) {
       const outbound = nativeResult.outbounds[index];
-      const imported = await NODES_CONTROLLER.saveProfile(context, outbound.outboundJson, this.language, 'outbound');
-      if (imported.profile === null) {
-        lastValidationError = imported.lastError;
+      const imported = NODES_CONTROLLER.validateConfig(outbound.outboundJson, this.language, 'outbound');
+      if (!imported.valid) {
+        lastValidationError = imported.message;
         continue;
       }
-      const nodeName = resolveImportedNodeName(imported.profile.outboundJson, outbound.name);
+      const nodeName = resolveImportedNodeName(imported.normalizedJson, outbound.name);
       if (!await this.addExternalNodeIfUnique(
         context,
         nodeName,
-        imported.profile.outboundJson,
-        imported.profile.configType
+        imported.normalizedJson,
+        imported.configType
       )) {
         SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('scanner.duplicateNode', 'name', nodeName));
         continue;
