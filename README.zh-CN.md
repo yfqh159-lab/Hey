@@ -208,6 +208,8 @@ entry/build/default/outputs/default/entry-default-signed.hap
 目标真机的测试矩阵与证据记录字段见
 [`docs/device-acceptance.md`](docs/device-acceptance.md)。只有在实际签名设备上完成后，里面的项目
 才能标记为“已验证”；当前不得把静态检查或构建结果当作真机通过。
+按阶段归纳的改动记录和当前验证边界见
+[`docs/implementation-record.md`](docs/implementation-record.md)。
 
 ## 原生库
 

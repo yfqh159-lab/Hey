@@ -259,6 +259,8 @@ Useful device commands:
 The target-device test matrix and evidence fields are in
 [`docs/device-acceptance.md`](docs/device-acceptance.md). Items in that document
 remain **not verified** until they are completed on the actual signed device.
+The grouped implementation history and current verification boundary are in
+[`docs/implementation-record.md`](docs/implementation-record.md).
 
 ## Native Libraries
 
