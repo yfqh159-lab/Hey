@@ -94,12 +94,17 @@ export class RuntimeController {
   private unhealthyVpnStateFirstSeenAt: number = 0;
   private unhealthyVpnStateSessionId: string = '';
   private networkRecoveryInFlight: boolean = false;
+  // 页面允许在 STARTING 阶段主动取消。除了 ConnectionController 的底层代际，这里也要
+  // 隔离 start() 的页面层续体；否则“取消完成后立即再次连接”时，第一次 start 的迟到
+  // 返回可能拿到第二次会话的快照，却用第一次的节点/设置安排出口检测并写启动日志。
+  private runtimeStartGeneration: number = 0;
 
   async start(context: common.Context, profile: ProxyProfile, settings: AppSettings, language: AppLanguage): Promise<RuntimeViewState> {
     if (this.status === ConnectionStatus.STARTING || this.status === ConnectionStatus.STOPPING ||
       this.status === ConnectionStatus.RUNNING) {
       return this.snapshot();
     }
+    const runtimeStartGeneration = ++this.runtimeStartGeneration;
     this.runtimeMode = normalizeAppRuntimeMode(settings.mode, APP_MODE_VPN);
     // 必须在第一个 await 前公开忙碌态：网络场景管理器、首页和日志页共用此单例，
     // 否则底层正在异步启动时另一个入口仍会看到旧的 IDLE/RUNNING 并发起重叠操作。
@@ -115,18 +120,27 @@ export class RuntimeController {
     this.resetRecoveredProfileIdentity();
     this.appendLog(this.runtimeMode === APP_MODE_PROXY_ONLY ? translate(language, 'log.startingProxy') : translate(language, 'log.startingVpn'));
     const snapshot = await this.controller.start(context, profile, settings);
-    this.applySnapshot(snapshot, language);
-    // 新的一次启动：清除后台自动断开标志（此后再置位才代表本次启动后的自动断开）。
-    NetSceneStopFlag.clear(context).catch(() => {
-      // 会话开始时间仍会隔离旧标志；清理失败不应把成功的数据面改成启动失败。
-      this.appendLog('Network scene stop flag reset failed.');
-    });
-    if (this.runtimeMode === APP_MODE_PROXY_ONLY) {
-      this.appendLog(this.status === ConnectionStatus.RUNNING ? translate(language, 'log.proxyStarted') : translate(language, 'log.proxyStartIncomplete'));
-    } else {
-      this.appendLog(this.status === ConnectionStatus.RUNNING ? translate(language, 'log.vpnStarted') : translate(language, 'log.vpnStartIncomplete'));
+    if (runtimeStartGeneration !== this.runtimeStartGeneration) {
+      // stop() 或更新的一次 start() 已经接管共享状态。旧续体不得覆盖其状态、清理标志，
+      // 也不得拿旧 profile/settings 对新会话做测速或出口归属。
+      return this.snapshot();
     }
-    this.scheduleRuntimeConnectivityInfo(context, profile, settings, language, this.startedAt);
+    this.applySnapshot(snapshot, language);
+    if (this.status === ConnectionStatus.RUNNING) {
+      // 只让已经落地的当前会话清除后台自动断开标志。被取消的旧 start 不能在 stop
+      // 之后迟到清除新写入的标志；会话开始时间仍负责隔离历史标志。
+      NetSceneStopFlag.clear(context).catch(() => {
+        // 清理失败不应把成功的数据面改成启动失败。
+        this.appendLog('Network scene stop flag reset failed.');
+      });
+      this.appendLog(this.runtimeMode === APP_MODE_PROXY_ONLY ?
+        translate(language, 'log.proxyStarted') : translate(language, 'log.vpnStarted'));
+      this.scheduleRuntimeConnectivityInfo(context, profile, settings, language, this.startedAt);
+    } else if (this.status === ConnectionStatus.ERROR) {
+      // ERROR 是真正的启动失败；STARTING/STOPPING/IDLE 可能是用户取消，不应记录成故障。
+      this.appendLog(this.runtimeMode === APP_MODE_PROXY_ONLY ?
+        translate(language, 'log.proxyStartIncomplete') : translate(language, 'log.vpnStartIncomplete'));
+    }
     return this.refresh(context, language);
   }
 
@@ -134,6 +148,9 @@ export class RuntimeController {
     if (this.status === ConnectionStatus.IDLE || this.status === ConnectionStatus.STOPPING) {
       return this.snapshot();
     }
+    // 在任何 await 前让所有在途 start() 的页面层续体失效。底层控制器另有自己的代际，
+    // 两层分别保护 native 生命周期和 RuntimeController 的日志/探测/UI 镜像。
+    this.runtimeStartGeneration++;
     const stoppingMode = this.runtimeMode;
     // 与 start 相同，同步发布 STOPPING，阻止前台按钮和网络变化评估重复下发停止或
     // 在清理完成前启动另一套核心/TUN。

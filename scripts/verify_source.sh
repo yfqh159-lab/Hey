@@ -272,6 +272,37 @@ printf 'connection startup cancellation verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');
+const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeController.ets', 'utf8');
+const startAt = runtime.indexOf('  async start(context: common.Context, profile: ProxyProfile');
+const stopAt = runtime.indexOf('\n  async stop(context: common.Context', startAt);
+const reconcileAt = runtime.indexOf('\n  // 网络场景在后台', stopAt);
+if (startAt < 0 || stopAt < 0 || reconcileAt < 0) {
+  throw new Error('RuntimeController start/stop methods could not be inspected');
+}
+const start = runtime.slice(startAt, stopAt);
+const stop = runtime.slice(stopAt, reconcileAt);
+const controllerAwait = start.indexOf('await this.controller.start(context, profile, settings);');
+const generationGuard = start.indexOf('if (runtimeStartGeneration !== this.runtimeStartGeneration)', controllerAwait);
+const applySnapshot = start.indexOf('this.applySnapshot(snapshot, language);', controllerAwait);
+if (!runtime.includes('private runtimeStartGeneration: number = 0;') ||
+  !start.includes('const runtimeStartGeneration = ++this.runtimeStartGeneration;') ||
+  controllerAwait < 0 || generationGuard < controllerAwait || applySnapshot < generationGuard ||
+  !stop.includes('this.runtimeStartGeneration++;')) {
+  throw new Error('runtime start continuations are not generation-isolated from cancellation');
+}
+const runningBranch = start.indexOf('if (this.status === ConnectionStatus.RUNNING)', applySnapshot);
+const flagClear = start.indexOf('NetSceneStopFlag.clear(context)', runningBranch);
+const connectivity = start.indexOf('this.scheduleRuntimeConnectivityInfo(', runningBranch);
+const errorBranch = start.indexOf('else if (this.status === ConnectionStatus.ERROR)', runningBranch);
+if (runningBranch < 0 || flagClear < runningBranch || connectivity < flagClear ||
+  errorBranch < connectivity || start.indexOf('log.vpnStartIncomplete', errorBranch) < errorBranch) {
+  throw new Error('cancelled starts may still clear flags, schedule probes, or report a false failure');
+}
+NODE
+printf 'runtime startup continuation isolation verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
 
 const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeController.ets', 'utf8');
 const networkScene = fs.readFileSync('entry/src/main/ets/services/NetworkSceneManager.ets', 'utf8');
