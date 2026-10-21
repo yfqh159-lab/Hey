@@ -243,8 +243,11 @@ cores and that their AArch64 bridge symbols/TLSDESC ABI match the N-API bridge:
 ./scripts/verify_prebuilt_native.sh
 ```
 
-If `prebuilt/arm64-v8a` is absent in a sparse checkout, restore it with
-`git sparse-checkout add entry/src/main/cpp/prebuilt`.
+If a sparse checkout is missing the app manifest, resources, or
+`prebuilt/arm64-v8a`, restore the complete buildable app tree with
+`git sparse-checkout add AppScope entry`. `verify_source.sh` rejects a checkout
+that looks clean while Git still skips build-critical files, so missing inputs
+are reported before the Hvigor build.
 
 Run the wording check before sending a patch:
 

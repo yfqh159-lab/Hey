@@ -189,8 +189,10 @@ entry/build/default/outputs/default/entry-default-signed.hap
 ./scripts/verify_prebuilt_native.sh
 ```
 
-若稀疏检出缺少 `prebuilt/arm64-v8a`，可运行
-`git sparse-checkout add entry/src/main/cpp/prebuilt` 恢复该目录。
+若稀疏检出缺少应用清单、资源或 `prebuilt/arm64-v8a`，运行
+`git sparse-checkout add AppScope entry` 恢复完整的可构建应用目录。`verify_source.sh`
+会拒绝“Git 状态看似干净、但构建必需文件仍被 sparse checkout 跳过”的检出，避免到
+Hvigor 构建阶段才发现缺件。
 
 提交前跑一遍措辞校验：
 

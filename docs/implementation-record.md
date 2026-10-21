@@ -95,6 +95,7 @@
 - `78171e4`、`7901a66`、`f08ba2f`：校验预编译 AArch64 原生库，并以模块级 `assembleHap` 构建后确认五个关键 `.so` 已打入签名 HAP；构建脚本统一提供 `build/test/install/logs/targets/doctor`。
 - `660dcb9`：真机安装前先检查 HAP 中五个关键原生库，且设备脚本同时接受 PATH 命令或绝对路径形式的 `hdc`。
 - `fc5d0f5`：提供 `scripts/verify_source.sh`，统一执行静态差异、合规、原生预编译库、Shell 与翻译键检查。
+- `b646daf`：源码校验先确认应用清单、媒体资源、模块配置与页面清单确实存在，并拒绝仍把 `AppScope` / `entry` 构建文件标成 skip-worktree 的不完整稀疏检出；无 `.git` 的源码归档仍按实际文件检查。
 
 ## 当前检查证据
 
