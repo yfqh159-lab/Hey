@@ -93,10 +93,11 @@ and the IPv6 route handling that keeps `::/0` inside the TUN is described in
 [`docs/ipv6-leak-prevention.md`](docs/ipv6-leak-prevention.md).
 
 The sing-box path currently supports VPN mode with one converted outbound.
-The converter accepts VLESS, VMess, Trojan, Shadowsocks, AnyTLS, and TUIC, with
+The converter accepts VLESS, VMess, Trojan, Shadowsocks, AnyTLS, TUIC, and
+Hysteria2, with
 basic tcp/ws/grpc/http/httpupgrade transport mapping and none/tls/reality
 security mapping. It does not yet support full configs, proxy chains, policy
-groups, proxy-only mode, Hysteria2, WireGuard, SOCKS, HTTP, or sing-box-native
+groups, proxy-only mode, WireGuard, SOCKS, HTTP, or sing-box-native
 traffic stats.
 
 ## Implemented In Code

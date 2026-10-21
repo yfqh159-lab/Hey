@@ -78,9 +78,9 @@ fork 和 TLSDESC 构建路线怎么来的，见
 [`docs/ipv6-leak-prevention.md`](docs/ipv6-leak-prevention.md)。
 
 sing-box 路径目前支持 VPN 模式下的单个转换后 outbound。转换器覆盖 VLESS、VMess、Trojan、
-Shadowsocks、AnyTLS 和 TUIC，并处理基础的 tcp/ws/grpc/http/httpupgrade 传输以及
-none/tls/reality 安全层。它还不支持完整配置、代理链、策略组、仅代理模式、Hysteria2、
-WireGuard、SOCKS、HTTP，或 sing-box 自身的细粒度流量统计。
+Shadowsocks、AnyTLS、TUIC 和 Hysteria2，并处理基础的 tcp/ws/grpc/http/httpupgrade 传输以及
+none/tls/reality 安全层。它还不支持完整配置、代理链、策略组、仅代理模式、WireGuard、
+SOCKS、HTTP，或 sing-box 自身的细粒度流量统计。
 
 ## 代码里已经实现的能力
 

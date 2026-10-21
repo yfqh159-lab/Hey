@@ -1142,6 +1142,30 @@ if (runtimeRefreshPerformEnd < 0 ||
 NODE
 printf 'simplified add surface verification passed\n'
 
+# Keep the documented sing-box protocol boundary aligned with the converter and
+# runtime selector. Hysteria2 is a supported VPN/single-node conversion, not a
+# proxy-only capability; stale documentation must not advertise the opposite.
+node <<'NODE'
+const fs = require('fs');
+const english = fs.readFileSync('README.md', 'utf8');
+const chinese = fs.readFileSync('README.zh-CN.md', 'utf8');
+const singbox = fs.readFileSync('entry/src/main/ets/core/SingboxConfig.ets', 'utf8');
+const selection = fs.readFileSync('entry/src/main/ets/core/CoreSelection.ets', 'utf8');
+
+if (!singbox.includes("if (protocol === 'hysteria2')") ||
+  !singbox.includes("type: 'hysteria2'") ||
+  !selection.includes("['anytls', 'tuic', 'hysteria2']")) {
+  throw new Error('Hysteria2 sing-box conversion/runtime selection is missing');
+}
+if (!english.includes('AnyTLS, TUIC, and\nHysteria2') ||
+  english.includes('proxy-only mode, Hysteria2') ||
+  !chinese.includes('AnyTLS、TUIC 和 Hysteria2') ||
+  chinese.includes('仅代理模式、Hysteria2')) {
+  throw new Error('README sing-box capability statement is stale');
+}
+NODE
+printf 'sing-box capability documentation verification passed\n'
+
 acceptance_duplicate_ids="$(sed -n 's/^| \([A-Z][0-9][0-9]*\) |.*/\1/p' docs/device-acceptance.md | sort | uniq -d)"
 if [ -n "${acceptance_duplicate_ids}" ]; then
   printf 'duplicate device acceptance ids: %s\n' "${acceptance_duplicate_ids}" >&2
