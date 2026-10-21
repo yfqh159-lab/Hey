@@ -1853,29 +1853,28 @@ export default function localUnitTest() {
       expect(Array.isArray(httpSettings['users'])).assertTrue();
     });
 
-    it('enables local socks proxy by default', 0, () => {
-      expect(DEFAULT_APP_SETTINGS.localSocksEnabled).assertTrue();
+    it('keeps user-visible local proxies off in the default tun mode', 0, () => {
+      expect(DEFAULT_APP_SETTINGS.localSocksEnabled).assertFalse();
       expect(DEFAULT_APP_SETTINGS.localSocksPort).assertEqual(18080);
-      expect(DEFAULT_APP_SETTINGS.appendHttpProxy).assertTrue();
+      expect(DEFAULT_APP_SETTINGS.appendHttpProxy).assertFalse();
       // tun2socks 引擎默认 gvisor（useHevTun=false），hev 引擎需显式开启
       expect(DEFAULT_APP_SETTINGS.useHevTun).assertFalse();
       expect(DEFAULT_APP_SETTINGS.hevTunLogLevel).assertEqual(DEFAULT_HEV_TUN_LOG_LEVEL);
       expect(DEFAULT_APP_SETTINGS.hevTunRwTimeout).assertEqual(DEFAULT_HEV_TUN_RW_TIMEOUT);
-      // 默认劫持 DNS（issue #6）；上游地址出厂为空，跟随系统，由用户自行填写。
+      // 默认劫持 DNS（issue #6）；上游使用经代理访问的 IP 形式 DoH，仍可由用户替换。
       expect(DEFAULT_APP_SETTINGS.localDnsEnabled).assertTrue();
       expect(DEFAULT_APP_SETTINGS.remoteDns).assertEqual('https://1.1.1.1/dns-query');
       expect(DEFAULT_APP_SETTINGS.domesticDns).assertEqual('');
       expect(LOCAL_SOCKS_PROXY_PORT).assertEqual(18080);
       const result = buildXrayConfigWithSettings(VLESS_REALITY_OUTBOUND, DEFAULT_APP_SETTINGS);
-      expect(result.configJson).assertContain('"tag": "socks-in"');
-      expect(result.configJson).assertContain('"protocol": "socks"');
-      expect(result.configJson).assertContain('"port": 18080');
-      expect(result.configJson).assertContain('"auth": "noauth"');
-      expect(result.configJson).assertContain('"udp": true');
-      expect(result.configJson).assertContain('"tag": "http-in"');
+      expect(result.configJson).assertContain('"tag": "tun-in"');
+      expect(result.configJson).assertContain('"tag": "vpn-http-in"');
+      expect(result.configJson.indexOf('"tag": "socks-in"')).assertEqual(-1);
+      expect(result.configJson.indexOf('"tag": "http-in"')).assertEqual(-1);
       expect(result.configJson).assertContain('"listen": "127.0.0.1"');
-      expect(result.configJson).assertContain('"port": 18081');
-      expect(result.socksPort).assertEqual(LOCAL_SOCKS_PROXY_PORT);
+      expect(result.socksPort === undefined).assertTrue();
+      expect(result.httpProxyPort === undefined).assertTrue();
+      expect(result.runtimeHealthPort).assertEqual(VPN_DATA_SOCKS_PORT);
     });
 
     it('hijacks dns to the core resolver by default in vpn mode', 0, () => {

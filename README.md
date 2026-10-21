@@ -70,6 +70,12 @@ a separate unauthenticated loopback-only HTTP inlet on `18084`, so user-facing
 proxy authentication and LAN sharing do not break or expose app traffic. Listening
 outside loopback still requires the explicit proxy-sharing setting.
 
+Fresh installs default to VPN/TUN mode without also opening the user-visible
+`18080/18081` proxy listeners. Selecting proxy-only mode always enables its
+SOCKS/HTTP listeners; users who explicitly enabled extra local listeners in an
+older install keep that stored choice. Proxy-only mode does not modify a global
+HarmonyOS proxy setting or capture unconfigured applications.
+
 The current VPN data path for both cores is:
 
 ```text

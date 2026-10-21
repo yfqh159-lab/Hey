@@ -1378,6 +1378,20 @@ printf 'optional TUN/runtime mode separation verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');
+const store = fs.readFileSync('entry/src/main/ets/storage/SettingsStore.ets', 'utf8');
+const defaultsAt = store.indexOf('export const DEFAULT_APP_SETTINGS');
+const defaultsEnd = store.indexOf('\n};', defaultsAt);
+const defaults = store.slice(defaultsAt, defaultsEnd);
+if (defaultsAt < 0 || defaultsEnd < 0 ||
+  !defaults.includes('appendHttpProxy: false,') ||
+  !defaults.includes('localSocksEnabled: false,')) {
+  throw new Error('default TUN mode re-enables user-visible local proxy listeners');
+}
+NODE
+printf 'default TUN listener isolation verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
 const catalog = fs.readFileSync('entry/src/main/ets/features/settings/SettingsCatalog.ets', 'utf8');
 const catalogStart = catalog.indexOf('export const SETTINGS_CATALOG');
 const filterStart = catalog.indexOf('\nexport function filterSettings(', catalogStart);
