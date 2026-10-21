@@ -999,6 +999,15 @@ if (!initialLoad.includes('await this.loadSettings(true);') ||
   !retry.includes('this.initializePageState();')) {
   throw new Error('failed initial reads can still enable controls or consume pending actions');
 }
+if (!indexSource.includes('const AUTHORITATIVE_STORAGE_READ_TIMEOUT_MS: number = 5000;') ||
+  !indexSource.includes('private settingsLoadInFlight: Promise<AppSettings> | null = null;') ||
+  !indexSource.includes('private nodesLoadInFlight: Promise<NodesControllerState> | null = null;') ||
+  !indexSource.includes("withAuthoritativeStorageTimeout(\n        this.loadSettingsSingleFlight(context), 'settings read')") ||
+  !indexSource.includes("withAuthoritativeStorageTimeout(\n        this.loadNodesSingleFlight(context), 'node database read')") ||
+  !indexSource.includes('this.releaseSettingsLoad(promise)') ||
+  !indexSource.includes('this.releaseNodesLoad(promise)')) {
+  throw new Error('authoritative settings or node reads can stall recovery or accumulate queued tasks');
+}
 for (const start of [settingsAt, nodesLoadAt, runtimeRefreshPerformAt]) {
   const nextMethod = indexSource.indexOf('\n  private ', start + 1);
   const body = indexSource.slice(start, nextMethod);

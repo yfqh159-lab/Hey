@@ -62,6 +62,21 @@ const EMPTY_STATS: RuntimeStats = {
 };
 const AUTO_SUBSCRIPTION_CHECK_THROTTLE_MS: number = 60 * 1000;
 const ALL_GROUP_ID: string = '__hey_all_groups__';
+const AUTHORITATIVE_STORAGE_READ_TIMEOUT_MS: number = 5000;
+
+function withAuthoritativeStorageTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timerId = setTimeout(() => reject(new Error(`${label} timed out`)),
+      AUTHORITATIVE_STORAGE_READ_TIMEOUT_MS);
+    promise.then((value: T) => {
+      clearTimeout(timerId);
+      resolve(value);
+    }, (error: Object) => {
+      clearTimeout(timerId);
+      reject(error);
+    });
+  });
+}
 
 interface NodeDelayBatchResult {
   node: ProxyNode;
@@ -90,6 +105,10 @@ struct Index {
   // 禁止多个 refresh 并发累计“状态缺失”样本或用旧结果覆盖较新的权威读取。
   private runtimeRefreshBusy: boolean = false;
   private runtimeRefreshTail: Promise<void> = Promise.resolve();
+  // 严格恢复超时只结束页面等待，不会取消底层 ArkData。重试复用尚未结算的读取，
+  // 既不把默认值当权威数据，也不向设置/节点串行队列反复追加 pending 任务。
+  private settingsLoadInFlight: Promise<AppSettings> | null = null;
+  private nodesLoadInFlight: Promise<NodesControllerState> | null = null;
 
   @State private currentTab: number = 0;
   @State private showSearch: boolean = false;
@@ -2010,7 +2029,8 @@ struct Index {
   private async loadSettings(strict: boolean = false): Promise<void> {
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
-      this.currentSettings = await SETTINGS_CONTROLLER.load(context);
+      this.currentSettings = await withAuthoritativeStorageTimeout(
+        this.loadSettingsSingleFlight(context), 'settings read');
       this.language = this.currentSettings.language;
       this.speedEnabled = this.currentSettings.speedEnabled;
       this.groupAllDisplay = this.currentSettings.groupAllDisplay;
@@ -2030,13 +2050,53 @@ struct Index {
   private async loadNodes(strict: boolean = false): Promise<void> {
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
-      this.applyNodesState(await NODES_CONTROLLER.load(context, this.language));
+      const state = await withAuthoritativeStorageTimeout(
+        this.loadNodesSingleFlight(context), 'node database read');
+      this.applyNodesState(state);
     } catch (error) {
       this.lastError = this.f1('error.loadSubscription', 'error', redactDiagnosticText(JSON.stringify(error)));
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
       if (strict) {
         throw new Error(this.lastError);
       }
+    }
+  }
+
+  private loadSettingsSingleFlight(context: common.Context): Promise<AppSettings> {
+    if (this.settingsLoadInFlight !== null) {
+      return this.settingsLoadInFlight;
+    }
+    const promise = SETTINGS_CONTROLLER.load(context);
+    this.settingsLoadInFlight = promise;
+    promise.then(
+      (_settings: AppSettings): void => this.releaseSettingsLoad(promise),
+      (_error: Object): void => this.releaseSettingsLoad(promise)
+    );
+    return promise;
+  }
+
+  private releaseSettingsLoad(promise: Promise<AppSettings>): void {
+    if (this.settingsLoadInFlight === promise) {
+      this.settingsLoadInFlight = null;
+    }
+  }
+
+  private loadNodesSingleFlight(context: common.Context): Promise<NodesControllerState> {
+    if (this.nodesLoadInFlight !== null) {
+      return this.nodesLoadInFlight;
+    }
+    const promise = NODES_CONTROLLER.load(context, this.language);
+    this.nodesLoadInFlight = promise;
+    promise.then(
+      (_state: NodesControllerState): void => this.releaseNodesLoad(promise),
+      (_error: Object): void => this.releaseNodesLoad(promise)
+    );
+    return promise;
+  }
+
+  private releaseNodesLoad(promise: Promise<NodesControllerState>): void {
+    if (this.nodesLoadInFlight === promise) {
+      this.nodesLoadInFlight = null;
     }
   }
 
