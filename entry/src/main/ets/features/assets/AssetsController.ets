@@ -13,6 +13,7 @@ import {
   encodeGeoTransactionState,
   isAllowedGeoAssetRedirect,
   isPlausibleGeoData,
+  isValidGeoCommitMarker,
   parseGeoTransactionState,
   parseHttpRedirectLocation,
   parseDefaultGeoRelease,
@@ -697,7 +698,8 @@ export class AssetsController {
   recoverInterruptedBuiltinGeoUpdate(context: common.Context): void {
     const commitPath = `${context.filesDir}/${GEO_UPDATE_COMMIT_FILE}`;
     const statePath = `${context.filesDir}/${GEO_UPDATE_STATE_FILE}`;
-    const committed = this.fileExists(commitPath);
+    // 文件被 CREATE 后、内容写入并 fsync 前进程仍可能终止；空/损坏标记不能证明提交。
+    const committed = isValidGeoCommitMarker(this.readFileData(commitPath));
     const transactionState = this.readGeoTransactionState(statePath);
     const names = BUILTIN_GEO_DATA_FILE_NAMES;
     for (let index = 0; index < names.length; index++) {

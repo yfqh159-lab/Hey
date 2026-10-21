@@ -65,6 +65,17 @@ export function parseGeoTransactionState(data: ArrayBuffer | null): GeoTransacti
   return { stagedMask, originalMask };
 }
 
+/**
+ * 提交标记只有在完整写入固定内容后才有效。仅检查文件存在会把“刚创建但尚未写入/持久化”
+ * 的空文件误当作提交完成，进程中断时可能留下半套 Geo 数据。
+ */
+export function isValidGeoCommitMarker(data: ArrayBuffer | null): boolean {
+  if (data === null || data.byteLength !== 1) {
+    return false;
+  }
+  return new Uint8Array(data)[0] === 1;
+}
+
 export function resolveGeoRecoveryAction(
   committed: boolean,
   transactionState: GeoTransactionState | null,
