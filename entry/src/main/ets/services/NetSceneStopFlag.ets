@@ -14,13 +14,19 @@ const FLAG_FILE_NAME: string = 'net_scene_stopped_at';
 const FLAG_TEMP_FILE_NAME: string = 'net_scene_stopped_at.tmp';
 const FLAG_BACKUP_FILE_NAME: string = 'net_scene_stopped_at.bak';
 
+export interface NetSceneStopRecord {
+  sessionId: string;
+  stoppedAt: number;
+}
+
 function flagPath(context: common.Context, fileName: string = FLAG_FILE_NAME): string {
   return `${context.filesDir}/${fileName}`;
 }
 
-function writeFlag(context: common.Context, value: number): void {
-  if (!Number.isFinite(value) || Math.floor(value) !== value || value < 0) {
-    throw new Error('Invalid network scene stop timestamp.');
+function writeFlag(context: common.Context, record: NetSceneStopRecord): void {
+  if (record.sessionId.length === 0 || !Number.isFinite(record.stoppedAt) ||
+    Math.floor(record.stoppedAt) !== record.stoppedAt || record.stoppedAt < 0) {
+    throw new Error('Invalid network scene stop record.');
   }
   const targetPath = flagPath(context);
   const tempPath = flagPath(context, FLAG_TEMP_FILE_NAME);
@@ -29,7 +35,7 @@ function writeFlag(context: common.Context, value: number): void {
   try {
     recoverInterruptedWrite(targetPath, tempPath, backupPath);
     file = fs.openSync(tempPath, fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
-    const content = value.toString();
+    const content = JSON.stringify(record);
     const written = fs.writeSync(file.fd, content);
     if (written !== content.length) {
       throw new Error('Short network scene stop flag write.');
@@ -66,28 +72,54 @@ function writeFlag(context: common.Context, value: number): void {
 
 export class NetSceneStopFlag {
   /** 扩展进程自动断开时调用：标记「本次启动后发生过自动断开」。 */
-  static async markStopped(context: common.Context, at: number): Promise<void> {
-    writeFlag(context, at);
+  static async markStopped(context: common.Context, at: number, sessionId: string): Promise<void> {
+    writeFlag(context, { sessionId: sessionId, stoppedAt: at });
   }
 
   /** VPN 启动成功时调用：清除标志（此后若再置位即代表本次启动后的自动断开）。 */
-  static async clear(context: common.Context): Promise<void> {
-    writeFlag(context, 0);
+  static async clear(context: common.Context, sessionId: string): Promise<void> {
+    writeFlag(context, { sessionId: sessionId, stoppedAt: 0 });
   }
 
   /** 主进程前台读取：本次启动后是否发生过后台自动断开。 */
-  static async wasStopped(context: common.Context, sessionStartedAt: number = 0): Promise<boolean> {
+  static async wasStopped(
+    context: common.Context,
+    sessionStartedAt: number = 0,
+    expectedSessionId: string = ''
+  ): Promise<boolean> {
     try {
-      const stoppedAt = selectNetSceneStopTimestamp(
+      const record = selectNetSceneStopRecord(
         readTextIfExists(flagPath(context)),
         readTextIfExists(flagPath(context, FLAG_TEMP_FILE_NAME)),
         readTextIfExists(flagPath(context, FLAG_BACKUP_FILE_NAME))
       );
-      return stoppedAt !== null && wasNetSceneStoppedAfter(stoppedAt, sessionStartedAt);
+      return record !== null && wasNetSceneStoppedForSession(record, sessionStartedAt, expectedSessionId);
     } catch (_error) {
       return false;
     }
   }
+}
+
+export function parseNetSceneStopRecord(content: string | null): NetSceneStopRecord | null {
+  if (content === null || content.trim().length === 0) {
+    return null;
+  }
+  const trimmed = content.trim();
+  if (trimmed.startsWith('{')) {
+    try {
+      const record = JSON.parse(trimmed) as NetSceneStopRecord;
+      if (typeof record.sessionId !== 'string' || record.sessionId.length === 0 ||
+        !Number.isFinite(record.stoppedAt) || Math.floor(record.stoppedAt) !== record.stoppedAt ||
+        record.stoppedAt < 0) {
+        return null;
+      }
+      return { sessionId: record.sessionId, stoppedAt: record.stoppedAt };
+    } catch (_error) {
+      return null;
+    }
+  }
+  const legacyTimestamp = parseNetSceneStopTimestamp(trimmed);
+  return legacyTimestamp === null ? null : { sessionId: '', stoppedAt: legacyTimestamp };
 }
 
 export function parseNetSceneStopTimestamp(content: string | null): number | null {
@@ -106,15 +138,24 @@ export function selectNetSceneStopTimestamp(
   tempContent: string | null,
   backupContent: string | null
 ): number | null {
-  const temp = parseNetSceneStopTimestamp(tempContent);
+  const record = selectNetSceneStopRecord(primaryContent, tempContent, backupContent);
+  return record === null ? null : record.stoppedAt;
+}
+
+export function selectNetSceneStopRecord(
+  primaryContent: string | null,
+  tempContent: string | null,
+  backupContent: string | null
+): NetSceneStopRecord | null {
+  const temp = parseNetSceneStopRecord(tempContent);
   if (temp !== null) {
     return temp;
   }
-  const primary = parseNetSceneStopTimestamp(primaryContent);
+  const primary = parseNetSceneStopRecord(primaryContent);
   if (primary !== null) {
     return primary;
   }
-  return parseNetSceneStopTimestamp(backupContent);
+  return parseNetSceneStopRecord(backupContent);
 }
 
 export function wasNetSceneStoppedAfter(stoppedAt: number, sessionStartedAt: number): boolean {
@@ -122,9 +163,20 @@ export function wasNetSceneStoppedAfter(stoppedAt: number, sessionStartedAt: num
     !Number.isNaN(sessionStartedAt) && stoppedAt > Math.max(0, sessionStartedAt);
 }
 
+export function wasNetSceneStoppedForSession(
+  record: NetSceneStopRecord,
+  sessionStartedAt: number,
+  expectedSessionId: string
+): boolean {
+  if (expectedSessionId.length > 0) {
+    return record.sessionId === expectedSessionId && record.stoppedAt > 0;
+  }
+  return wasNetSceneStoppedAfter(record.stoppedAt, sessionStartedAt);
+}
+
 function recoverInterruptedWrite(targetPath: string, tempPath: string, backupPath: string): void {
   if (fs.accessSync(tempPath)) {
-    const temp = parseNetSceneStopTimestamp(fs.readTextSync(tempPath));
+    const temp = parseNetSceneStopRecord(fs.readTextSync(tempPath));
     if (temp !== null) {
       removeIfExists(backupPath);
       if (fs.accessSync(targetPath)) {

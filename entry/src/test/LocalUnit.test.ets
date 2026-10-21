@@ -64,7 +64,7 @@ import { LogEntry, logLevelLabel, normalizeLogLevel } from '../main/ets/features
 import { parseCoreLog } from '../main/ets/services/CoreLogReader';
 import { nativeDelayFailureStatus } from '../main/ets/services/DelayTester';
 import { isRuntimeHealthPort } from '../main/ets/services/RuntimeHealthProbe';
-import { parseNetSceneStopTimestamp, selectNetSceneStopTimestamp, wasNetSceneStoppedAfter } from '../main/ets/services/NetSceneStopFlag';
+import { parseNetSceneStopRecord, parseNetSceneStopTimestamp, selectNetSceneStopRecord, selectNetSceneStopTimestamp, wasNetSceneStoppedAfter, wasNetSceneStoppedForSession } from '../main/ets/services/NetSceneStopFlag';
 import { PersistedVpnRuntimeState, VPN_RUNTIME_HEARTBEAT_STALE_MS, hasInvalidPersistedVpnRuntimeArtifacts, inspectPersistedVpnRuntimeArtifacts, isPersistedVpnCleanupIncomplete, isPersistedVpnRuntimeHealthy, isPersistedVpnRuntimeSessionReady, isPersistedVpnRuntimeSessionStopped, normalizeActiveVpnStartedAt, parsePersistedVpnRuntimeState, selectPersistedVpnRuntimeState, shouldCleanupAfterVpnRuntimeStateWriteFailures } from '../main/ets/services/VpnRuntimeStateStore';
 import { appendVpnStartCancellation, parseVpnStartCancellationHistory } from '../main/ets/services/VpnStartCancellationStore';
 import { buildAssetDownloadProxyPorts, resolveAssetDownloadProxyPlan } from '../main/ets/features/assets/AssetsController';
@@ -3604,6 +3604,43 @@ export default function localUnitTest() {
       expect(selectNetSceneStopTimestamp('100', '2x', '90')).assertEqual(100);
       expect(selectNetSceneStopTimestamp('broken', '', '90')).assertEqual(90);
       expect(selectNetSceneStopTimestamp('broken', 'partial', '')).assertEqual(null);
+    });
+
+    it('binds network-scene stop flags to the exact vpn session', 0, () => {
+      const stopped = parseNetSceneStopRecord('{"sessionId":"vpn-current","stoppedAt":150}');
+      expect(stopped?.sessionId).assertEqual('vpn-current');
+      expect(stopped?.stoppedAt).assertEqual(150);
+      if (stopped === null) {
+        return;
+      }
+      // Session identity remains authoritative if wall clock time moved backwards.
+      expect(wasNetSceneStoppedForSession(stopped, 200, 'vpn-current')).assertTrue();
+      expect(wasNetSceneStoppedForSession(stopped, 100, 'vpn-next')).assertFalse();
+
+      const legacy = parseNetSceneStopRecord('300');
+      expect(legacy?.sessionId).assertEqual('');
+      if (legacy === null) {
+        return;
+      }
+      // An upgrade-era timestamp has no identity and cannot stop a known new session.
+      expect(wasNetSceneStoppedForSession(legacy, 200, 'vpn-current')).assertFalse();
+      expect(wasNetSceneStoppedForSession(legacy, 200, '')).assertTrue();
+      expect(parseNetSceneStopRecord('{"sessionId":"","stoppedAt":300}')).assertEqual(null);
+      expect(parseNetSceneStopRecord('{"sessionId":"vpn-current","stoppedAt":-1}')).assertEqual(null);
+    });
+
+    it('prefers complete session-bound network-scene writes', 0, () => {
+      const pending = selectNetSceneStopRecord(
+        '{"sessionId":"vpn-old","stoppedAt":100}',
+        '{"sessionId":"vpn-current","stoppedAt":150}',
+        '{"sessionId":"vpn-backup","stoppedAt":90}'
+      );
+      expect(pending?.sessionId).assertEqual('vpn-current');
+      expect(pending?.stoppedAt).assertEqual(150);
+      const primary = selectNetSceneStopRecord(
+        '{"sessionId":"vpn-current","stoppedAt":0}', '{"sessionId":', '90');
+      expect(primary?.sessionId).assertEqual('vpn-current');
+      expect(primary?.stoppedAt).assertEqual(0);
     });
 
     it('prefers a complete pending VPN state and falls back from a partial write', 0, () => {

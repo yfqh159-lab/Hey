@@ -2094,7 +2094,7 @@ const recoveredProbeAt = persistedReconcile.indexOf('await probeRuntimeSocksHeal
 const firstCandidateCheckAt = persistedReconcile.indexOf(
   'this.isCurrentRecoveredVpnCandidate(context, recoveredSessionId, recoveredStartedAt)', recoveredProbeAt);
 const stopFlagAt = persistedReconcile.indexOf(
-  'await NetSceneStopFlag.wasStopped(context, recoveredStartedAt)', firstCandidateCheckAt);
+  'await NetSceneStopFlag.wasStopped(\n        context, recoveredStartedAt, recoveredSessionId)', firstCandidateCheckAt);
 const secondCandidateCheckAt = persistedReconcile.indexOf(
   'this.isCurrentRecoveredVpnCandidate(context, recoveredSessionId, recoveredStartedAt)', stopFlagAt);
 const recoveredApplyAt = persistedReconcile.indexOf(
@@ -2233,7 +2233,7 @@ if (!begin.includes('this.stopRequested = false;') ||
 if (!vpn.includes('private ensureStartAllowed(stage: string, sessionGeneration: number)') ||
   !vpn.includes('if (sessionGeneration !== this.sessionGeneration)') ||
   !vpn.includes('if (this.stopRequested)') ||
-  !vpn.includes('await NetSceneStopFlag.clear(this.context);') ||
+  !vpn.includes('await NetSceneStopFlag.clear(this.context, this.sessionId);') ||
   !vpn.includes("this.ensureStartAllowed('network scene stop flag reset', sessionGeneration);") ||
   !vpn.includes('private async pollNetScene(sessionGeneration: number)') ||
   !vpn.includes('private async recordStats(sessionGeneration: number)') ||
@@ -2354,13 +2354,32 @@ const decisionEnd = vpn.indexOf('\n      if (transportChanged', decisionAt);
 const decision = vpn.slice(decisionAt, decisionEnd);
 const timestampAt = decision.indexOf('const stoppedAt = Date.now();');
 const cleanupAt = decision.indexOf("this.requestCleanup('Network scene auto-disconnect.'");
-const flagAt = decision.indexOf('await NetSceneStopFlag.markStopped(this.context, stoppedAt);');
+const flagAt = decision.indexOf('await NetSceneStopFlag.markStopped(this.context, stoppedAt, this.sessionId);');
 if (decisionAt < 0 || decisionEnd < 0 || timestampAt < 0 || cleanupAt < timestampAt ||
   flagAt < cleanupAt) {
   throw new Error('trusted-network disconnect can wait on its auxiliary flag before cleaning the VPN data plane');
 }
 NODE
 printf 'trusted-network cleanup-first verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
+const stopFlag = fs.readFileSync('entry/src/main/ets/services/NetSceneStopFlag.ets', 'utf8');
+const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeController.ets', 'utf8');
+const netScene = fs.readFileSync('entry/src/main/ets/services/NetworkSceneManager.ets', 'utf8');
+const tests = fs.readFileSync('entry/src/test/LocalUnit.test.ets', 'utf8');
+if (!stopFlag.includes('export interface NetSceneStopRecord') ||
+  !stopFlag.includes('writeFlag(context, { sessionId: sessionId, stoppedAt: at });') ||
+  !stopFlag.includes('writeFlag(context, { sessionId: sessionId, stoppedAt: 0 });') ||
+  !stopFlag.includes('record.sessionId === expectedSessionId && record.stoppedAt > 0') ||
+  !runtime.includes('context, recoveredStartedAt, recoveredSessionId') ||
+  !runtime.includes('runtimeVpnSessionId(): string') ||
+  !netScene.includes('SHARED_RUNTIME_CONTROLLER.runtimeVpnSessionId()') ||
+  !tests.includes("it('binds network-scene stop flags to the exact vpn session'")) {
+  throw new Error('network-scene stop evidence is not bound to the exact VPN session');
+}
+NODE
+printf 'session-bound network-scene stop verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');

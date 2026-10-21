@@ -273,9 +273,9 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       // 明确的新启动在创建任何数据面前废弃上一会话的自动断开标志，并等待文件操作
       // 完成。运行后不再异步清除，避免覆盖本会话刚写入的可信网络断开证据。
       try {
-        await NetSceneStopFlag.clear(this.context);
+        await NetSceneStopFlag.clear(this.context, this.sessionId);
       } catch (error) {
-        // startedAt 比较仍会隔离旧标志；清理失败不应把新连接直接判成启动失败。
+        // 会话 ID 会隔离旧标志；清理失败不应把新连接直接判成启动失败。
         this.emitInfo('Network scene stop flag reset failed.', this.errorMessage(error));
       }
       this.ensureStartAllowed('network scene stop flag reset', sessionGeneration);
@@ -581,7 +581,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
           this.requestCleanup('Network scene auto-disconnect.', `session=${this.sessionId}`);
           // 写跨进程标志，供主进程回前台校正「运行中」滞留状态。
           try {
-            await NetSceneStopFlag.markStopped(this.context, stoppedAt);
+            await NetSceneStopFlag.markStopped(this.context, stoppedAt, this.sessionId);
           } catch (error) {
             // 标志只辅助 UI 跨进程校正；落盘失败不能阻止实际 VPN 清理。
             this.emitInfo('Net scene stop flag write failed.', this.errorMessage(error));

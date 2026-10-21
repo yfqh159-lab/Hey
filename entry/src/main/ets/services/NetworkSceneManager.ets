@@ -335,7 +335,11 @@ export class NetworkSceneManager {
       };
       // 后台可能已由 VPN 扩展自动断开，本进程状态滞留「运行中」；据跨进程标志校正。
       const sceneStopped = SHARED_RUNTIME_CONTROLLER.isRunning() &&
-        await NetSceneStopFlag.wasStopped(context, SHARED_RUNTIME_CONTROLLER.runtimeStartedAt());
+        await NetSceneStopFlag.wasStopped(
+          context,
+          SHARED_RUNTIME_CONTROLLER.runtimeStartedAt(),
+          SHARED_RUNTIME_CONTROLLER.runtimeVpnSessionId()
+        );
       if (!this.isCurrentEvaluation(context, generation)) {
         return;
       }

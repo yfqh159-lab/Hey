@@ -522,7 +522,8 @@ export class RuntimeController {
         return;
       }
       this.resetUnhealthyVpnStateConfirmation();
-      const sceneStopped = await NetSceneStopFlag.wasStopped(context, recoveredStartedAt);
+      const sceneStopped = await NetSceneStopFlag.wasStopped(
+        context, recoveredStartedAt, recoveredSessionId);
       // 探针或停止标志读取期间，用户可能已经启动另一模式或 Extension 已换会话。
       // 迟到结果不得把新的 STARTING/本地代理状态覆盖成旧 VPN 会话。
       if (!this.isCurrentRecoveredVpnCandidate(context, recoveredSessionId, recoveredStartedAt)) {
@@ -647,6 +648,10 @@ export class RuntimeController {
 
   runtimeStartedAt(): number {
     return this.startedAt;
+  }
+
+  runtimeVpnSessionId(): string {
+    return this.controller.getSnapshot().vpnSessionId;
   }
 
   isBusy(): boolean {
