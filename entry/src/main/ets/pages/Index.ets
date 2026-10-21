@@ -252,7 +252,7 @@ struct Index {
       return;
     }
     if (intent.kind === 'control') {
-      await this.handleControlDeepLink(intent.action ?? '', intent.targetNodeId ?? '');
+      this.confirmControlDeepLink(intent.action ?? '', intent.targetNodeId ?? '');
       return;
     }
     // 深链来自应用外部（任意网页都能唤起），落地前必须让用户看到完整地址并显式确认，
@@ -298,6 +298,40 @@ struct Index {
     } catch (err) {
       // 弹不出确认框就放弃导入，绝不静默执行。
       SHARED_RUNTIME_CONTROLLER.appendLog(this.t('deepLink.confirm.declined'));
+    }
+  }
+
+  private confirmControlDeepLink(action: DeepLinkControlAction, targetNodeId: string): void {
+    if (action.length === 0) {
+      return;
+    }
+    try {
+      this.getUIContext().showAlertDialog({
+        title: this.t('deepLink.control.confirm.title'),
+        message: this.f1('deepLink.control.confirm.message', 'action', action),
+        autoCancel: true,
+        alignment: DialogAlignment.Bottom,
+        offset: { dx: 0, dy: -20 },
+        primaryButton: {
+          value: this.t('action.confirm'),
+          fontColor: AppColor.onBrand,
+          backgroundColor: AppColor.brand,
+          action: () => {
+            this.handleControlDeepLink(action, targetNodeId);
+          }
+        },
+        secondaryButton: {
+          value: this.t('action.cancel'),
+          fontColor: AppColor.textSecondary,
+          backgroundColor: AppColor.bg,
+          action: () => {
+            SHARED_RUNTIME_CONTROLLER.appendLog(this.t('deepLink.control.confirm.declined'));
+          }
+        }
+      });
+    } catch (err) {
+      // 外部控制入口无法展示确认框时必须拒绝，不能回退为静默执行。
+      SHARED_RUNTIME_CONTROLLER.appendLog(this.t('deepLink.control.confirm.declined'));
     }
   }
 
