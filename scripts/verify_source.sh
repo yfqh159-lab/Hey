@@ -229,6 +229,18 @@ if (customDownloadAt < 0 || customDeleteEnd < 0 ||
   !customMutations.includes('if (fileExisted && !this.assetFileExists(targetPath)) {')) {
   throw new Error('custom Geo file changes can remain invisible to an already running core');
 }
+const deleteCustomAt = controller.indexOf('  async deleteCustomAsset(');
+const deleteCustomEnd = controller.indexOf('\n  private removeStandaloneAssetFiles(', deleteCustomAt);
+const deleteCustom = controller.slice(deleteCustomAt, deleteCustomEnd);
+const persistDeleteAt = deleteCustom.indexOf('await AssetStore.save(context, updated);');
+const removeCustomFileAt = deleteCustom.indexOf('this.removeStandaloneAssetFiles(path);');
+if (deleteCustomAt < 0 || deleteCustomEnd < 0 || persistDeleteAt < 0 ||
+  removeCustomFileAt < persistDeleteAt ||
+  !deleteCustom.includes('await AssetStore.save(context, customAssets);') ||
+  !deleteCustom.includes('if (rollbackSucceeded) {') ||
+  !deleteCustom.includes('Geo file deletion failed and source rollback was not confirmed')) {
+  throw new Error('custom Geo deletion can remove the file before its source record is durably updated');
+}
 const updateCatchAt = update.indexOf('    } catch (error) {');
 const updateCatch = update.slice(updateCatchAt);
 if (updateCatchAt < 0 || !updateCatch.includes('const message = redactDiagnosticText(') ||

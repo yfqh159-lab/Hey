@@ -1031,10 +1031,29 @@ export class AssetsController {
     }
     this.assetMutationRunning = true;
     const path = `${context.filesDir}/${item.name}.dat`;
+    const updated = customAssets.filter(asset => asset.id !== item.id);
     try {
-      this.removeStandaloneAssetFiles(path);
-      const updated = customAssets.filter(asset => asset.id !== item.id);
+      // 先持久化“来源已删除”，再移除文件。反向顺序会在 Preferences 保存失败时
+      // 留下一个仍可见但数据文件已永久丢失的条目。若文件删除失败则尽力恢复旧列表；
+      // 回滚也失败时宁可保留未引用的孤立文件，也不能让 UI 指向不存在的资源。
       await AssetStore.save(context, updated);
+      try {
+        this.removeStandaloneAssetFiles(path);
+      } catch (fileError) {
+        let rollbackSucceeded = false;
+        let rollbackErrorMessage = '';
+        try {
+          await AssetStore.save(context, customAssets);
+          rollbackSucceeded = true;
+        } catch (rollbackError) {
+          rollbackErrorMessage = rollbackError instanceof Error ? rollbackError.message : JSON.stringify(rollbackError);
+        }
+        if (rollbackSucceeded) {
+          throw fileError;
+        }
+        const fileMessage = fileError instanceof Error ? fileError.message : JSON.stringify(fileError);
+        throw new Error(`Geo file deletion failed and source rollback was not confirmed: ${fileMessage}; ${rollbackErrorMessage}`);
+      }
       promptAction.showToast({ message: this.t(language, 'assets.customDeleteSuccess') });
       return updated;
     } catch (error) {
