@@ -189,7 +189,8 @@ if ! grep -Fq 'private static operationTail: Promise<void> = Promise.resolve();'
   ! grep -Fq 'const settings = await SettingsStore.loadNow(context);' "${settings_store_source}" ||
   ! grep -Fq 'return SettingsStore.saveNow(context, SettingsStore.normalize(settings));' "${settings_store_source}" ||
   ! grep -Fq 'private static enqueueOperation<T>(operation: () => Promise<T>): Promise<T>' "${settings_store_source}" ||
-  ! grep -Fq 'SettingsStore.operationTail = task.then(' "${settings_store_source}"; then
+  ! grep -Fq 'SettingsStore.operationTail = task.then(' "${settings_store_source}" ||
+  ! grep -Fq 'return Array.isArray(value) ? value.slice() : fallback.slice();' "${settings_store_source}"; then
   printf 'settings store operations are not serialized against cross-page stale snapshots\n' >&2
   exit 1
 fi

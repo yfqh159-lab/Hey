@@ -335,7 +335,10 @@ export class SettingsStore {
   }
 
   private static arrayValue(value: string[] | undefined, fallback: string[]): string[] {
-    return Array.isArray(value) ? value : fallback;
+    // save() may wait behind another Preferences operation. Never retain a page-owned
+    // array reference in that queued snapshot, otherwise later UI edits mutate the value
+    // that has not been written yet and break call-order persistence guarantees.
+    return Array.isArray(value) ? value.slice() : fallback.slice();
   }
 
   private static routingRulesValue(value: Array<RoutingRule> | undefined): Array<RoutingRule> {
