@@ -1,7 +1,9 @@
 import { ProxyNode, SubscriptionGroup } from './Profile';
 
 export const DEFAULT_SUBSCRIPTION_UPDATE_INTERVAL_MINUTES: number = 1440;
-export const MIN_SUBSCRIPTION_UPDATE_INTERVAL_MINUTES: number = 15;
+// WorkScheduler rejects repeatCycleTime values below 20 minutes. The system may
+// still defer an accepted task further according to app activity and resources.
+export const MIN_SUBSCRIPTION_UPDATE_INTERVAL_MINUTES: number = 20;
 
 export function moveSubscriptionGroup(groups: Array<SubscriptionGroup>, groupId: string, delta: number): Array<SubscriptionGroup> {
   const next = copySubscriptionGroups(groups);

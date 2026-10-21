@@ -1606,6 +1606,49 @@ for (const [file, constantName] of runtimeDeclarations) {
   }
 }
 
+const moduleConfig = JSON.parse(fs.readFileSync('entry/src/main/module.json5', 'utf8'))?.module;
+if (moduleConfig === undefined) {
+  throw new Error('entry module declaration is missing');
+}
+const requestedPermissions = Array.isArray(moduleConfig.requestPermissions)
+  ? moduleConfig.requestPermissions : [];
+const permission = (name) => requestedPermissions.find((item) => item?.name === name);
+if (permission('ohos.permission.INTERNET') === undefined) {
+  throw new Error('entry module must request INTERNET for proxy and update traffic');
+}
+const networkPermission = permission('ohos.permission.GET_NETWORK_INFO');
+const networkAbilities = networkPermission?.usedScene?.abilities;
+if (!Array.isArray(networkAbilities) || !networkAbilities.includes('EntryAbility') ||
+  !networkAbilities.includes('HeyVpnAbility')) {
+  throw new Error('GET_NETWORK_INFO must cover both the UI and VPN network observers');
+}
+
+const extensions = Array.isArray(moduleConfig.extensionAbilities)
+  ? moduleConfig.extensionAbilities : [];
+const vpnExtension = extensions.find((item) => item?.name === 'HeyVpnAbility');
+if (vpnExtension?.type !== 'vpn' || vpnExtension?.srcEntry !== './ets/vpn/HeyVpnAbility.ets' ||
+  vpnExtension?.exported !== false) {
+  throw new Error('HeyVpnAbility manifest entry must remain a private VPN extension');
+}
+const schedulerAbility = declaredString(
+  'entry/src/main/ets/core/SubscriptionSchedulerPlan.ets',
+  'SUBSCRIPTION_AUTO_UPDATE_WORK_ABILITY'
+);
+const schedulerExtension = extensions.find((item) => item?.name === schedulerAbility);
+if (schedulerExtension?.type !== 'workScheduler' ||
+  schedulerExtension?.srcEntry !== './ets/work/SubscriptionUpdateWorkAbility.ets' ||
+  schedulerExtension?.exported !== false) {
+  throw new Error('subscription WorkInfo ability does not match its private manifest extension');
+}
+
+const subscriptionGroups = fs.readFileSync('entry/src/main/ets/core/SubscriptionGroups.ets', 'utf8');
+const minimumIntervalMatch = subscriptionGroups.match(
+  /MIN_SUBSCRIPTION_UPDATE_INTERVAL_MINUTES\s*:\s*number\s*=\s*(\d+)/
+);
+if (minimumIntervalMatch === null || Number(minimumIntervalMatch[1]) < 20) {
+  throw new Error('subscription WorkScheduler repeat interval is below the platform minimum');
+}
+
 const shortcuts = JSON.parse(fs.readFileSync('entry/src/main/resources/base/profile/shortcuts_config.json', 'utf8'));
 const shortcutItems = shortcuts?.shortcuts;
 if (!Array.isArray(shortcutItems) || shortcutItems.length === 0) {

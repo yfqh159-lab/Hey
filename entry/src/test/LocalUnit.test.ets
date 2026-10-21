@@ -4810,6 +4810,7 @@ export default function localUnitTest() {
     });
 
     it('calculates subscription auto update due windows', 0, () => {
+      expect(MIN_SUBSCRIPTION_UPDATE_INTERVAL_MINUTES).assertEqual(20);
       expect(normalizeSubscriptionUpdateInterval(undefined)).assertEqual(DEFAULT_SUBSCRIPTION_UPDATE_INTERVAL_MINUTES);
       expect(normalizeSubscriptionUpdateInterval(0)).assertEqual(DEFAULT_SUBSCRIPTION_UPDATE_INTERVAL_MINUTES);
       expect(normalizeSubscriptionUpdateInterval(1)).assertEqual(MIN_SUBSCRIPTION_UPDATE_INTERVAL_MINUTES);
