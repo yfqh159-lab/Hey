@@ -6,6 +6,7 @@ import {
   APP_LANGUAGE_EN,
   APP_LANGUAGE_ZH_CN,
   APP_LANGUAGE_ZH_TW,
+  APP_MODE_PROXY_ONLY,
   APP_MODE_VPN,
   AppLanguage,
   DEFAULT_DELAY_TEST_URL,
@@ -394,7 +395,8 @@ struct SettingsPage {
       SETTINGS_CATALOG,
       (key: string): boolean => this.isEnabled(key),
       this.searchQuery,
-      (key: string): string => this.t(key)
+      (key: string): string => this.t(key),
+      normalizeAppRuntimeMode(this.settingMode)
     );
     if (this.isMuxXudpQuicAvailable()) {
       return sections;
@@ -414,6 +416,11 @@ struct SettingsPage {
   }
 
   private isEnabled(key: string): boolean {
+    if (key === 'localSocks' && normalizeAppRuntimeMode(this.settingMode) === APP_MODE_PROXY_ONLY) {
+      // 本地代理模式强制创建 SOCKS/HTTP 入站；即使旧设置曾关闭 SOCKS，也要展示其端口、
+      // UDP、认证等实际生效的子项，不能让 UI 与运行配置相互矛盾。
+      return true;
+    }
     return this.toggleValue(key);
   }
 
@@ -599,7 +606,8 @@ struct SettingsPage {
   }
 
   private isLocalProxyEnabled(): boolean {
-    return this.settingLocalSocks || this.settingUseHevTun;
+    return normalizeAppRuntimeMode(this.settingMode) === APP_MODE_PROXY_ONLY ||
+      this.settingLocalSocks || this.settingUseHevTun;
   }
 
   private updateSettingInput(action: string, value: string): void {

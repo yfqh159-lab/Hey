@@ -1,4 +1,5 @@
 import { AppRoute } from '../../shell/AppRoute';
+import { APP_MODE_VPN, AppRuntimeMode, isProxyOnlyRuntimeMode } from '../../core/Profile';
 
 /**
  * 设置页目录（单页长滚动 · 数据驱动）。
@@ -18,6 +19,7 @@ export interface SettingItem {
   type: SettingItemType;
   descKey?: string;       // 可选副标题（i18n）
   dependsOn?: string;     // 依赖的开关 key；为假时整项隐藏
+  vpnOnly?: boolean;      // 仅系统 VPN/TUN 模式有意义；本地代理模式隐藏
   danger?: boolean;       // 危险项，标题红色
   inputKind?: SettingInputKind;  // type==='input' 时（默认 text）
   route?: string;         // type==='nav' 时的目标路由
@@ -63,27 +65,27 @@ export const SETTINGS_CATALOG: SettingGroup[] = [
     titleKey: 'settings.cat.vpn',
     color: '#16A34A',
     items: [
-      { key: 'perApp', titleKey: 'settings.perAppProxy', type: 'nav', route: AppRoute.PER_APP },
-      { key: 'localDns', titleKey: 'settings.localDns', type: 'toggle', descKey: 'settings.localDns.detail' },
-      { key: 'fakeDns', titleKey: 'settings.fakeDns', type: 'toggle', dependsOn: 'localDns', descKey: 'settings.fakeDns.detail' },
-      { key: 'localDnsPort', titleKey: 'settings.localDnsPort', type: 'input', inputKind: 'number' },
+      { key: 'perApp', titleKey: 'settings.perAppProxy', type: 'nav', route: AppRoute.PER_APP, vpnOnly: true },
+      { key: 'localDns', titleKey: 'settings.localDns', type: 'toggle', descKey: 'settings.localDns.detail', vpnOnly: true },
+      { key: 'fakeDns', titleKey: 'settings.fakeDns', type: 'toggle', dependsOn: 'localDns', descKey: 'settings.fakeDns.detail', vpnOnly: true },
+      { key: 'localDnsPort', titleKey: 'settings.localDnsPort', type: 'input', inputKind: 'number', vpnOnly: true },
       { key: 'proxySharing', titleKey: 'settings.proxySharing', type: 'toggle' },
-      { key: 'appendHttpProxy', titleKey: 'settings.appendHttpProxy', type: 'toggle' },
-      { key: 'localSocks', titleKey: 'settings.localSocks', type: 'toggle' },
+      { key: 'appendHttpProxy', titleKey: 'settings.appendHttpProxy', type: 'toggle', vpnOnly: true },
+      { key: 'localSocks', titleKey: 'settings.localSocks', type: 'toggle', vpnOnly: true },
       { key: 'localSocksPort', titleKey: 'settings.localSocksPort', type: 'input', inputKind: 'number', dependsOn: 'localSocks' },
       { key: 'localSocksDynamicPort', titleKey: 'settings.localSocksDynamicPort', type: 'toggle', dependsOn: 'localSocks' },
       { key: 'localSocksUdp', titleKey: 'settings.localSocksUdp', type: 'toggle', dependsOn: 'localSocks' },
       { key: 'localSocksUsername', titleKey: 'settings.localSocksUsername', type: 'input', dependsOn: 'localSocks' },
       { key: 'localSocksPassword', titleKey: 'settings.localSocksPassword', type: 'input', inputKind: 'password', dependsOn: 'localSocks' },
-      { key: 'useHevTun', titleKey: 'settings.useHevTun', type: 'toggle', descKey: 'settings.useHevTun.detail' },
-      { key: 'hevTunLogLevel', titleKey: 'settings.hevTunLogLevel', type: 'option', dependsOn: 'useHevTun' },
-      { key: 'hevTunRwTimeout', titleKey: 'settings.hevTunRwTimeout', type: 'input', inputKind: 'number', dependsOn: 'useHevTun' },
+      { key: 'useHevTun', titleKey: 'settings.useHevTun', type: 'toggle', descKey: 'settings.useHevTun.detail', vpnOnly: true },
+      { key: 'hevTunLogLevel', titleKey: 'settings.hevTunLogLevel', type: 'option', dependsOn: 'useHevTun', vpnOnly: true },
+      { key: 'hevTunRwTimeout', titleKey: 'settings.hevTunRwTimeout', type: 'input', inputKind: 'number', dependsOn: 'useHevTun', vpnOnly: true },
       { key: 'ipv6Enabled', titleKey: 'settings.ipv6Enabled', type: 'toggle' },
       { key: 'preferIpv6', titleKey: 'settings.preferIpv6', type: 'toggle' },
-      { key: 'vpnBypassLan', titleKey: 'settings.vpnBypassLan', type: 'option' },
-      { key: 'vpnInterfaceAddress', titleKey: 'settings.vpnInterfaceAddress', type: 'option' },
-      { key: 'vpnDns', titleKey: 'settings.vpnDns', type: 'input' },
-      { key: 'vpnMtu', titleKey: 'settings.vpnMtu', type: 'input', inputKind: 'number' }
+      { key: 'vpnBypassLan', titleKey: 'settings.vpnBypassLan', type: 'option', vpnOnly: true },
+      { key: 'vpnInterfaceAddress', titleKey: 'settings.vpnInterfaceAddress', type: 'option', vpnOnly: true },
+      { key: 'vpnDns', titleKey: 'settings.vpnDns', type: 'input', vpnOnly: true },
+      { key: 'vpnMtu', titleKey: 'settings.vpnMtu', type: 'input', inputKind: 'number', vpnOnly: true }
     ]
   },
   {
@@ -141,6 +143,7 @@ export const SETTINGS_CATALOG: SettingGroup[] = [
 /**
  * 依赖过滤 + 搜索过滤。纯函数（不依赖 UI/资源），可单测。
  * - 依赖未满足（dependsOn 关）的项隐藏。
+ * - 本地代理模式隐藏仅对系统 VPN/TUN 生效的项。
  * - query 非空时，命中 = 本地化标题 / 描述 / 组标题 / item.key（英文别名）包含 query。
  * - 仅返回仍有可见项的分组。
  */
@@ -148,13 +151,17 @@ export function filterSettings(
   catalog: SettingGroup[],
   isEnabled: (key: string) => boolean,
   query: string,
-  text: (key: string) => string
+  text: (key: string) => string,
+  runtimeMode: AppRuntimeMode = APP_MODE_VPN
 ): SettingGroup[] {
   const q = query.trim().toLowerCase();
   const out: SettingGroup[] = [];
   for (const group of catalog) {
     const items: SettingItem[] = [];
     for (const item of group.items) {
+      if (item.vpnOnly === true && isProxyOnlyRuntimeMode(runtimeMode)) {
+        continue;
+      }
       if (item.dependsOn !== undefined && !isEnabled(item.dependsOn)) {
         continue;
       }

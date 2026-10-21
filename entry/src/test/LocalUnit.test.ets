@@ -165,6 +165,22 @@ export default function localUnitTest() {
       expect(res.length).assertEqual(1);
       expect(res[0].id).assertEqual('vpn');
     });
+
+    it('hides TUN-only settings while keeping local proxy controls', 0, () => {
+      const proxyEnabled = (key: string): boolean => key === 'localSocks' || isEnabled(key);
+      const keys = allKeys(filterSettings(SETTINGS_CATALOG, proxyEnabled, '', idText, APP_MODE_PROXY_ONLY));
+      expect(keys.includes('perApp')).assertFalse();
+      expect(keys.includes('localDns')).assertFalse();
+      expect(keys.includes('appendHttpProxy')).assertFalse();
+      expect(keys.includes('localSocks')).assertFalse();
+      expect(keys.includes('useHevTun')).assertFalse();
+      expect(keys.includes('vpnDns')).assertFalse();
+      expect(keys.includes('vpnMtu')).assertFalse();
+      expect(keys.includes('localSocksPort')).assertTrue();
+      expect(keys.includes('localSocksUdp')).assertTrue();
+      expect(keys.includes('proxySharing')).assertTrue();
+      expect(keys.includes('ipv6Enabled')).assertTrue();
+    });
   });
 
   describe('settingsChange', () => {
