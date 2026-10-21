@@ -11,7 +11,8 @@ import { AppLanguage } from '../core/Profile';
 import {
   NetAutomationConfig,
   NET_ACTION_DISCONNECT,
-  decideNetAutomationAction
+  decideNetAutomationAction,
+  networkContextSignature
 } from '../core/NetworkAutomation';
 import { SettingsStore } from '../storage/SettingsStore';
 import { NetSceneStopFlag } from './NetSceneStopFlag';
@@ -145,7 +146,7 @@ export class NetworkSceneManager {
       if (!this.isCurrentEvaluation(context, generation)) {
         return;
       }
-      const signature = `${ctx.kind}|${ctx.ssid ?? ''}`;
+      const signature = networkContextSignature(ctx);
       if (!force && signature === this.lastHandledSignature) {
         return; // 同一网络只处理一次，避免抖动/较劲
       }

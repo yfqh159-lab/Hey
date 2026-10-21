@@ -18,10 +18,21 @@ export type AutoAction = 'disconnect' | 'noop';
 export const NET_ACTION_DISCONNECT: AutoAction = 'disconnect';
 export const NET_ACTION_NOOP: AutoAction = 'noop';
 
-// 当前网络上下文；ssid 仅 wifi 有意义，拿不到（无权限/隐藏 SSID）时为 undefined
+// 当前网络上下文；ssid 仅 wifi 有意义，拿不到（无权限/隐藏 SSID）时为 undefined。
+// networkId 是系统分配的非持久网络句柄，只用于区分同类型承载的切换，不参与可信网络判断。
 export interface NetContext {
   kind: NetKind;
   ssid?: string;
+  networkId?: number;
+}
+
+/**
+ * 网络变化去重签名。即使 SSID 因权限或隐藏网络不可见，不同底层 NetHandle 仍能触发复测。
+ * 该签名只在进程内比较，不落盘、不作为设备或网络身份。
+ */
+export function networkContextSignature(ctx: NetContext): string {
+  const networkId = ctx.networkId === undefined ? '' : `${ctx.networkId}`;
+  return `${ctx.kind}|${ctx.ssid ?? ''}|${networkId}`;
 }
 
 // 自动化配置（来自 AppSettings 的相关子集）

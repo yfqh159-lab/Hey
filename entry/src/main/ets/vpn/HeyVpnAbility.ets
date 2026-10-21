@@ -3,7 +3,12 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { vpnExtension, VpnExtensionAbility } from '@kit.NetworkKit';
 import Want from '@ohos.app.ability.Want';
 import { NetworkProbe } from '../services/NetworkProbe';
-import { NetAutomationConfig, NET_ACTION_DISCONNECT, decideNetAutomationAction } from '../core/NetworkAutomation';
+import {
+  NetAutomationConfig,
+  NET_ACTION_DISCONNECT,
+  decideNetAutomationAction,
+  networkContextSignature
+} from '../core/NetworkAutomation';
 import { NetSceneStopFlag } from '../services/NetSceneStopFlag';
 import { AppLanguage, ConnectionStatus, resolveVpnInterfaceAddressConfig, RuntimeStats } from '../core/Profile';
 import {
@@ -288,7 +293,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       if (this.cleaningUp || this.stopRequested) {
         return;
       }
-      const signature = `${ctx.kind}|${ctx.ssid ?? ''}`;
+      const signature = networkContextSignature(ctx);
       // 首次只 seed 不动作——避免拆掉用户「在可信网络手动开的 VPN」；仅对之后的网络切换生效。
       if (!this.netSceneSeeded) {
         this.netSceneSeeded = true;

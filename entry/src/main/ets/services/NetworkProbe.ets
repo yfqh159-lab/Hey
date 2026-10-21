@@ -24,9 +24,19 @@ export interface WifiScanEntry {
   rssi: number;
 }
 
+interface UnderlyingNetworkSnapshot {
+  kind: NetKind;
+  networkId?: number;
+}
+
+interface NetworkHandleLike {
+  netId?: number;
+}
+
 export class NetworkProbe {
   /** 读当前网络上下文（承载类型 + WiFi SSID）。任何异常都安全回退到 none。 */
   static async readCurrentNetContext(): Promise<NetContext> {
+    const underlying = await NetworkProbe.readUnderlyingNetwork();
     // 1) WiFi 物理已连接（不受自身 VPN 影响）
     let wifiConnected = false;
     try {
@@ -36,11 +46,14 @@ export class NetworkProbe {
     }
     if (wifiConnected) {
       const ssid = await NetworkProbe.readCurrentSsid();
-      return { kind: NET_KIND_WIFI, ssid: ssid };
+      return {
+        kind: NET_KIND_WIFI,
+        ssid: ssid,
+        networkId: underlying.kind === NET_KIND_WIFI ? underlying.networkId : undefined
+      };
     }
     // 2) 否则看底层承载（跳过自身 VPN）
-    const kind = await NetworkProbe.readUnderlyingBearerKind();
-    return { kind: kind };
+    return { kind: underlying.kind, networkId: underlying.networkId };
   }
 
   /** 读当前连接的 WiFi SSID；无权限/隐藏/异常时返回 undefined。 */
@@ -113,35 +126,60 @@ export class NetworkProbe {
     }
   }
 
-  private static async readUnderlyingBearerKind(): Promise<NetKind> {
+  private static async readUnderlyingNetwork(): Promise<UnderlyingNetworkSnapshot> {
     try {
       const nets = await connection.getAllNets();
+      let hasWifi = false;
       let hasCellular = false;
       let hasOther = false;
+      let wifiId: number | undefined = undefined;
+      let cellularId: number | undefined = undefined;
+      let otherId: number | undefined = undefined;
       for (let index = 0; index < nets.length; index++) {
         const caps = connection.getNetCapabilitiesSync(nets[index]);
         const bearers = caps.bearerTypes ?? [];
         if (bearers.includes(connection.NetBearType.BEARER_VPN)) {
           continue; // 跳过自身 VPN 隧道
         }
+        const networkId = NetworkProbe.readNetworkId(nets[index]);
         if (bearers.includes(connection.NetBearType.BEARER_WIFI)) {
-          return NET_KIND_WIFI;
+          hasWifi = true;
+          wifiId = NetworkProbe.preferStableNetworkId(wifiId, networkId);
+          continue;
         }
         if (bearers.includes(connection.NetBearType.BEARER_CELLULAR)) {
           hasCellular = true;
+          cellularId = NetworkProbe.preferStableNetworkId(cellularId, networkId);
         } else {
           hasOther = true;
+          otherId = NetworkProbe.preferStableNetworkId(otherId, networkId);
         }
       }
+      if (hasWifi) {
+        return { kind: NET_KIND_WIFI, networkId: wifiId };
+      }
       if (hasCellular) {
-        return NET_KIND_CELLULAR;
+        return { kind: NET_KIND_CELLULAR, networkId: cellularId };
       }
       if (hasOther) {
-        return NET_KIND_OTHER;
+        return { kind: NET_KIND_OTHER, networkId: otherId };
       }
-      return NET_KIND_NONE;
+      return { kind: NET_KIND_NONE };
     } catch (error) {
-      return NET_KIND_NONE;
+      return { kind: NET_KIND_NONE };
     }
+  }
+
+  private static readNetworkId(handle: Object): number | undefined {
+    const value = (handle as NetworkHandleLike).netId;
+    return value !== undefined && Number.isFinite(value) && value >= 0 ? Math.floor(value) : undefined;
+  }
+
+  // getAllNets() 的顺序不保证稳定；同一承载存在多个句柄时固定选择最小 id，避免假变化。
+  private static preferStableNetworkId(current: number | undefined, candidate: number | undefined): number | undefined {
+    if (candidate === undefined) {
+      return current;
+    }
+    return current === undefined ? candidate : Math.min(current, candidate);
   }
 }

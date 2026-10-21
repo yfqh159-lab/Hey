@@ -10,7 +10,7 @@ import { buildH2HttpSettings, splitH2Hosts } from '../main/ets/core/H2Transport'
 import { toIdnDomain, toIdnUrl } from '../main/ets/core/IdnUrl';
 import { formatTranslation, missingTranslationKeys, normalizeLanguage, resolveLanguage, resolveSystemLanguage, translate } from '../main/ets/core/I18n';
 import { resolveImportedNodeName } from '../main/ets/core/ImportedNodeNames';
-import { AutoAction, NetAutomationConfig, NetContext, decideNetAutomationAction, isTrustedNetwork } from '../main/ets/core/NetworkAutomation';
+import { AutoAction, NetAutomationConfig, NetContext, decideNetAutomationAction, isTrustedNetwork, networkContextSignature } from '../main/ets/core/NetworkAutomation';
 import { defaultJsonConfigNodeName, resolveJsonConfigNodeName } from '../main/ets/core/JsonConfigNames';
 import { selectRuntimeLocalSocksPort, shouldExposeLocalHttpProxy, shouldUseDynamicLocalSocksPort, withRuntimeLocalSocksPort } from '../main/ets/core/LocalProxy';
 import { parseManualOutboundEditState } from '../main/ets/core/ManualOutboundEditState';
@@ -4570,6 +4570,20 @@ export default function localUnitTest() {
       const c = cfg(['home'], false);
       expect(decide({ kind: 'none' }, c, true)).assertEqual('noop');
       expect(decide({ kind: 'other' }, c, true)).assertEqual('noop');
+    });
+
+    it('distinguishes hidden Wi-Fi changes by ephemeral network handle', 0, () => {
+      const first = networkContextSignature({ kind: 'wifi', networkId: 12 });
+      const same = networkContextSignature({ kind: 'wifi', networkId: 12 });
+      const next = networkContextSignature({ kind: 'wifi', networkId: 18 });
+      expect(first).assertEqual(same);
+      expect(first === next).assertFalse();
+    });
+
+    it('keeps network handle out of trust decisions', 0, () => {
+      const c = cfg(['home'], false);
+      expect(decide({ kind: 'wifi', ssid: 'home', networkId: 12 }, c, true)).assertEqual('disconnect');
+      expect(decide({ kind: 'wifi', networkId: 12 }, c, true)).assertEqual('noop');
     });
   });
 }
