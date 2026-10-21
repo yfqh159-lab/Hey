@@ -6,6 +6,7 @@ const VPN_RUNTIME_STATE_FILE: string = 'hey-vpn-runtime-state.json';
 const VPN_RUNTIME_STATE_TEMP_FILE: string = 'hey-vpn-runtime-state.tmp';
 const VPN_RUNTIME_STATE_BACKUP_FILE: string = 'hey-vpn-runtime-state.bak';
 export const VPN_RUNTIME_HEARTBEAT_STALE_MS: number = 30000;
+export const VPN_RUNTIME_STATE_WRITE_FAILURE_LIMIT: number = 3;
 
 export interface PersistedVpnRuntimeState {
   sessionId: string;
@@ -48,6 +49,11 @@ export function isPersistedVpnRuntimeHealthy(
     now - state.heartbeatAt <= staleAfterMs;
 }
 
+export function shouldCleanupAfterVpnRuntimeStateWriteFailures(failureCount: number): boolean {
+  return Number.isFinite(failureCount) && Math.floor(failureCount) === failureCount &&
+    failureCount >= VPN_RUNTIME_STATE_WRITE_FAILURE_LIMIT;
+}
+
 export function selectPersistedVpnRuntimeState(
   primaryContent: string | null,
   backupContent: string | null,
@@ -67,7 +73,7 @@ export function selectPersistedVpnRuntimeState(
 }
 
 export class VpnRuntimeStateStore {
-  static write(context: common.Context, state: PersistedVpnRuntimeState): void {
+  static write(context: common.Context, state: PersistedVpnRuntimeState): boolean {
     const targetPath = VpnRuntimeStateStore.path(context, VPN_RUNTIME_STATE_FILE);
     const tempPath = VpnRuntimeStateStore.path(context, VPN_RUNTIME_STATE_TEMP_FILE);
     const backupPath = VpnRuntimeStateStore.path(context, VPN_RUNTIME_STATE_BACKUP_FILE);
@@ -92,6 +98,7 @@ export class VpnRuntimeStateStore {
         fs.renameSync(targetPath, backupPath);
       }
       fs.renameSync(tempPath, targetPath);
+      return true;
     } catch (error) {
       console.error(`VPN runtime state write failed: ${JSON.stringify(error)}`);
       try {
@@ -106,9 +113,14 @@ export class VpnRuntimeStateStore {
       } catch (restoreError) {
         console.error(`VPN runtime state restore failed: ${JSON.stringify(restoreError)}`);
       }
+      return false;
     } finally {
       if (file !== null) {
-        fs.closeSync(file);
+        try {
+          fs.closeSync(file);
+        } catch (closeError) {
+          console.error(`VPN runtime state close failed: ${JSON.stringify(closeError)}`);
+        }
       }
     }
   }

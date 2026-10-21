@@ -60,7 +60,7 @@ import { parseCoreLog } from '../main/ets/services/CoreLogReader';
 import { nativeDelayFailureStatus } from '../main/ets/services/DelayTester';
 import { isRuntimeHealthPort } from '../main/ets/services/RuntimeHealthProbe';
 import { parseNetSceneStopTimestamp, selectNetSceneStopTimestamp, wasNetSceneStoppedAfter } from '../main/ets/services/NetSceneStopFlag';
-import { PersistedVpnRuntimeState, VPN_RUNTIME_HEARTBEAT_STALE_MS, isPersistedVpnRuntimeHealthy, parsePersistedVpnRuntimeState, selectPersistedVpnRuntimeState } from '../main/ets/services/VpnRuntimeStateStore';
+import { PersistedVpnRuntimeState, VPN_RUNTIME_HEARTBEAT_STALE_MS, isPersistedVpnRuntimeHealthy, parsePersistedVpnRuntimeState, selectPersistedVpnRuntimeState, shouldCleanupAfterVpnRuntimeStateWriteFailures } from '../main/ets/services/VpnRuntimeStateStore';
 import { buildAssetDownloadProxyPorts, resolveAssetDownloadProxyPlan } from '../main/ets/features/assets/AssetsController';
 import {
   applyDelayTestPostActionsToGroups,
@@ -3132,6 +3132,16 @@ export default function localUnitTest() {
       expect(parsePersistedVpnRuntimeState(JSON.stringify(healthy))).assertEqual(null);
       healthy.profileUpdatedAt = 123456;
       expect(parsePersistedVpnRuntimeState('{"active":true}')).assertEqual(null);
+    });
+
+    it('cleans up only after repeated VPN runtime state write failures', 0, () => {
+      expect(shouldCleanupAfterVpnRuntimeStateWriteFailures(0)).assertFalse();
+      expect(shouldCleanupAfterVpnRuntimeStateWriteFailures(1)).assertFalse();
+      expect(shouldCleanupAfterVpnRuntimeStateWriteFailures(2)).assertFalse();
+      expect(shouldCleanupAfterVpnRuntimeStateWriteFailures(3)).assertTrue();
+      expect(shouldCleanupAfterVpnRuntimeStateWriteFailures(4)).assertTrue();
+      expect(shouldCleanupAfterVpnRuntimeStateWriteFailures(2.5)).assertFalse();
+      expect(shouldCleanupAfterVpnRuntimeStateWriteFailures(Number.NaN)).assertFalse();
     });
 
     it('ignores stale network-scene stop flags from older vpn sessions', 0, () => {

@@ -36,7 +36,10 @@ import { VPN_DATA_SOCKS_HOST, VPN_DATA_SOCKS_PORT } from '../core/XrayConfig';
 import { buildHevTunConfigYaml } from '../core/HevTunConfig';
 import { isSingboxCore } from '../core/CoreSelection';
 import { DiagnosticLog } from '../services/DiagnosticLog';
-import { VpnRuntimeStateStore } from '../services/VpnRuntimeStateStore';
+import {
+  VpnRuntimeStateStore,
+  shouldCleanupAfterVpnRuntimeStateWriteFailures
+} from '../services/VpnRuntimeStateStore';
 import { isRuntimeHealthPort, probeRuntimeSocksHealth, waitForRuntimeSocksHealth } from '../services/RuntimeHealthProbe';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { SPEED_NOTIFICATION_MANAGER } from '../services/SpeedNotificationManager';
@@ -90,6 +93,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   private activeProfileUpdatedAt: number = 0;
   private activeLanguage: AppLanguage = DEFAULT_LANGUAGE;
   private lastRuntimeStateAt: number = 0;
+  private runtimeStateWriteFailureCount: number = 0;
   private cleaningUp: boolean = false;
   private cleanupAgainRequested: boolean = false;
   // 一旦系统销毁、用户停止、网络场景断开或健康检查失败，当前启动协程不得再继续
@@ -111,9 +115,18 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     this.activeProfileUpdatedAt = this.getNonNegativeIntegerParameter(want, VPN_PROFILE_UPDATED_AT_KEY);
     // 新会话尚未完成核心 + TUN 启动，先覆盖上次可能残留的 active 心跳。只有完整数据面
     // 就绪后 startVpn 才会写 active=true，主进程重建时不会把“启动中”误接管为已连接。
-    VpnRuntimeStateStore.write(this.context,
+    const initialized = VpnRuntimeStateStore.write(this.context,
       VpnRuntimeStateStore.stopped(
         this.sessionId, this.startedAt, this.activeCoreType, this.activeProfileUpdatedAt));
+    if (!initialized) {
+      // ConnectionController waits for this exact terminal event before deciding
+      // whether the system start request succeeded.
+      this.emitError('VPN start failed.',
+        `session=${this.sessionId}; error=VPN runtime state initialization failed.`);
+      this.requestCleanup('VPN startup cancelled because runtime state is unavailable.',
+        `session=${this.sessionId}`);
+      return;
+    }
     this.emitInfo('VPN ability created.', `session=${this.sessionId}`);
     if (this.isStopCommand(want)) {
       this.requestCleanup('VPN stop command received on create.', 'startId=0');
@@ -245,17 +258,22 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       this.ensureStartAllowed('TUN data-plane startup');
       this.emitInfo('tun data plane started.', `engine=${useHevTun ? 'hev' : 'gvisor'}, ${VPN_DATA_SOCKS_HOST}:${VPN_DATA_SOCKS_PORT}, mtu=${vpnMtu}, core=${useSingbox ? 'singbox' : 'xray'}, ${tun2socksResult.message}`);
 
-      this.lastRuntimeStateAt = Date.now();
-      VpnRuntimeStateStore.write(this.context, {
+      const activeAt = Date.now();
+      const activeStateStored = VpnRuntimeStateStore.write(this.context, {
         sessionId: this.sessionId,
         active: true,
         startedAt: this.startedAt,
-        heartbeatAt: this.lastRuntimeStateAt,
+        heartbeatAt: activeAt,
         coreType: this.activeCoreType,
         profileUpdatedAt: this.activeProfileUpdatedAt,
         xrayRunning: true,
         tunRunning: true
       });
+      if (!activeStateStored) {
+        throw new Error('VPN runtime state could not be persisted.');
+      }
+      this.lastRuntimeStateAt = activeAt;
+      this.runtimeStateWriteFailureCount = 0;
 
       this.startStatsTimer(settings.speedEnabled ? STATS_INTERVAL_MS : HEALTH_INTERVAL_MS);
       if (!settings.speedEnabled) {
@@ -401,12 +419,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     try {
       do {
         this.cleanupAgainRequested = false;
-        VpnRuntimeStateStore.write(this.context,
-          VpnRuntimeStateStore.stopped(
-            this.sessionId,
-            this.startedAt > 0 ? this.startedAt : Date.now(),
-            this.activeCoreType,
-            this.activeProfileUpdatedAt));
+        const stoppedStateStored = this.persistStoppedRuntimeState('before data-plane cleanup');
         this.stopNetScenePoll();
         this.stopStatsTimer();
         this.emitInfo('VPN cleanup started.', `tunFd=${this.tunFd}`);
@@ -436,6 +449,9 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         }
         this.tunFd = -1;
         this.runtimeHealthProbePort = 0;
+        if (!stoppedStateStored) {
+          this.persistStoppedRuntimeState('after VPN destroy');
+        }
         // 保持 cleaningUp 闩锁直到附属界面状态也完成（或超时）；期间的重入停止请求只会
         // 设置 cleanupAgainRequested，并由下一轮重新扫描全部原生资源。
         await notificationCancel;
@@ -534,8 +550,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     const downloadBytes = stats.downloadBytes;
     const now = Date.now();
     if (now - this.lastRuntimeStateAt >= RUNTIME_STATE_INTERVAL_MS) {
-      this.lastRuntimeStateAt = now;
-      VpnRuntimeStateStore.write(this.context, {
+      const stored = VpnRuntimeStateStore.write(this.context, {
         sessionId: this.sessionId,
         active: true,
         startedAt: this.startedAt,
@@ -545,6 +560,25 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         xrayRunning: stats.xrayRunning,
         tunRunning: stats.tunRunning
       });
+      if (stored) {
+        this.lastRuntimeStateAt = now;
+        if (this.runtimeStateWriteFailureCount > 0) {
+          this.emitInfo('VPN runtime state persistence recovered.');
+        }
+        this.runtimeStateWriteFailureCount = 0;
+      } else {
+        this.runtimeStateWriteFailureCount++;
+        if (this.runtimeStateWriteFailureCount === 1) {
+          this.emitError('VPN runtime state heartbeat write failed; retrying.',
+            `session=${this.sessionId}`);
+        }
+        if (shouldCleanupAfterVpnRuntimeStateWriteFailures(this.runtimeStateWriteFailureCount)) {
+          this.emitError('VPN runtime state persistence remained unavailable; cleaning up without reconnecting.',
+            `session=${this.sessionId}`);
+          this.requestCleanup('Unpersisted VPN runtime cleanup requested.', `session=${this.sessionId}`);
+          return;
+        }
+      }
     }
     DiagnosticLog.append(this.context, {
       at: Date.now(),
@@ -571,6 +605,19 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     }
     this.emitError('VPN runtime became unhealthy; cleaning up without reconnecting.', details);
     this.requestCleanup('Unhealthy VPN runtime cleanup requested.', `session=${this.sessionId}`);
+  }
+
+  private persistStoppedRuntimeState(stage: string): boolean {
+    const stored = VpnRuntimeStateStore.write(this.context,
+      VpnRuntimeStateStore.stopped(
+        this.sessionId,
+        this.startedAt > 0 ? this.startedAt : Date.now(),
+        this.activeCoreType,
+        this.activeProfileUpdatedAt));
+    if (!stored) {
+      this.emitError('VPN stopped state write failed.', `stage=${stage}; session=${this.sessionId}`);
+    }
+    return stored;
   }
 
   private emitInfo(message: string, details: string = ''): void {
