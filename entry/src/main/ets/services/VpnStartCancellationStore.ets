@@ -5,10 +5,72 @@ import { isValidVpnSessionId } from '../vpn/VpnConstants';
 const CANCELLATION_FILE: string = 'hey-vpn-start-cancelled';
 const CANCELLATION_TEMP_FILE: string = 'hey-vpn-start-cancelled.tmp';
 const CANCELLATION_BACKUP_FILE: string = 'hey-vpn-start-cancelled.bak';
+const CANCELLATION_HISTORY_VERSION: number = 1;
+
+interface StoredVpnStartCancellationHistory {
+  version: number;
+  sessionIds: string[];
+}
 
 export interface VpnStartCancellationCheck {
   cancelled: boolean;
   reliable: boolean;
+}
+
+/**
+ * Decode the durable cancellation set. Older builds stored one bare session ID, so keep that
+ * representation readable and migrate it on the next write. Invalid content is not equivalent
+ * to an empty set: callers must fail closed instead of allowing an unknown delayed start.
+ */
+export function parseVpnStartCancellationHistory(raw: string): string[] | null {
+  const trimmed = raw.trim();
+  if (isValidVpnSessionId(trimmed)) {
+    return [trimmed];
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as StoredVpnStartCancellationHistory;
+    if (parsed === null || typeof parsed !== 'object' ||
+      parsed.version !== CANCELLATION_HISTORY_VERSION || !Array.isArray(parsed.sessionIds) ||
+      parsed.sessionIds.length === 0) {
+      return null;
+    }
+    const result = new Array<string>();
+    for (let index = 0; index < parsed.sessionIds.length; index++) {
+      const sessionId = parsed.sessionIds[index];
+      if (!isValidVpnSessionId(sessionId)) {
+        return null;
+      }
+      if (!result.includes(sessionId)) {
+        result.push(sessionId);
+      }
+    }
+    return result;
+  } catch (_error) {
+    return null;
+  }
+}
+
+export function appendVpnStartCancellation(
+  sessionIds: string[],
+  sessionId: string
+): string[] | null {
+  if (!isValidVpnSessionId(sessionId)) {
+    return null;
+  }
+  const result = new Array<string>();
+  for (let index = 0; index < sessionIds.length; index++) {
+    const existing = sessionIds[index];
+    if (!isValidVpnSessionId(existing)) {
+      return null;
+    }
+    if (!result.includes(existing)) {
+      result.push(existing);
+    }
+  }
+  if (!result.includes(sessionId)) {
+    result.push(sessionId);
+  }
+  return result;
 }
 
 /**
@@ -27,9 +89,26 @@ export class VpnStartCancellationStore {
     let file: fs.File | null = null;
     try {
       VpnStartCancellationStore.recover(targetPath, tempPath, backupPath);
+      let history = new Array<string>();
+      if (fs.accessSync(targetPath)) {
+        const parsed = parseVpnStartCancellationHistory(fs.readTextSync(targetPath));
+        if (parsed === null) {
+          return false;
+        }
+        history = parsed;
+      }
+      const nextHistory = appendVpnStartCancellation(history, sessionId);
+      if (nextHistory === null) {
+        return false;
+      }
+      const payload: StoredVpnStartCancellationHistory = {
+        version: CANCELLATION_HISTORY_VERSION,
+        sessionIds: nextHistory
+      };
+      const content = JSON.stringify(payload);
       file = fs.openSync(tempPath, fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
-      const written = fs.writeSync(file.fd, sessionId);
-      if (written !== sessionId.length) {
+      const written = fs.writeSync(file.fd, content);
+      if (written !== content.length) {
         throw new Error('short VPN start cancellation write');
       }
       fs.fsyncSync(file.fd);
@@ -74,13 +153,13 @@ export class VpnStartCancellationStore {
         if (!fs.accessSync(paths[index])) {
           continue;
         }
-        const stored = fs.readTextSync(paths[index]).trim();
-        if (!isValidVpnSessionId(stored)) {
+        const stored = parseVpnStartCancellationHistory(fs.readTextSync(paths[index]));
+        if (stored === null) {
           return { cancelled: false, reliable: false };
         }
         // temp > primary > backup. Once a higher-priority artifact is valid it is the
         // authoritative marker; an old lower-priority backup must not poison new sessions.
-        return { cancelled: stored === sessionId, reliable: true };
+        return { cancelled: stored.includes(sessionId), reliable: true };
       }
       return { cancelled: false, reliable: true };
     } catch (_error) {
@@ -90,8 +169,8 @@ export class VpnStartCancellationStore {
 
   private static recover(targetPath: string, tempPath: string, backupPath: string): void {
     if (fs.accessSync(tempPath)) {
-      const temp = fs.readTextSync(tempPath).trim();
-      if (isValidVpnSessionId(temp)) {
+      const temp = parseVpnStartCancellationHistory(fs.readTextSync(tempPath));
+      if (temp !== null) {
         VpnStartCancellationStore.removeIfExists(backupPath);
         if (fs.accessSync(targetPath)) {
           fs.renameSync(targetPath, backupPath);

@@ -65,6 +65,7 @@ import { nativeDelayFailureStatus } from '../main/ets/services/DelayTester';
 import { isRuntimeHealthPort } from '../main/ets/services/RuntimeHealthProbe';
 import { parseNetSceneStopTimestamp, selectNetSceneStopTimestamp, wasNetSceneStoppedAfter } from '../main/ets/services/NetSceneStopFlag';
 import { PersistedVpnRuntimeState, VPN_RUNTIME_HEARTBEAT_STALE_MS, hasInvalidPersistedVpnRuntimeArtifacts, inspectPersistedVpnRuntimeArtifacts, isPersistedVpnCleanupIncomplete, isPersistedVpnRuntimeHealthy, isPersistedVpnRuntimeSessionReady, isPersistedVpnRuntimeSessionStopped, parsePersistedVpnRuntimeState, selectPersistedVpnRuntimeState, shouldCleanupAfterVpnRuntimeStateWriteFailures } from '../main/ets/services/VpnRuntimeStateStore';
+import { appendVpnStartCancellation, parseVpnStartCancellationHistory } from '../main/ets/services/VpnStartCancellationStore';
 import { buildAssetDownloadProxyPorts, resolveAssetDownloadProxyPlan } from '../main/ets/features/assets/AssetsController';
 import {
   applyDelayTestPostActionsToGroups,
@@ -3398,6 +3399,32 @@ export default function localUnitTest() {
       expect(isVpnCleanupComplete(true, false, true, true)).assertFalse();
       expect(isVpnCleanupComplete(true, true, false, true)).assertFalse();
       expect(isVpnCleanupComplete(true, true, true, false)).assertFalse();
+    });
+
+    it('retains every cancelled VPN start session across marker upgrades', 0, () => {
+      const legacy = parseVpnStartCancellationHistory('session-old');
+      expect(legacy?.length ?? 0).assertEqual(1);
+      expect(legacy?.[0] ?? '').assertEqual('session-old');
+
+      const history = parseVpnStartCancellationHistory(
+        '{"version":1,"sessionIds":["session-old","session-new","session-old"]}'
+      );
+      expect(history?.length ?? 0).assertEqual(2);
+      expect(history?.includes('session-old') ?? false).assertTrue();
+      expect(history?.includes('session-new') ?? false).assertTrue();
+
+      const appended = appendVpnStartCancellation(history ?? [], 'session-latest');
+      expect(appended?.length ?? 0).assertEqual(3);
+      expect(appended?.includes('session-old') ?? false).assertTrue();
+      expect(appended?.includes('session-latest') ?? false).assertTrue();
+      expect(appendVpnStartCancellation(appended ?? [], 'session-latest')?.length ?? 0).assertEqual(3);
+
+      expect(parseVpnStartCancellationHistory('{"version":1,"sessionIds":["../escape"]}'))
+        .assertEqual(null);
+      expect(parseVpnStartCancellationHistory('{"version":2,"sessionIds":["session-old"]}'))
+        .assertEqual(null);
+      expect(parseVpnStartCancellationHistory('{"version":1,"sessionIds":[]}')).assertEqual(null);
+      expect(appendVpnStartCancellation(['broken/session'], 'session-new')).assertEqual(null);
     });
 
     it('accepts persisted VPN startup only for the expected fresh healthy session', 0, () => {

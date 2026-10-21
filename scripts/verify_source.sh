@@ -2002,6 +2002,11 @@ vpn_cancel_store="entry/src/main/ets/services/VpnStartCancellationStore.ets"
 if [[ ! -f "$vpn_cancel_store" ]] || \
   ! grep -Fq "static markCancelled(context: common.Context, sessionId: string): boolean" "$vpn_cancel_store" || \
   ! grep -Fq "static check(context: common.Context, sessionId: string): VpnStartCancellationCheck" "$vpn_cancel_store" || \
+  ! grep -Fq "export function parseVpnStartCancellationHistory(raw: string): string[] | null" "$vpn_cancel_store" || \
+  ! grep -Fq "export function appendVpnStartCancellation(" "$vpn_cancel_store" || \
+  ! grep -Fq "sessionIds: nextHistory" "$vpn_cancel_store" || \
+  ! grep -Fq "stored.includes(sessionId)" "$vpn_cancel_store" || \
+  grep -Fq "return { cancelled: stored === sessionId" "$vpn_cancel_store" || \
   ! grep -Fq "VpnStartCancellationStore.markCancelled(context, targetSessionId)" \
   "entry/src/main/ets/services/ConnectionController.ets" || \
   ! grep -Fq "VpnStartCancellationStore.markCancelled(context, sessionId)" \
