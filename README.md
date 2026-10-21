@@ -62,7 +62,10 @@ part of it.
 The Xray path is the production path in this repository. It supports VPN mode
 and proxy-only mode, generates runtime Xray config from the selected profile,
 starts/stops the HarmonyOS VPN Extension, and routes VPN traffic through the
-packaged `libheytun2socks.so` adapter.
+packaged `libheytun2socks.so` adapter. Proxy-only mode does not create a TUN;
+it exposes a configurable local SOCKS port plus the loopback HTTP proxy on
+port `18081` by default, which is also used for exit-IP verification. Listening
+outside loopback still requires the explicit proxy-sharing setting.
 
 The current VPN data path for both cores is:
 

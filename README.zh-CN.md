@@ -51,7 +51,8 @@ VPN Extension Ability、服务卡片、WorkScheduler、ScanKit 扫码、桌面�
 
 Xray 路径是这个仓库里的主路径。它支持 VPN 模式和仅代理模式，可以从当前节点/配置生成运行时
 Xray 配置，启动和停止 HarmonyOS VPN Extension，并通过随包的 `libheytun2socks.so` 转发
-VPN 流量。
+VPN 流量。仅代理模式不会创建 TUN，而是提供可配置的本地 SOCKS 端口及回环 HTTP `18081`
+端口，出口 IP 验证也经该 HTTP 入口完成；只有用户显式开启代理共享时才监听回环以外地址。
 
 当前两个内核共用的 VPN 数据面是：
 

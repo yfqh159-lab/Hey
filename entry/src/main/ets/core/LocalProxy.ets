@@ -8,7 +8,9 @@ export function shouldExposeLocalHttpProxy(settings: AppSettings | undefined): b
 }
 
 export function shouldExposeLocalHttpProxyState(mode: string | undefined, appendHttpProxy: boolean, localSocksEnabled: boolean): boolean {
-  return isVpnRuntimeMode(mode) && appendHttpProxy && localSocksEnabled;
+  // 本地代理模式本身承诺 SOCKS + HTTP 两个显式代理入口；它不创建系统 VPN/TUN。
+  // VPN 模式则维持原来的双开关约束，避免用户未授权时额外监听 HTTP 端口。
+  return isProxyOnlyRuntimeMode(mode) || (isVpnRuntimeMode(mode) && appendHttpProxy && localSocksEnabled);
 }
 
 export function shouldUseDynamicLocalSocksPort(settings: AppSettings | undefined): boolean {

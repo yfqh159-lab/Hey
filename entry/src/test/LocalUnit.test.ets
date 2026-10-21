@@ -1390,8 +1390,8 @@ export default function localUnitTest() {
 
       settings.mode = APP_MODE_PROXY_ONLY;
       result = buildXrayConfigWithSettings(VLESS_REALITY_OUTBOUND, settings);
-      expect(result.configJson.indexOf('"tag": "http-in"')).assertEqual(-1);
-      expect(result.httpProxyPort === undefined).assertTrue();
+      expect(result.configJson).assertContain('"tag": "http-in"');
+      expect(result.httpProxyPort).assertEqual(LOCAL_HTTP_PROXY_PORT);
     });
 
     it('appends local socks proxy inbound with auth settings', 0, () => {
@@ -1473,11 +1473,14 @@ export default function localUnitTest() {
       expect(result.configJson.indexOf('"protocol": "tun"')).assertEqual(-1);
       expect(result.configJson).assertContain('"tag": "socks-in"');
       expect(result.configJson).assertContain('"protocol": "socks"');
+      expect(result.configJson).assertContain('"tag": "http-in"');
+      expect(result.configJson).assertContain('"protocol": "http"');
       expect(result.configJson.indexOf('"tag": "dns-out"')).assertEqual(-1);
       expect(result.socksPort).assertEqual(LOCAL_SOCKS_PROXY_PORT);
+      expect(result.httpProxyPort).assertEqual(LOCAL_HTTP_PROXY_PORT);
     });
 
-    it('routes proxy only policy groups through socks inbound without vpn http proxy', 0, () => {
+    it('routes proxy only policy groups through local socks and http inbounds without vpn tun', 0, () => {
       const settings = buildSettingsFixture();
       settings.mode = APP_MODE_PROXY_ONLY;
       settings.localSocksEnabled = true;
@@ -1485,12 +1488,12 @@ export default function localUnitTest() {
       const result = buildRuntimeXrayConfig(POLICY_GROUP_CONFIG, settings, 'policy-group');
       expect(result.configJson.indexOf('"tag": "tun-in"')).assertEqual(-1);
       expect(result.configJson).assertContain('"tag": "socks-in"');
-      expect(result.configJson.indexOf('"tag": "http-in"')).assertEqual(-1);
+      expect(result.configJson).assertContain('"tag": "http-in"');
       expect(result.configJson).assertContain('"balancerTag": "balancer"');
-      expect(hasInboundBalancerRule(result.configJson, 'http-in', 'balancer')).assertFalse();
+      expect(hasInboundBalancerRule(result.configJson, 'http-in', 'balancer')).assertTrue();
       expect(hasInboundBalancerRule(result.configJson, 'socks-in', 'balancer')).assertTrue();
       expect(result.configJson).assertContain('"socks-in"');
-      expect(result.httpProxyPort === undefined).assertTrue();
+      expect(result.httpProxyPort).assertEqual(LOCAL_HTTP_PROXY_PORT);
     });
 
     it('selects runtime local socks dynamic port safely', 0, () => {
@@ -1519,7 +1522,7 @@ export default function localUnitTest() {
       settings.mode = APP_MODE_PROXY_ONLY;
       settings.localSocksDynamicPort = true;
       settings.localSocksEnabled = false;
-      expect(shouldExposeLocalHttpProxy(settings)).assertFalse();
+      expect(shouldExposeLocalHttpProxy(settings)).assertTrue();
       expect(shouldUseDynamicLocalSocksPort(settings)).assertTrue();
       expect(selectRuntimeLocalSocksPort(settings, [19083])).assertEqual(19083);
     });
