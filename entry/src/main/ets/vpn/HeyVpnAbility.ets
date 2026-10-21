@@ -162,6 +162,8 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   private beginSession(want: Want): void {
     const sessionGeneration = ++this.sessionGeneration;
     this.startedAt = Date.now();
+    const requestedSessionId = this.getStringParameter(want, VPN_SESSION_ID_KEY, '');
+    const requestedSessionValid = isValidVpnSessionId(requestedSessionId);
     this.sessionId = this.resolveSessionId(want);
     this.activeCoreType = isSingboxCore(this.getStringParameter(want, 'coreType', 'xray')) ? 'singbox' : 'xray';
     this.activeProfileUpdatedAt = this.getNonNegativeIntegerParameter(want, VPN_PROFILE_UPDATED_AT_KEY);
@@ -181,6 +183,16 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     this.netSceneSeeded = false;
     this.netScenePollInFlight = false;
     this.restartFenceReliable = true;
+    // 当前版本的所有显式启动都必须携带一次性会话 ID。缺失/损坏 ID 的升级遗留或异常
+    // 重投递请求无法和停止意图绑定，必须在创建任何系统/原生资源前拒绝。停止命令仍可
+    // 使用内部回退 ID 执行幂等清理。
+    if (!this.isStopCommand(want) && !requestedSessionValid) {
+      this.emitError('VPN start failed.',
+        `session=${this.sessionId}; error=VPN start session ID is missing or invalid.`);
+      this.requestCleanup('VPN startup rejected because session identity is unavailable.',
+        `session=${this.sessionId}`);
+      return;
+    }
     const cancellation = VpnStartCancellationStore.check(this.context, this.sessionId);
     if (!cancellation.reliable || cancellation.cancelled) {
       const reason = cancellation.cancelled ? 'the start session was cancelled' :

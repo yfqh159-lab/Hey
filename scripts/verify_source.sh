@@ -2284,6 +2284,10 @@ const begin = vpn.slice(beginAt, requestAt);
 if (!begin.includes('this.stopRequested = false;') ||
   !begin.includes('this.lastCleanupComplete = false;') ||
   !begin.includes('const sessionGeneration = ++this.sessionGeneration;') ||
+  !begin.includes("const requestedSessionId = this.getStringParameter(want, VPN_SESSION_ID_KEY, '');") ||
+  !begin.includes('const requestedSessionValid = isValidVpnSessionId(requestedSessionId);') ||
+  !begin.includes('if (!this.isStopCommand(want) && !requestedSessionValid)') ||
+  !begin.includes('VPN startup rejected because session identity is unavailable.') ||
   !begin.includes('this.startVpn(want, sessionGeneration).catch(')) {
   throw new Error('reused VPN Extension sessions do not reset cancellation/cleanup state before start');
 }
