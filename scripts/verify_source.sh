@@ -1041,6 +1041,18 @@ if (proxyMethod.includes('vpnExtension.') || proxyMethod.includes('createVpnWant
   throw new Error('local proxy startup must not create or control a system VPN');
 }
 
+const stopMethodStart = controller.indexOf('  async stop(context: common.Context): Promise<ConnectionSnapshot>');
+const stopMethodEnd = controller.indexOf('\n  // 隧道已被 VPN 扩展在后台自动断开', stopMethodStart);
+const stopMethod = controller.slice(stopMethodStart, stopMethodEnd);
+const stopCatchAt = stopMethod.indexOf('} catch (error) {');
+const fallbackVpnStopAt = stopMethod.indexOf('vpnExtension.stopVpnExtensionAbility(createStopVpnWant())', stopCatchAt);
+const fallbackVpnGuardAt = stopMethod.lastIndexOf(
+  'if (this.runtimeMode === APP_MODE_VPN && !systemStopAttempted)', fallbackVpnStopAt);
+if (stopMethodStart < 0 || stopMethodEnd < 0 || stopCatchAt < 0 || fallbackVpnStopAt < stopCatchAt ||
+  fallbackVpnGuardAt < stopCatchAt) {
+  throw new Error('local proxy stop failures can still fall through to VPN Extension cleanup');
+}
+
 if (!config.includes('if (vpnMode) {\n    inbounds.push(tunInbound);') ||
   !config.includes('settings.localSocksEnabled || proxyOnlyMode')) {
   throw new Error('Xray runtime config no longer keeps TUN and local proxy inbounds mode-scoped');

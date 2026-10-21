@@ -631,7 +631,9 @@ export class ConnectionController {
       this.cleanupRequired = false;
       hilog.info(LOG_DOMAIN, LOG_TAG, 'VPN stop command completed.');
     } catch (error) {
-      if (!systemStopAttempted) {
+      // 本地代理从未创建 VPN/TUN；其 Xray 停止失败时只能保留清理闩锁并重试本地
+      // 核心，不能为了共用异常分支而触碰可能独立存在的系统 VPN Extension。
+      if (this.runtimeMode === APP_MODE_VPN && !systemStopAttempted) {
         try {
           systemStopAttempted = true;
           await this.withTimeout(vpnExtension.stopVpnExtensionAbility(createStopVpnWant()),
