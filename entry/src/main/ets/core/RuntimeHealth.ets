@@ -6,6 +6,8 @@ import {
   normalizeAppRuntimeMode
 } from './Profile';
 
+export const VPN_RUNTIME_UNHEALTHY_CONFIRM_MS: number = 12000;
+
 /**
  * 本地代理与 UI 位于同一进程，native bridge 明确报告停止时可立即判定异常；
  * bridge 的运行标志本身不代表监听器一定仍存活，后续还需 SOCKS 端口探测。
@@ -32,6 +34,22 @@ export function isMissingVpnRuntimeStateUnhealthy(
 ): boolean {
   return normalizeAppRuntimeMode(mode) === APP_MODE_VPN &&
     status === ConnectionStatus.RUNNING && sampleLimit > 0 && missingSamples >= sampleLimit;
+}
+
+/**
+ * active 状态仅因心跳过期或一次采样报告数据面不完整时，先等待 Extension 恢复心跳或
+ * 完成自己的双采样清理。锁屏恢复后 ArkTS 定时器可能晚于 UI 恢复，不能首帧就拆掉隧道。
+ * inactive 是明确停止，不走此确认窗口；确认窗口也不代表自动重连。
+ */
+export function shouldCleanupUnhealthyVpnRuntimeState(
+  active: boolean,
+  healthy: boolean,
+  firstSeenAt: number,
+  now: number,
+  confirmMs: number = VPN_RUNTIME_UNHEALTHY_CONFIRM_MS
+): boolean {
+  return active && !healthy && firstSeenAt > 0 && now >= firstSeenAt && confirmMs >= 0 &&
+    now - firstSeenAt >= confirmMs;
 }
 
 /**

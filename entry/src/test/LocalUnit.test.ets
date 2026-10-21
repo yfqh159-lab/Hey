@@ -35,7 +35,8 @@ import { decideActiveNodeRemovalAction, decideConfigChangeAction, decideNodeSwit
 import {
   isMissingVpnRuntimeStateUnhealthy,
   isProxyOnlyRuntimeUnhealthy,
-  shouldApplyVpnDiagnosticError
+  shouldApplyVpnDiagnosticError,
+  shouldCleanupUnhealthyVpnRuntimeState
 } from '../main/ets/core/RuntimeHealth';
 import { proxyConfigDedupeKey } from '../main/ets/core/NodeDedupe';
 import { isSingboxOnlyProtocol, requiredCoreForProtocol, CORE_TYPE_SINGBOX, CORE_TYPE_XRAY } from '../main/ets/core/CoreSelection';
@@ -2717,6 +2718,17 @@ export default function localUnitTest() {
       expect(isMissingVpnRuntimeStateUnhealthy(APP_MODE_VPN, ConnectionStatus.IDLE, 3)).assertFalse();
       expect(isMissingVpnRuntimeStateUnhealthy(APP_MODE_VPN, ConnectionStatus.RUNNING, 1, 1)).assertTrue();
       expect(isMissingVpnRuntimeStateUnhealthy(APP_MODE_VPN, ConnectionStatus.RUNNING, 3, 0)).assertFalse();
+    });
+
+    it('confirms an active unhealthy VPN state before cleanup', 0, () => {
+      const firstSeenAt = 1000;
+      expect(shouldCleanupUnhealthyVpnRuntimeState(true, false, firstSeenAt, 1000, 12000)).assertFalse();
+      expect(shouldCleanupUnhealthyVpnRuntimeState(true, false, firstSeenAt, 12999, 12000)).assertFalse();
+      expect(shouldCleanupUnhealthyVpnRuntimeState(true, false, firstSeenAt, 13000, 12000)).assertTrue();
+      expect(shouldCleanupUnhealthyVpnRuntimeState(true, true, firstSeenAt, 13000, 12000)).assertFalse();
+      expect(shouldCleanupUnhealthyVpnRuntimeState(false, false, firstSeenAt, 13000, 12000)).assertFalse();
+      expect(shouldCleanupUnhealthyVpnRuntimeState(true, false, 0, 13000, 12000)).assertFalse();
+      expect(shouldCleanupUnhealthyVpnRuntimeState(true, false, firstSeenAt, 999, 12000)).assertFalse();
     });
 
     it('only applies current VPN session diagnostic errors to runtime state', 0, () => {

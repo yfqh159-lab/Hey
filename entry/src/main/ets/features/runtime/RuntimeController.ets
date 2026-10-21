@@ -4,7 +4,8 @@ import { shouldExposeLocalHttpProxy } from '../../core/LocalProxy';
 import {
   isMissingVpnRuntimeStateUnhealthy,
   isProxyOnlyRuntimeUnhealthy,
-  shouldApplyVpnDiagnosticError
+  shouldApplyVpnDiagnosticError,
+  shouldCleanupUnhealthyVpnRuntimeState
 } from '../../core/RuntimeHealth';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppLanguage, AppRuntimeMode, AppSettings, ConnectionStatus, normalizeAppRuntimeMode, ProxyProfile, RuntimeStats } from '../../core/Profile';
 import { LOCAL_HTTP_PROXY_PORT, VPN_INTERNAL_HTTP_PROXY_PORT } from '../../core/XrayConfig';
@@ -88,6 +89,8 @@ export class RuntimeController {
   private recoveredProfileUpdatedAt: number = 0;
   private recoveredProfileMismatch: boolean = false;
   private missingVpnStateSampleCount: number = 0;
+  private unhealthyVpnStateFirstSeenAt: number = 0;
+  private unhealthyVpnStateSessionId: string = '';
 
   async start(context: common.Context, profile: ProxyProfile, settings: AppSettings, language: AppLanguage): Promise<RuntimeViewState> {
     if (this.status === ConnectionStatus.STARTING || this.status === ConnectionStatus.STOPPING ||
@@ -105,6 +108,7 @@ export class RuntimeController {
     this.resetEgressIp();
     this.resetProxyHealth();
     this.missingVpnStateSampleCount = 0;
+    this.resetUnhealthyVpnStateConfirmation();
     this.resetRecoveredProfileIdentity();
     this.appendLog(this.runtimeMode === APP_MODE_PROXY_ONLY ? translate(language, 'log.startingProxy') : translate(language, 'log.startingVpn'));
     const snapshot = await this.controller.start(context, profile, settings);
@@ -132,6 +136,7 @@ export class RuntimeController {
     this.resetEgressIp();
     this.resetProxyHealth();
     this.missingVpnStateSampleCount = 0;
+    this.resetUnhealthyVpnStateConfirmation();
     this.appendLog(stoppingMode === APP_MODE_PROXY_ONLY ? translate(language, 'log.stoppingProxy') : translate(language, 'log.stoppingVpn'));
     const snapshot = await this.controller.stop(context);
     this.applySnapshot(snapshot, language);
@@ -166,6 +171,7 @@ export class RuntimeController {
     this.resetConnectionDelay();
     this.resetEgressIp();
     this.missingVpnStateSampleCount = 0;
+    this.resetUnhealthyVpnStateConfirmation();
   }
 
   // 运行中按传入的新 Profile 热切换：先停后启。非运行态直接返回当前快照，调用方无需自行判断。
@@ -260,13 +266,42 @@ export class RuntimeController {
     this.missingVpnStateSampleCount = 0;
 
     if (!persisted.active) {
+      this.resetUnhealthyVpnStateConfirmation();
       if (this.status === ConnectionStatus.RUNNING) {
         this.reconcileStopped();
       }
       return;
     }
 
-    const healthy = isPersistedVpnRuntimeHealthy(persisted, Date.now());
+    const now = Date.now();
+    const healthy = isPersistedVpnRuntimeHealthy(persisted, now);
+    if (!healthy) {
+      if (this.unhealthyVpnStateSessionId !== persisted.sessionId || this.unhealthyVpnStateFirstSeenAt <= 0) {
+        this.unhealthyVpnStateSessionId = persisted.sessionId;
+        this.unhealthyVpnStateFirstSeenAt = now;
+      }
+      if (!shouldCleanupUnhealthyVpnRuntimeState(
+        persisted.active,
+        healthy,
+        this.unhealthyVpnStateFirstSeenAt,
+        now
+      )) {
+        return;
+      }
+      // UI 进程刚重建时控制器仍是 IDLE；确认状态持续不健康后先接管该会话，
+      // 才能让 cleanupUnhealthyVpn() 向实际 VPN Extension 发送停止命令。
+      if (this.status === ConnectionStatus.IDLE) {
+        const snapshot = this.controller.reconcileRunning(persisted.startedAt, persisted.coreType);
+        this.applySnapshot(snapshot, language);
+        this.runtimeMode = APP_MODE_VPN;
+      }
+      if (this.status === ConnectionStatus.RUNNING) {
+        await this.cleanupUnhealthyVpn(context, language);
+      }
+      return;
+    }
+
+    this.resetUnhealthyVpnStateConfirmation();
     if (this.status === ConnectionStatus.IDLE) {
       if (await NetSceneStopFlag.wasStopped(context, persisted.startedAt)) {
         return;
@@ -276,15 +311,13 @@ export class RuntimeController {
       this.runtimeMode = APP_MODE_VPN;
       this.recoveredProfileUpdatedAt = persisted.profileUpdatedAt ?? 0;
       this.recoveredProfileMismatch = false;
-      if (healthy) {
-        this.appendLog(translate(language, 'runtime.vpnSessionRecovered'));
-        return;
-      }
+      this.appendLog(translate(language, 'runtime.vpnSessionRecovered'));
     }
+  }
 
-    if (this.status === ConnectionStatus.RUNNING && !healthy) {
-      await this.cleanupUnhealthyVpn(context, language);
-    }
+  private resetUnhealthyVpnStateConfirmation(): void {
+    this.unhealthyVpnStateFirstSeenAt = 0;
+    this.unhealthyVpnStateSessionId = '';
   }
 
   snapshot(): RuntimeViewState {
@@ -567,10 +600,7 @@ export class RuntimeController {
     try {
       const events = await DiagnosticLog.read(context, 80);
       this.diagnosticEntries = events.map((event: DiagnosticEvent) => RuntimeController.eventToEntry(event, language, this.coreLabel));
-      const healthLost = this.applyDiagnosticStats(events);
-      if (healthLost) {
-        await this.cleanupUnhealthyVpn(context, language);
-      }
+      this.applyDiagnosticStats(events);
       await this.applyDiagnosticError(context, events, language);
     } catch (error) {
       // 诊断解析失败绝不能让 refresh 整体抛出——否则页面收不到 snapshot，日志面板会全空。
@@ -580,7 +610,7 @@ export class RuntimeController {
     }
   }
 
-  private applyDiagnosticStats(events: Array<DiagnosticEvent>): boolean {
+  private applyDiagnosticStats(events: Array<DiagnosticEvent>): void {
     for (let index = 0; index < events.length; index++) {
       const event = events[index];
       if (event.uploadBytes !== undefined || event.downloadBytes !== undefined) {
@@ -596,11 +626,11 @@ export class RuntimeController {
           tunRunning: event.tunRunning ?? false,
           lastMessage: event.details ?? event.message
         };
-        return this.status === ConnectionStatus.RUNNING &&
-          (event.xrayRunning === false || event.tunRunning === false);
+        // Extension 自己会连续确认两次并发出本会话 vpn error 后清理。单条 stats=false
+        // 可能只是原生查询抖动，不能在 UI 进程抢先拆隧道；跨进程状态另有短暂确认窗口。
+        return;
       }
     }
-    return false;
   }
 
   // 心跳已经明确证明数据面不完整时，先清理残留 VPN，再保留错误态等待用户主动重连。
@@ -624,6 +654,7 @@ export class RuntimeController {
     this.resetConnectionDelay();
     this.resetEgressIp();
     this.missingVpnStateSampleCount = 0;
+    this.resetUnhealthyVpnStateConfirmation();
     this.appendLog(message);
   }
 
