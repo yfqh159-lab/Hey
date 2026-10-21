@@ -70,6 +70,18 @@ export function normalizeRemoteDnsValue(value: string | undefined, fallback: str
   return normalized.length > 0 ? normalized.join(',') : fallback;
 }
 
+export function normalizeOptionalDnsValue(
+  value: string | undefined,
+  allowCoreDns: boolean,
+  allowLocalCoreDns: boolean = true
+): string {
+  const trimmed = value?.trim() ?? '';
+  if (trimmed.length === 0) {
+    return '';
+  }
+  return normalizeDnsServers(trimmed, '', allowCoreDns, allowLocalCoreDns).join(',');
+}
+
 export function normalizeVpnDnsServers(value?: string, fallback: string = DNS_VPN): Array<string> {
   if (value === undefined || value.trim().length === 0) {
     return [stripIpAddressBrackets(fallback.trim())];

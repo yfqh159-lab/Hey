@@ -136,6 +136,13 @@ if (!settingsStore.includes(
   'remoteDns: normalizeRemoteDnsValue(SettingsStore.stringValue(raw.remoteDns, base.remoteDns))')) {
   throw new Error('persisted or imported local-mode remote DNS survives settings normalization');
 }
+for (const [field, allowCore] of [['vpnDns', 'false'], ['domesticDns', 'true']]) {
+  if (!settings.includes(`${field}: normalizeOptionalDnsValue(draft.${field}, ${allowCore})`) ||
+    !settingsStore.includes(
+      `${field}: normalizeOptionalDnsValue(SettingsStore.stringValue(raw.${field}, base.${field}), ${allowCore})`)) {
+    throw new Error(`${field} can display values that runtime silently ignores`);
+  }
+}
 NODE
 printf 'remote DNS local-mode leak guard passed\n'
 

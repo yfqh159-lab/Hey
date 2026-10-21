@@ -3,7 +3,7 @@ import { AppLanguage, AppRuntimeMode, AppSettings, normalizeAppRuntimeMode, norm
 import { normalizeCoreLogLevel, normalizeFragmentPackets, normalizeMuxXudpQuic } from '../../core/ProtocolOptions';
 import { DEFAULT_APP_SETTINGS, SettingsStore } from '../../storage/SettingsStore';
 import { isReservedAppRuntimePort } from '../../core/XrayConfig';
-import { normalizeRemoteDnsValue } from '../../core/DnsAddresses';
+import { normalizeOptionalDnsValue, normalizeRemoteDnsValue } from '../../core/DnsAddresses';
 import { normalizeHttpsUrl } from '../../core/HttpDefaults';
 
 export interface SettingsDraft {
@@ -200,9 +200,9 @@ export class SettingsController {
       vpnInterfaceAddressIndex: normalizeVpnInterfaceAddressIndex(draft.vpnInterfaceAddressIndex, DEFAULT_APP_SETTINGS.vpnInterfaceAddressIndex),
       vpnBypassLan: normalizeVpnBypassLanMode(draft.vpnBypassLan, DEFAULT_APP_SETTINGS.vpnBypassLan),
       vpnMtu: this.vpnMtuValue(draft.vpnMtu, DEFAULT_APP_SETTINGS.vpnMtu),
-      vpnDns: draft.vpnDns.trim(),
+      vpnDns: normalizeOptionalDnsValue(draft.vpnDns, false),
       remoteDns,
-      domesticDns: draft.domesticDns.trim(),
+      domesticDns: normalizeOptionalDnsValue(draft.domesticDns, true),
       dnsHosts: draft.dnsHosts.trim(),
       delayTestUrl: draft.delayTestUrl.trim(),
       ipApiUrl: normalizeHttpsUrl(draft.ipApiUrl),

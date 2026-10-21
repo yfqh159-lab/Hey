@@ -27,7 +27,7 @@ import {
   RoutingRule
 } from '../core/Profile';
 import { DEFAULT_CORE_LOG_LEVEL, DEFAULT_MUX_XUDP_QUIC, normalizeCoreLogLevel, normalizeMuxXudpQuic } from '../core/ProtocolOptions';
-import { DNS_PROXY, normalizeRemoteDnsValue } from '../core/DnsAddresses';
+import { DNS_PROXY, normalizeOptionalDnsValue, normalizeRemoteDnsValue } from '../core/DnsAddresses';
 import { normalizeHttpsUrl } from '../core/HttpDefaults';
 import { isReservedAppRuntimePort } from '../core/XrayConfig';
 
@@ -274,9 +274,9 @@ export class SettingsStore {
       vpnInterfaceAddressIndex: normalizeVpnInterfaceAddressIndex(raw.vpnInterfaceAddressIndex, base.vpnInterfaceAddressIndex),
       vpnBypassLan: normalizeVpnBypassLanMode(raw.vpnBypassLan, base.vpnBypassLan),
       vpnMtu: normalizeVpnMtuValue(raw.vpnMtu, base.vpnMtu),
-      vpnDns: SettingsStore.stringValue(raw.vpnDns, base.vpnDns),
+      vpnDns: normalizeOptionalDnsValue(SettingsStore.stringValue(raw.vpnDns, base.vpnDns), false),
       remoteDns: normalizeRemoteDnsValue(SettingsStore.stringValue(raw.remoteDns, base.remoteDns)),
-      domesticDns: SettingsStore.stringValue(raw.domesticDns, base.domesticDns),
+      domesticDns: normalizeOptionalDnsValue(SettingsStore.stringValue(raw.domesticDns, base.domesticDns), true),
       dnsHosts: SettingsStore.stringValue(raw.dnsHosts, base.dnsHosts),
       delayTestUrl: SettingsStore.stringValue(raw.delayTestUrl, base.delayTestUrl),
       ipApiUrl: normalizeHttpsUrl(SettingsStore.stringValue(raw.ipApiUrl, base.ipApiUrl)),

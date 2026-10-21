@@ -1499,6 +1499,12 @@ export default function localUnitTest() {
       draft.remoteDns = '9.9.9.9:5353,https://dns.google/dns-query,tcp+local://1.1.1.1';
       expect(settingsController.buildSettings(draft).remoteDns)
         .assertEqual('9.9.9.9:5353,https://dns.google/dns-query');
+      draft.domesticDns = 'bad.example,223.5.5.5,tcp+local://223.5.5.5';
+      expect(settingsController.buildSettings(draft).domesticDns)
+        .assertEqual('223.5.5.5,tcp+local://223.5.5.5');
+      draft.vpnDns = 'bad.example,1.1.1.1,https://dns.google/dns-query,[2606:4700:4700::1111]';
+      expect(settingsController.buildSettings(draft).vpnDns)
+        .assertEqual('1.1.1.1,[2606:4700:4700::1111]');
     });
 
     it('adds the protocol spec default dns hosts before user hosts', 0, () => {
