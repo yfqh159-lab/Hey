@@ -269,7 +269,7 @@
   - 可选 TUN/本地代理模式选择与启动路径隔离
   - bundle ID、系统入口与 VPN 自包排除一致性
   - 中英文系统资源键与有效值一致性
-  - 中英文翻译键完整性检查（1138 个键）
+  - 中英文翻译键完整性检查（1144 个键）
 ```
 
 2026-10-22 运行 `./scripts/device_vpn_smoke_test.sh doctor`，脚本一次完成环境探测并准确报告：
@@ -278,6 +278,7 @@
 OK: node: /home/yftwq/.nvm/versions/node/v24.16.0/bin/node
 OK: unzip: /usr/bin/unzip
 MISSING: hvigorw
+INFO: DEVECO_SDK_HOME 未设置，hvigorw 必须自行解析 SDK
 MISSING: build-profile.json5（需由 build-profile.example.json5 配置本地签名）
 MISSING: hdc
 INFO: 当前尚无 signed HAP
