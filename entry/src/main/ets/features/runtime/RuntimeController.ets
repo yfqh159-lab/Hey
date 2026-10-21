@@ -611,6 +611,8 @@ export class RuntimeController {
     reason?: string
   ): Promise<void> {
     const message = reason ?? translate(language, 'runtime.vpnHealthLost');
+    // refresh 可能由首页、日志页或网络监听同时触发；先同步封住第二次故障清理。
+    this.status = ConnectionStatus.STOPPING;
     await this.controller.stop(context);
     this.status = ConnectionStatus.ERROR;
     this.startedAt = 0;
@@ -629,6 +631,7 @@ export class RuntimeController {
   // 监听器。异常退出时执行一次幂等停止以清理残余资源，但绝不自动启动。
   private async cleanupUnhealthyProxy(context: common.Context, language: AppLanguage): Promise<void> {
     const message = translate(language, 'runtime.proxyHealthLost');
+    this.status = ConnectionStatus.STOPPING;
     await this.controller.stop(context);
     this.status = ConnectionStatus.ERROR;
     this.startedAt = 0;
