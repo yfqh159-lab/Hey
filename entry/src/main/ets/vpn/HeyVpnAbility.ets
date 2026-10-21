@@ -206,7 +206,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       const action = decideNetAutomationAction(ctx, cfg, true);
       // 诊断：确认后台轮询是否在跑、SSID 是否可读、决策是否正确。
       this.emitInfo('Net scene poll.',
-        `kind=${ctx.kind}; ssid=${ctx.ssid ?? '<none>'}; seeded=${this.netSceneSeeded}; sig=${signature}; action=${action}`);
+        `kind=${ctx.kind}; ssid=${ctx.ssid === undefined ? '<none>' : '<redacted>'}; seeded=${this.netSceneSeeded}; changed=${signature !== this.netSceneSignature}; action=${action}`);
       // 首次只 seed 不动作——避免拆掉用户「在可信网络手动开的 VPN」；仅对之后的网络切换生效。
       if (!this.netSceneSeeded) {
         this.netSceneSeeded = true;

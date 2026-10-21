@@ -147,7 +147,7 @@ export class NetworkSceneManager {
         ctx.kind, running ? '1' : '0', action);
       // 诊断：写进运行日志，便于确认后台是否收到回调、SSID 是否可读。
       SHARED_RUNTIME_CONTROLLER.appendLog(
-        `[netscene] kind=${ctx.kind}; ssid=${ctx.ssid ?? '<none>'}; running=${running}; action=${action}`);
+        `[netscene] kind=${ctx.kind}; ssid=${ctx.ssid === undefined ? '<none>' : '<redacted>'}; running=${running}; action=${action}`);
       if (action === NET_ACTION_DISCONNECT) {
         await this.applyDisconnect(context);
       }

@@ -51,7 +51,9 @@ export class OutboundDomainResolver {
 
     const resolvedKeys = Object.keys(resolvedHosts);
     if (resolvedKeys.length === 0) {
-      this.appendDiagnostic(context, 'warn', 'Outbound domain pre-resolve returned no addresses.', `failed=${failedHosts.join(',')}`);
+      // 节点域名属于私人配置；诊断日志只记录数量，不能把服务器地址落盘。
+      this.appendDiagnostic(context, 'warn', 'Outbound domain pre-resolve returned no addresses.',
+        `failed=${failedHosts.length}`);
       return settings;
     }
 
