@@ -9,6 +9,7 @@ import { APP_MODE_VPN, AppLanguage, AppRuntimeMode, AppSettings, ConnectionStatu
 import { CoreSelectionStore, requiredCoreForProtocol, CORE_TYPE_SINGBOX } from '../core/CoreSelection';
 import { DELAY_TEST_BATCH_PORT_BASE, LOCAL_HTTP_PROXY_PORT, normalizeOutboundInput } from '../core/XrayConfig';
 import { DeepLinkControlAction, DeepLinkIntent, parseDeepLink, subscriptionNameFromDeepLink } from '../core/DeepLink';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { consumeRuntimeSettingsRestartDecision } from '../core/SettingsChange';
 import { resolveImportedNodeName } from '../core/ImportedNodeNames';
 import { shouldShowProxySharingStartWarning } from '../core/ProxySharingWarning';
@@ -133,12 +134,19 @@ struct Index {
   @State private allGroupsSelected: boolean = false;
   @StorageLink('pendingDeepLink') @Watch('onPendingExternalIntentChanged') private pendingDeepLinkSignal: string = '';
   @StorageLink('pendingSharedTextImport') @Watch('onPendingExternalIntentChanged') private pendingSharedTextImportSignal: string = '';
+  private initialStateLoading: boolean = false;
+  private initialStateReady: boolean = false;
 
   aboutToAppear(): void {
-    this.loadInitialState();
+    if (!this.initialStateLoading && !this.initialStateReady) {
+      this.initialStateLoading = true;
+      this.initializePageState();
+    }
     if (this.timerId < 0) {
       this.timerId = setInterval(() => {
-        this.refreshRuntime();
+        if (this.initialStateReady) {
+          this.refreshRuntime();
+        }
       }, 1000);
     }
   }
@@ -153,7 +161,9 @@ struct Index {
 
   onPageShow(): void {
     // 从订阅 / 导入等子页返回时，重新加载设置与节点，保证列表实时刷新
-    this.refreshFromStorage();
+    if (this.initialStateReady) {
+      this.refreshFromStorage();
+    }
   }
 
   onPageHide(): void {
@@ -164,6 +174,9 @@ struct Index {
   private async refreshFromStorage(): Promise<void> {
     await this.loadSettings();
     await this.loadNodes();
+    // 页面不可见期间 Extension 可能已停止或仍在后台健康运行。任何设置重启、开机动作或
+    // 外部控制之前先恢复权威状态，不能根据离开页面前的旧枚举决定是否启动。
+    await this.refreshRuntime();
     await this.handlePendingRuntimeSettingsRestart();
     await this.handlePendingAutoStartupLaunch();
     await this.handlePendingSharedTextImport();
@@ -175,7 +188,7 @@ struct Index {
   }
 
   private onPendingExternalIntentChanged(): void {
-    if (!this.hasPendingExternalIntent()) {
+    if (!this.initialStateReady || !this.hasPendingExternalIntent()) {
       return;
     }
     this.consumePendingExternalIntentSoon();
@@ -186,7 +199,7 @@ struct Index {
   }
 
   private consumePendingExternalIntentSoon(): void {
-    if (this.pendingExternalIntentHandling) {
+    if (!this.initialStateReady || this.pendingExternalIntentHandling) {
       return;
     }
     this.pendingExternalIntentHandling = true;
@@ -194,6 +207,7 @@ struct Index {
       try {
         await this.loadSettings();
         await this.loadNodes();
+        await this.refreshRuntime();
         await this.handlePendingSharedTextImport();
         await this.handlePendingDeepLink();
         await this.syncSubscriptionBackgroundSchedule();
@@ -1639,13 +1653,31 @@ struct Index {
   private async loadInitialState(): Promise<void> {
     await this.loadSettings();
     await this.loadNodes();
+    // 累计流量基线必须早于首次 refreshRuntime；运行态恢复又必须早于任何可能启停 VPN
+    // 的自动启动或外部动作。
+    await this.loadTrafficTotals();
+    await this.refreshRuntime();
     await this.handlePendingAutoStartupLaunch();
     await this.handlePendingSharedTextImport();
     await this.handlePendingDeepLink();
     await this.refreshDueSubscriptions();
     await this.syncSubscriptionBackgroundSchedule();
-    await this.loadTrafficTotals();
-    await this.refreshRuntime();
+  }
+
+  private async initializePageState(): Promise<void> {
+    try {
+      await this.loadInitialState();
+    } catch (error) {
+      this.lastError = redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error));
+      SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
+    } finally {
+      this.initialStateLoading = false;
+      this.initialStateReady = true;
+      // Watch 可能在初始化期间到达；此时刻再消费，确保先完成运行态接管。
+      if (this.hasPendingExternalIntent()) {
+        this.consumePendingExternalIntentSoon();
+      }
+    }
   }
 
   // 读出持久化的累计总量与上次会话基线。必须在第一次 refreshRuntime（会触发累加）之前完成，
