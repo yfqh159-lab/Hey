@@ -84,8 +84,12 @@ function looksLikeIpLiteral(value: string): boolean {
     return false;
   }
   if (value.indexOf(':') >= 0) {
-    return value.split(':').length <= 9;
+    return isValidIpv6Literal(value);
   }
+  return isValidIpv4Literal(value);
+}
+
+function isValidIpv4Literal(value: string): boolean {
   const parts = value.split('.');
   if (parts.length !== 4) {
     return false;
@@ -101,6 +105,48 @@ function looksLikeIpLiteral(value: string): boolean {
     }
   }
   return true;
+}
+
+function isValidIpv6Literal(value: string): boolean {
+  const compressionIndex = value.indexOf('::');
+  const hasCompression = compressionIndex >= 0;
+  let segments = new Array<string>();
+  if (hasCompression) {
+    const leftText = value.substring(0, compressionIndex);
+    const rightText = value.substring(compressionIndex + 2);
+    const left = leftText.length === 0 ? [] : leftText.split(':');
+    const right = rightText.length === 0 ? [] : rightText.split(':');
+    // `:::` 或第二个压缩标记会在任一侧留下空段。
+    if (left.some((segment: string): boolean => segment.length === 0) ||
+      right.some((segment: string): boolean => segment.length === 0)) {
+      return false;
+    }
+    segments = left.concat(right);
+  } else {
+    segments = value.split(':');
+    if (segments.some((segment: string): boolean => segment.length === 0)) {
+      return false;
+    }
+  }
+
+  let units = 0;
+  for (let index = 0; index < segments.length; index++) {
+    const segment = segments[index];
+    if (segment.indexOf('.') >= 0) {
+      // IPv4 映射形式只允许把最后 32 位写成点分十进制。
+      if (index !== segments.length - 1 || !value.endsWith(segment) || !isValidIpv4Literal(segment)) {
+        return false;
+      }
+      units += 2;
+      continue;
+    }
+    if (!/^[0-9a-fA-F]{1,4}$/.test(segment)) {
+      return false;
+    }
+    units++;
+  }
+  // `::` 必须实际压缩至少一个 16-bit 单元；无压缩时恰好需要八个单元。
+  return hasCompression ? units < 8 : units === 8;
 }
 
 // 未填写地址时返回空串，调用方据此跳过请求；高级设置仍允许替换或关闭默认服务。

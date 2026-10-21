@@ -2972,6 +2972,13 @@ export default function localUnitTest() {
       expect(parseRemoteIpInfoContent('{}').status).assertEqual('missing-ip');
       expect(parseRemoteIpInfoContent('{"ip":"not-an-ip"}').status).assertEqual('invalid-ip');
       expect(parseRemoteIpInfoContent('{"ip":"2001:db8::1"}').ok).assertTrue();
+      expect(parseRemoteIpInfoContent('{"ip":"2001:db8:0:1:2:3:4:5"}').ok).assertTrue();
+      expect(parseRemoteIpInfoContent('{"ip":"::ffff:192.0.2.1"}').ok).assertTrue();
+      expect(parseRemoteIpInfoContent('{"ip":"::"}').ok).assertTrue();
+      expect(parseRemoteIpInfoContent('{"ip":"::::"}').status).assertEqual('invalid-ip');
+      expect(parseRemoteIpInfoContent('{"ip":"abcd:"}').status).assertEqual('invalid-ip');
+      expect(parseRemoteIpInfoContent('{"ip":"1:2:3:4:5:6:7:8::"}').status).assertEqual('invalid-ip');
+      expect(parseRemoteIpInfoContent('{"ip":"1.2.3.4::"}').status).assertEqual('invalid-ip');
       // 默认端点仅返回 IP；高级设置留空时仍可明确关闭查询。
       expect(DEFAULT_IP_API_URL).assertEqual('https://api.ipify.org?format=json');
       expect(normalizeIpApiUrl('')).assertEqual('');
