@@ -349,6 +349,11 @@ struct ScannerPage {
   }
 
   private async startCameraScan(): Promise<void> {
+    if (this.isBusy) {
+      return;
+    }
+    this.isBusy = true;
+    this.lastError = '';
     try {
       const context = getContext(this) as common.UIAbilityContext;
       if (!await requestCameraPermission(context)) {
@@ -361,10 +366,17 @@ struct ScannerPage {
       if (!isScanCancelled(error)) {
         this.lastError = this.f1('scanner.scanFailed', 'error', this.errorMessage(error));
       }
+    } finally {
+      this.isBusy = false;
     }
   }
 
   private async selectPhotoQr(): Promise<void> {
+    if (this.isBusy) {
+      return;
+    }
+    this.isBusy = true;
+    this.lastError = '';
     try {
       const photoSelectOptions = new picker.PhotoSelectOptions();
       photoSelectOptions.MIMEType = picker.PhotoViewMIMETypes.IMAGE_TYPE;
@@ -386,6 +398,8 @@ struct ScannerPage {
       if (!isScanCancelled(error)) {
         this.lastError = this.f1('scanner.photoImportFailed', 'error', this.errorMessage(error));
       }
+    } finally {
+      this.isBusy = false;
     }
   }
 
