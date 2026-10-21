@@ -209,13 +209,21 @@ Build the signed HAP:
 ./scripts/device_vpn_smoke_test.sh build
 ```
 
-If DevEco Studio is not in the default macOS location, pass the SDK/tool paths:
+The script prefers `hvigorw` and `hdc` from `PATH` and also detects the default
+DevEco Studio installation on macOS. For other locations, pass the SDK and tool
+paths explicitly:
 
 ```bash
 DEVECO_SDK_HOME=/Applications/DevEco-Studio.app/Contents/sdk \
 HVIGOR=/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw \
+HDC=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/hdc \
 ./scripts/device_vpn_smoke_test.sh build
 ```
+
+Run `./scripts/device_vpn_smoke_test.sh doctor` first to inspect hvigor, the SDK,
+the local signing profile, signed HAP, hdc target, and system VPN authorization
+component in one pass. It reports all missing prerequisites and exits nonzero
+instead of stopping after the first missing tool.
 
 The expected output is:
 

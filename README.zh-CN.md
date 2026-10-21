@@ -158,13 +158,19 @@ DevEco Studio 里配置本机的调试或发布签名。证书路径、密钥密
 ./scripts/device_vpn_smoke_test.sh build
 ```
 
-如果 DevEco Studio 不在 macOS 默认路径，可以显式传入 SDK 和 hvigor 路径：
+脚本优先使用 `PATH` 中的 `hvigorw` / `hdc`，macOS 上也会探测 DevEco Studio 默认安装目录。
+其他安装位置可显式传入 SDK、hvigor 和 hdc 路径：
 
 ```bash
 DEVECO_SDK_HOME=/Applications/DevEco-Studio.app/Contents/sdk \
 HVIGOR=/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw \
+HDC=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/hdc \
 ./scripts/device_vpn_smoke_test.sh build
 ```
+
+先运行 `./scripts/device_vpn_smoke_test.sh doctor` 可一次查看 hvigor、SDK、本地签名配置、
+签名 HAP、hdc 设备及系统 VPN 授权组件；缺少多项时会全部列出并以非零状态结束，而不是只报告
+第一个缺失工具。
 
 构建产物默认位于：
 
