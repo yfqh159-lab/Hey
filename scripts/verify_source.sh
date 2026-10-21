@@ -1773,10 +1773,16 @@ net_scene_manager="entry/src/main/ets/services/NetworkSceneManager.ets"
 if ! grep -q 'NET_SCENE_POLL_STEP_TIMEOUT_MS' "${vpn_ability}" ||
   ! grep -q 'withTimeout(.*' "${vpn_ability}" ||
   ! grep -q 'Underlying network poll timed out' "${vpn_ability}" ||
+  ! grep -Fq 'private settingsLoadInFlight: Promise<AppSettings> | null = null;' "${vpn_ability}" ||
+  ! grep -Fq 'this.loadSettingsForNetScene(),' "${vpn_ability}" ||
+  ! grep -Fq 'this.releaseSettingsLoad(promise)' "${vpn_ability}" ||
   ! grep -q 'EVALUATION_STEP_TIMEOUT_MS' "${net_scene_manager}" ||
   ! grep -q 'Network evaluation settings load timed out' "${net_scene_manager}" ||
+  ! grep -Fq 'private settingsLoadInFlight: Promise<AppSettings> | null = null;' "${net_scene_manager}" ||
+  ! grep -Fq 'this.loadSettingsSingleFlight(context),' "${net_scene_manager}" ||
+  ! grep -Fq 'this.releaseSettingsLoad(promise)' "${net_scene_manager}" ||
   ! grep -q 'Network evaluation probe timed out' "${net_scene_manager}"; then
-  echo 'network observation promises are not bounded for retry' >&2
+  echo 'network observation promises are not bounded or single-flight for retry' >&2
   exit 1
 fi
 printf 'bounded network observation verification passed\n'

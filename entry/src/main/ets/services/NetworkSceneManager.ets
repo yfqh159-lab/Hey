@@ -7,7 +7,7 @@ import { common } from '@kit.AbilityKit';
 import { connection } from '@kit.NetworkKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { APP_LANGUAGE_STORAGE_KEY, normalizeLanguage, translate } from '../core/I18n';
-import { AppLanguage } from '../core/Profile';
+import { AppLanguage, AppSettings } from '../core/Profile';
 import {
   NetAutomationConfig,
   NET_ACTION_DISCONNECT,
@@ -68,6 +68,9 @@ export class NetworkSceneManager {
   private lastHandledTransportSignature: string = '';
   // 隔离 UIAbility 销毁/重建前后的异步评估；旧任务即使稍后恢复也不得操作新会话。
   private lifecycleGeneration: number = 0;
+  // NetworkKit 事件可能在上一次 Preferences 读取的外层超时后继续到达。复用仍未
+  // 结算的底层读取，避免每次补判都向 SettingsStore 队列追加永久等待的任务。
+  private settingsLoadInFlight: Promise<AppSettings> | null = null;
 
   /** 启动网络变化监听（幂等），生命周期跟随 UIAbility，与自动断开开关无关。 */
   ensureStarted(context: common.Context, owner?: Object): void {
@@ -291,7 +294,7 @@ export class NetworkSceneManager {
     this.evaluating = true;
     try {
       const settings = await withTimeout(
-        SettingsStore.load(context),
+        this.loadSettingsSingleFlight(context),
         EVALUATION_STEP_TIMEOUT_MS,
         'Network evaluation settings load timed out.'
       );
@@ -387,6 +390,25 @@ export class NetworkSceneManager {
 
   private isCurrentEvaluation(context: common.Context, generation: number): boolean {
     return this.started && this.context === context && this.lifecycleGeneration === generation;
+  }
+
+  private loadSettingsSingleFlight(context: common.Context): Promise<AppSettings> {
+    if (this.settingsLoadInFlight !== null) {
+      return this.settingsLoadInFlight;
+    }
+    const promise = SettingsStore.load(context);
+    this.settingsLoadInFlight = promise;
+    promise.then(
+      (_settings: AppSettings): void => this.releaseSettingsLoad(promise),
+      (_error: Object): void => this.releaseSettingsLoad(promise)
+    );
+    return promise;
+  }
+
+  private releaseSettingsLoad(promise: Promise<AppSettings>): void {
+    if (this.settingsLoadInFlight === promise) {
+      this.settingsLoadInFlight = null;
+    }
   }
 
 

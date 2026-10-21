@@ -136,6 +136,9 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   private destroying: boolean = false;
   private sessionGeneration: number = 0;
   private vpnCreateInFlight: boolean = false;
+  // 外层轮询超时不能取消 ArkData Promise。永久 pending 时后续 5 秒轮询复用同一
+  // 底层读取，避免后台会话不断向 SettingsStore 串行队列追加任务。
+  private settingsLoadInFlight: Promise<AppSettings> | null = null;
 
   onCreate(want: Want): void {
     this.destroying = false;
@@ -498,7 +501,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     this.netScenePollInFlight = true;
     try {
       const settings = await withTimeout(
-        SETTINGS_CONTROLLER.load(this.context),
+        this.loadSettingsForNetScene(),
         NET_SCENE_POLL_STEP_TIMEOUT_MS,
         'Network scene settings load timed out.'
       );
@@ -622,6 +625,25 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       if (sessionGeneration === this.sessionGeneration) {
         this.coreReloading = false;
       }
+    }
+  }
+
+  private loadSettingsForNetScene(): Promise<AppSettings> {
+    if (this.settingsLoadInFlight !== null) {
+      return this.settingsLoadInFlight;
+    }
+    const promise = SETTINGS_CONTROLLER.load(this.context);
+    this.settingsLoadInFlight = promise;
+    promise.then(
+      (_settings: AppSettings): void => this.releaseSettingsLoad(promise),
+      (_error: Object): void => this.releaseSettingsLoad(promise)
+    );
+    return promise;
+  }
+
+  private releaseSettingsLoad(promise: Promise<AppSettings>): void {
+    if (this.settingsLoadInFlight === promise) {
+      this.settingsLoadInFlight = null;
     }
   }
 
