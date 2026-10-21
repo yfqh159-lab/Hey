@@ -221,6 +221,8 @@ export default function localUnitTest() {
     it('hides dependent items when their toggle is off', 0, () => {
       const keys = allKeys(filterSettings(SETTINGS_CATALOG, noneEnabled, '', idText));
       expect(keys.includes('localSocksPort')).assertFalse();
+      expect(keys.includes('proxySharing')).assertFalse();
+      expect(keys.includes('appendHttpProxy')).assertFalse();
       expect(keys.includes('fakeDns')).assertFalse();
       expect(keys.includes('muxConcurrency')).assertFalse();
       expect(keys.includes('hevTunRwTimeout')).assertFalse();
@@ -232,6 +234,8 @@ export default function localUnitTest() {
     it('shows dependent items when their toggle is on', 0, () => {
       const keys = allKeys(filterSettings(SETTINGS_CATALOG, isEnabled, '', idText));
       expect(keys.includes('localSocksPort')).assertTrue();
+      expect(keys.includes('proxySharing')).assertTrue();
+      expect(keys.includes('appendHttpProxy')).assertTrue();
       expect(keys.includes('fakeDns')).assertTrue();
       expect(keys.includes('muxConcurrency')).assertTrue();
     });

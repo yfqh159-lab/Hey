@@ -1382,9 +1382,12 @@ const store = fs.readFileSync('entry/src/main/ets/storage/SettingsStore.ets', 'u
 const defaultsAt = store.indexOf('export const DEFAULT_APP_SETTINGS');
 const defaultsEnd = store.indexOf('\n};', defaultsAt);
 const defaults = store.slice(defaultsAt, defaultsEnd);
+const catalog = fs.readFileSync('entry/src/main/ets/features/settings/SettingsCatalog.ets', 'utf8');
 if (defaultsAt < 0 || defaultsEnd < 0 ||
   !defaults.includes('appendHttpProxy: false,') ||
-  !defaults.includes('localSocksEnabled: false,')) {
+  !defaults.includes('localSocksEnabled: false,') ||
+  !catalog.includes("{ key: 'proxySharing', titleKey: 'settings.proxySharing', type: 'toggle', dependsOn: 'localSocks' }") ||
+  !catalog.includes("{ key: 'appendHttpProxy', titleKey: 'settings.appendHttpProxy', type: 'toggle', dependsOn: 'localSocks', vpnOnly: true }")) {
   throw new Error('default TUN mode re-enables user-visible local proxy listeners');
 }
 NODE
