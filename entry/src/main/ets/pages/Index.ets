@@ -2109,13 +2109,13 @@ struct Index {
           : await this.measureNodeTcpDelay(node, 8000),
         testedAt: Date.now()
       };
-    } catch (error) {
+    } catch (_error) {
       return {
         node,
         result: {
           ok: false,
           delayMs: -1,
-          status: JSON.stringify(error)
+          status: 'test-failed'
         },
         testedAt: Date.now()
       };

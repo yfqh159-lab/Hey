@@ -87,11 +87,12 @@ export class DelayTester {
         delayMs: Math.max(0, Date.now() - startedAt),
         status: 'tcp'
       };
-    } catch (error) {
+    } catch (_error) {
       return {
         ok: false,
         delayMs: -1,
-        status: JSON.stringify(error)
+        // 系统 socket 错误可能包含节点地址；对 UI/日志只返回稳定错误码。
+        status: 'tcp-failed'
       };
     } finally {
       try {
@@ -108,7 +109,7 @@ export class DelayTester {
     let parsed: DelayProbeOutbound;
     try {
       parsed = JSON.parse(outboundJson) as DelayProbeOutbound;
-    } catch (error) {
+    } catch (_error) {
       return null;
     }
     if (!isSingboxOnlyProtocol(parsed.protocol)) {
@@ -132,7 +133,7 @@ export class DelayTester {
     let parsed: DelayProbeOutbound;
     try {
       parsed = JSON.parse(outboundJson) as DelayProbeOutbound;
-    } catch (error) {
+    } catch (_error) {
       return null;
     }
     const settings = parsed.settings;
@@ -181,11 +182,11 @@ export class DelayTester {
       result = await taskpool.execute(
         runNativeDelayTest, outboundJson, datDir, url, timeoutSeconds, configType ?? '', socksPort
       ) as NativePingResult;
-    } catch (error) {
+    } catch (_error) {
       return {
         ok: false,
         delayMs: -1,
-        status: JSON.stringify(error)
+        status: 'native-probe-failed'
       };
     }
 
@@ -250,11 +251,12 @@ export class DelayTester {
         delayMs,
         status: `HTTP ${responseCode}`
       };
-    } catch (error) {
+    } catch (_error) {
       return {
         ok: false,
         delayMs: -1,
-        status: JSON.stringify(error)
+        // 自定义探测 URL 可能含私密查询参数，不回显系统请求错误。
+        status: 'request-failed'
       };
     } finally {
       request.destroy();
