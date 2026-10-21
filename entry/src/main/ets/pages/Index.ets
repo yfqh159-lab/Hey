@@ -83,6 +83,10 @@ struct Index {
   private nodeListScroller: Scroller = new Scroller();
   private lastAutoSubscriptionCheckAt: number = 0;
   private pendingExternalIntentHandling: boolean = false;
+  // 周期刷新、冷启动恢复和前台恢复共用同一运行态协调器。Preferences/诊断文件较慢时
+  // 禁止多个 refresh 并发累计“状态缺失”样本或用旧结果覆盖较新的权威读取。
+  private runtimeRefreshBusy: boolean = false;
+  private runtimeRefreshTail: Promise<void> = Promise.resolve();
 
   @State private currentTab: number = 0;
   @State private showSearch: boolean = false;
@@ -2645,6 +2649,33 @@ struct Index {
   }
 
   private async refreshRuntime(strict: boolean = false): Promise<void> {
+    // 每秒周期刷新无需排队积压；已有刷新时跳过这一拍。冷启动/前台的严格恢复则必须
+    // 排在已有任务之后重新读取，不能把较早的非严格结果当成自己的权威结果。
+    if (!strict && this.runtimeRefreshBusy) {
+      return;
+    }
+    const previous = this.runtimeRefreshTail;
+    this.runtimeRefreshBusy = true;
+    const operation = previous.then(
+      (): Promise<void> => this.performRuntimeRefresh(strict),
+      (): Promise<void> => this.performRuntimeRefresh(strict)
+    );
+    const settled = operation.then(
+      (): void => {},
+      (): void => {}
+    );
+    this.runtimeRefreshTail = settled;
+    try {
+      await operation;
+    } finally {
+      // 若严格恢复已在本轮之后排队，保持 busy，周期刷新继续跳过而不是插队。
+      if (this.runtimeRefreshTail === settled) {
+        this.runtimeRefreshBusy = false;
+      }
+    }
+  }
+
+  private async performRuntimeRefresh(strict: boolean): Promise<void> {
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
       let state = await SHARED_RUNTIME_CONTROLLER.refresh(context, this.language);

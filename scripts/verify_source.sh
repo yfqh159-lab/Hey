@@ -792,8 +792,9 @@ const totalsAt = indexSource.indexOf('  private async loadTrafficTotals(): Promi
 const settingsAt = indexSource.indexOf('  private async loadSettings(strict: boolean = false)');
 const nodesLoadAt = indexSource.indexOf('  private async loadNodes(strict: boolean = false)');
 const runtimeRefreshAt = indexSource.indexOf('  private async refreshRuntime(strict: boolean = false)');
+const runtimeRefreshPerformAt = indexSource.indexOf('  private async performRuntimeRefresh(strict: boolean)');
 if (initialLoadAt < 0 || initializeAt < 0 || retryAt < 0 || totalsAt < 0 ||
-  settingsAt < 0 || nodesLoadAt < 0 || runtimeRefreshAt < 0) {
+  settingsAt < 0 || nodesLoadAt < 0 || runtimeRefreshAt < 0 || runtimeRefreshPerformAt < 0) {
   throw new Error('strict initial state recovery could not be inspected');
 }
 const initialLoad = indexSource.slice(initialLoadAt, initializeAt);
@@ -810,15 +811,34 @@ if (!initialLoad.includes('await this.loadSettings(true);') ||
   !retry.includes('this.initializePageState();')) {
   throw new Error('failed initial reads can still enable controls or consume pending actions');
 }
-for (const start of [settingsAt, nodesLoadAt, runtimeRefreshAt]) {
+for (const start of [settingsAt, nodesLoadAt, runtimeRefreshPerformAt]) {
   const nextMethod = indexSource.indexOf('\n  private ', start + 1);
   const body = indexSource.slice(start, nextMethod);
   if (!body.includes('if (strict) {') || !body.includes('throw new Error(this.lastError);')) {
     throw new Error('a critical initial read still hides its failure');
   }
 }
+const runtimeRefreshEnd = indexSource.indexOf('\n  private async performRuntimeRefresh(', runtimeRefreshAt);
+const runtimeRefresh = indexSource.slice(runtimeRefreshAt, runtimeRefreshEnd);
+if (!indexSource.includes('private runtimeRefreshBusy: boolean = false;') ||
+  !indexSource.includes('private runtimeRefreshTail: Promise<void> = Promise.resolve();') ||
+  runtimeRefreshEnd < 0 ||
+  !runtimeRefresh.includes('if (!strict && this.runtimeRefreshBusy) {') ||
+  !runtimeRefresh.includes('const previous = this.runtimeRefreshTail;') ||
+  !runtimeRefresh.includes('this.performRuntimeRefresh(strict)') ||
+  !runtimeRefresh.includes('this.runtimeRefreshTail = settled;') ||
+  !runtimeRefresh.includes('if (this.runtimeRefreshTail === settled) {')) {
+  throw new Error('periodic and authoritative runtime refreshes can overlap or reorder');
+}
 NODE
 printf 'simplified add surface verification passed\n'
+
+acceptance_duplicate_ids="$(sed -n 's/^| \([A-Z][0-9][0-9]*\) |.*/\1/p' docs/device-acceptance.md | sort | uniq -d)"
+if [ -n "${acceptance_duplicate_ids}" ]; then
+  printf 'duplicate device acceptance ids: %s\n' "${acceptance_duplicate_ids}" >&2
+  exit 1
+fi
+printf 'device acceptance id uniqueness passed\n'
 
 # User-facing documentation must not promise that camera/share/clipboard payloads are
 # shown in full. That would contradict the screenshot-safe confirmation UI and can make
