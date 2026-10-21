@@ -343,6 +343,32 @@ export class RuntimeController {
     const persistedRead = VpnRuntimeStateStore.readWithEvidence(context);
     const persisted = persistedRead.state;
     const stateArtifactsInvalid = persistedRead.authoritativeArtifactInvalid;
+    if (stateArtifactsInvalid) {
+      // 回退备份可能比损坏主文件旧，也可能根本没有可解析备份：两种情况都不能退化为
+      // 普通“文件缺失”的三次采样。健康 Extension 的下一次心跳会重写主文件；持续
+      // 12 秒仍无法修复时才清理，避免 4 秒心跳周期内过早拆掉真实健康的数据面。
+      if (this.status === ConnectionStatus.RUNNING) {
+        const now = Date.now();
+        const suspectedSessionId = persisted?.sessionId ?? this.controller.getSnapshot().vpnSessionId;
+        if (this.unhealthyVpnStateSessionId !== suspectedSessionId || this.unhealthyVpnStateFirstSeenAt <= 0) {
+          this.unhealthyVpnStateSessionId = suspectedSessionId;
+          this.unhealthyVpnStateFirstSeenAt = now;
+        }
+        if (shouldCleanupUnhealthyVpnRuntimeState(
+          true,
+          false,
+          this.unhealthyVpnStateFirstSeenAt,
+          now
+        )) {
+          await this.cleanupUnhealthyVpn(context, language);
+        }
+        return;
+      }
+      if (persisted === null || !persisted.active) {
+        return;
+      }
+      // 空闲 UI 只有在下方会话绑定的 18082 探针也成功后，才可接管旧 active 备份。
+    }
     if (persisted === null) {
       if (this.status === ConnectionStatus.RUNNING) {
         this.missingVpnStateSampleCount++;
@@ -358,31 +384,6 @@ export class RuntimeController {
         this.missingVpnStateSampleCount = 0;
       }
       return;
-    }
-    if (stateArtifactsInvalid) {
-      // 回退备份可能比损坏主文件旧：既不能用旧 inactive 把现有会话归零，也不能仅凭
-      // 旧 active 长期维持“已连接”。健康 Extension 的下一次心跳会重写主文件；持续
-      // 12 秒仍无法修复时才清理，避免 4 秒心跳周期内因三次页面采样过早拆隧道。
-      if (this.status === ConnectionStatus.RUNNING) {
-        const now = Date.now();
-        if (this.unhealthyVpnStateSessionId !== persisted.sessionId || this.unhealthyVpnStateFirstSeenAt <= 0) {
-          this.unhealthyVpnStateSessionId = persisted.sessionId;
-          this.unhealthyVpnStateFirstSeenAt = now;
-        }
-        if (shouldCleanupUnhealthyVpnRuntimeState(
-          true,
-          false,
-          this.unhealthyVpnStateFirstSeenAt,
-          now
-        )) {
-          await this.cleanupUnhealthyVpn(context, language);
-        }
-        return;
-      }
-      if (!persisted.active) {
-        return;
-      }
-      // 空闲 UI 只有在下方会话绑定的 18082 探针也成功后，才可接管旧 active 备份。
     }
     this.missingVpnStateSampleCount = 0;
 

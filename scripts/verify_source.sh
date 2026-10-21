@@ -1286,14 +1286,22 @@ if (persistedReconcileAt < 0 || persistedReconcileEnd < 0 ||
 const invalidArtifactAt = persistedReconcile.indexOf(
   'const stateArtifactsInvalid = persistedRead.authoritativeArtifactInvalid;');
 const invalidArtifactBranchAt = persistedReconcile.indexOf('if (stateArtifactsInvalid) {', invalidArtifactAt);
+const missingArtifactBranchAt = persistedReconcile.indexOf('if (persisted === null) {', invalidArtifactBranchAt);
 const invalidArtifactCleanupAt = persistedReconcile.indexOf(
   'await this.cleanupUnhealthyVpn(context, language);', invalidArtifactBranchAt);
-const inactiveFallbackGuardAt = persistedReconcile.indexOf('if (!persisted.active) {', invalidArtifactBranchAt);
+const inactiveFallbackGuardAt = persistedReconcile.indexOf(
+  'if (persisted === null || !persisted.active) {', invalidArtifactBranchAt);
 if (invalidArtifactAt < 0 || invalidArtifactBranchAt < invalidArtifactAt ||
-  invalidArtifactCleanupAt < invalidArtifactBranchAt || inactiveFallbackGuardAt < invalidArtifactCleanupAt ||
-  !persistedReconcile.slice(invalidArtifactBranchAt, inactiveFallbackGuardAt)
+  missingArtifactBranchAt < invalidArtifactBranchAt || invalidArtifactCleanupAt < invalidArtifactBranchAt ||
+  inactiveFallbackGuardAt < invalidArtifactCleanupAt || invalidArtifactBranchAt > missingArtifactBranchAt ||
+  !persistedReconcile.slice(invalidArtifactBranchAt, missingArtifactBranchAt)
     .includes('shouldCleanupUnhealthyVpnRuntimeState(')) {
-  throw new Error('corrupt VPN state artifacts can immediately trust an old inactive/active backup');
+  throw new Error('corrupt VPN state artifacts can bypass the repair window or trust an old backup');
+}
+if (!persistedReconcile.includes(
+  'const suspectedSessionId = persisted?.sessionId ?? this.controller.getSnapshot().vpnSessionId;') ||
+  !persistedReconcile.includes('if (persisted === null || !persisted.active) {')) {
+  throw new Error('a corrupt VPN state without a parseable backup can be cleaned up before the next heartbeat');
 }
 if (!persistedReconcile.includes('const persistedRead = VpnRuntimeStateStore.readWithEvidence(context);') ||
   !persistedReconcile.includes('const persisted = persistedRead.state;')) {
