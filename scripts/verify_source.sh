@@ -666,6 +666,56 @@ if (successCount !== 2) {
 NODE
 printf 'manual link preview confirmation verification passed\n'
 
+# Keep the everyday node-add surface deliberately small. Existing full-config,
+# proxy-chain, and policy-group records remain editable from NodeDetail for
+# compatibility, but the normal Add page must not offer creation routes for
+# them. The node-list header must retain the one-tap scanner entry requested by
+# the product scope, including the explicit immediate-scan intent.
+node <<'NODE'
+const fs = require('fs');
+const importSource = fs.readFileSync('entry/src/main/ets/pages/Import.ets', 'utf8');
+const indexSource = fs.readFileSync('entry/src/main/ets/pages/Index.ets', 'utf8');
+const detailSource = fs.readFileSync('entry/src/main/ets/pages/NodeDetail.ets', 'utf8');
+
+const importBuildAt = importSource.indexOf('  build() {');
+const importBuildEnd = importSource.indexOf('\n  @Builder\n  private RowDivider()', importBuildAt);
+if (importBuildAt < 0 || importBuildEnd < 0) {
+  throw new Error('Import page build surface could not be inspected');
+}
+const importBuild = importSource.slice(importBuildAt, importBuildEnd);
+if (!importBuild.includes('this.LinkImportSection()') ||
+  !importBuild.includes('this.ManualGridSection()') ||
+  importBuild.includes('this.AdvancedConfigSection()') ||
+  importBuild.includes('this.JsonImportSection()') ||
+  importBuild.includes('AppRoute.ADVANCED_OUTBOUND') ||
+  importBuild.includes('AppRoute.JSON_IMPORT')) {
+  throw new Error('daily Add page exposes advanced/full-config creation or lost its single-node paths');
+}
+
+const nodesHeaderAt = indexSource.indexOf('  private NodesHeader()');
+const nodesHeaderEnd = indexSource.indexOf('\n  @Builder\n  private NodesMenu()', nodesHeaderAt);
+const scannerAt = indexSource.indexOf('  private openScannerImmediately(): void');
+const scannerEnd = indexSource.indexOf('\n  private ', scannerAt + 1);
+if (nodesHeaderAt < 0 || nodesHeaderEnd < 0 || scannerAt < 0 || scannerEnd < 0) {
+  throw new Error('home scanner entry could not be inspected');
+}
+const nodesHeader = indexSource.slice(nodesHeaderAt, nodesHeaderEnd);
+const scanner = indexSource.slice(scannerAt, scannerEnd);
+if (!nodesHeader.includes("$r('app.media.ic_qr_code')") ||
+  !nodesHeader.includes('this.openScannerImmediately();') ||
+  !scanner.includes('url: AppRoute.SCANNER') ||
+  !scanner.includes('startImmediately: true')) {
+  throw new Error('node-list header no longer provides one-tap immediate QR scanning');
+}
+
+if (!detailSource.includes("configType === 'proxy-chain' || configType === 'policy-group'") ||
+  !detailSource.includes('url: AppRoute.ADVANCED_OUTBOUND') ||
+  !detailSource.includes('url: AppRoute.JSON_IMPORT')) {
+  throw new Error('hiding advanced creation broke compatibility editing for existing nodes');
+}
+NODE
+printf 'simplified add surface verification passed\n'
+
 # User-facing documentation must not promise that camera/share/clipboard payloads are
 # shown in full. That would contradict the screenshot-safe confirmation UI and can make
 # reviewers treat a credential disclosure as intended behavior.
