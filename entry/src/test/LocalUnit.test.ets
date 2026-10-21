@@ -10,7 +10,7 @@ import { buildH2HttpSettings, splitH2Hosts } from '../main/ets/core/H2Transport'
 import { toIdnDomain, toIdnUrl } from '../main/ets/core/IdnUrl';
 import { formatTranslation, missingTranslationKeys, normalizeLanguage, resolveLanguage, resolveSystemLanguage, translate } from '../main/ets/core/I18n';
 import { resolveImportedNodeName } from '../main/ets/core/ImportedNodeNames';
-import { AutoAction, NetAutomationConfig, NetContext, decideNetAutomationAction, isTrustedNetwork, networkContextSignature, shouldReloadActiveCoreAfterNetworkChange } from '../main/ets/core/NetworkAutomation';
+import { AutoAction, NetAutomationConfig, NetContext, decideNetAutomationAction, isTrustedNetwork, networkContextSignature, selectUnderlyingNetworkCandidate, shouldReloadActiveCoreAfterNetworkChange } from '../main/ets/core/NetworkAutomation';
 import { defaultJsonConfigNodeName, resolveJsonConfigNodeName } from '../main/ets/core/JsonConfigNames';
 import { selectRuntimeLocalSocksPort, shouldExposeLocalHttpProxy, shouldUseDynamicLocalSocksPort, withRuntimeLocalSocksPort } from '../main/ets/core/LocalProxy';
 import { parseManualOutboundEditState } from '../main/ets/core/ManualOutboundEditState';
@@ -4966,6 +4966,30 @@ export default function localUnitTest() {
       expect(shouldReloadActiveCoreAfterNetworkChange({ kind: 'other', networkId: 20 }, 'noop')).assertTrue();
       expect(shouldReloadActiveCoreAfterNetworkChange({ kind: 'none' }, 'noop')).assertFalse();
       expect(shouldReloadActiveCoreAfterNetworkChange({ kind: 'wifi', ssid: 'home' }, 'disconnect')).assertFalse();
+    });
+
+    it('prefers validated physical networks and keeps network ids stable', 0, () => {
+      const cellular = selectUnderlyingNetworkCandidate([
+        { kind: 'wifi', networkId: 9, validated: false },
+        { kind: 'cellular', networkId: 15, validated: true }
+      ]);
+      expect(cellular.kind).assertEqual('cellular');
+      expect(cellular.networkId).assertEqual(15);
+
+      const wifi = selectUnderlyingNetworkCandidate([
+        { kind: 'wifi', networkId: 12, validated: true },
+        { kind: 'wifi', networkId: 7, validated: true },
+        { kind: 'cellular', networkId: 3, validated: true }
+      ]);
+      expect(wifi.kind).assertEqual('wifi');
+      expect(wifi.networkId).assertEqual(7);
+
+      const fallback = selectUnderlyingNetworkCandidate([
+        { kind: 'other', networkId: 22, validated: false },
+        { kind: 'cellular', networkId: 18, validated: false }
+      ]);
+      expect(fallback.kind).assertEqual('cellular');
+      expect(selectUnderlyingNetworkCandidate([]).kind).assertEqual('none');
     });
   });
 }

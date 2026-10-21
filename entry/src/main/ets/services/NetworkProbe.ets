@@ -1,8 +1,8 @@
 // 网络能力探针 —— 隔离 HarmonyOS 系统 API（connection / wifiManager / 权限）
 //
 // 只提供「读」和「权限」能力，不含任何决策逻辑（决策在 core/NetworkAutomation.ets）。
-// 关键点：判 WiFi 用 wifiManager.isConnected()（物理层，不受自身 VPN 掩盖底层默认网影响），
-// 判蜂窝用 getAllNets 跳过 BEARER_VPN 后的底层承载。
+// 关键点：从 getAllNets 跳过 BEARER_VPN，并优先选择系统已验证可上网的物理承载；
+// wifiManager 只补充 SSID，不能让“已关联但不可上网”的 Wi-Fi 覆盖实际蜂窝出口。
 
 import { connection } from '@kit.NetworkKit';
 import { wifiManager } from '@kit.ConnectivityKit';
@@ -13,7 +13,9 @@ import {
   NET_KIND_CELLULAR,
   NET_KIND_NONE,
   NET_KIND_OTHER,
-  NET_KIND_WIFI
+  NET_KIND_WIFI,
+  UnderlyingNetworkCandidate,
+  selectUnderlyingNetworkCandidate
 } from '../core/NetworkAutomation';
 
 // SSID/扫描只需模糊定位即可；请求模糊定位以尽量少打扰用户
@@ -37,22 +39,23 @@ export class NetworkProbe {
   /** 读当前网络上下文（承载类型 + WiFi SSID）。任何异常都安全回退到 none。 */
   static async readCurrentNetContext(): Promise<NetContext> {
     const underlying = await NetworkProbe.readUnderlyingNetwork();
-    // 1) WiFi 物理已连接（不受自身 VPN 影响）
-    let wifiConnected = false;
-    try {
-      wifiConnected = wifiManager.isConnected();
-    } catch (error) {
-      wifiConnected = false;
-    }
-    if (wifiConnected) {
-      const ssid = await NetworkProbe.readCurrentSsid();
+    if (underlying.kind === NET_KIND_WIFI) {
+      // 承载选择以 NetworkKit 的已验证物理网络为准；wifiManager 仅补充可能受定位
+      // 权限限制的 SSID，不再单凭 isConnected() 把无互联网 Wi-Fi 当成真实出口。
+      let ssid: string | undefined = undefined;
+      try {
+        if (wifiManager.isConnected()) {
+          ssid = await NetworkProbe.readCurrentSsid();
+        }
+      } catch (error) {
+        ssid = undefined;
+      }
       return {
         kind: NET_KIND_WIFI,
         ssid: ssid,
-        networkId: underlying.kind === NET_KIND_WIFI ? underlying.networkId : undefined
+        networkId: underlying.networkId
       };
     }
-    // 2) 否则看底层承载（跳过自身 VPN）
     return { kind: underlying.kind, networkId: underlying.networkId };
   }
 
@@ -128,13 +131,29 @@ export class NetworkProbe {
 
   private static async readUnderlyingNetwork(): Promise<UnderlyingNetworkSnapshot> {
     try {
+      // 非 VPN（Proxy-only/空闲）时，官方 getDefaultNet 就是系统实际选中的出网承载，
+      // 优先使用它可避免 Wi-Fi 与蜂窝同时存在时凭固定顺序猜错。VPN 运行时默认网络
+      // 可能是隧道本身，此时跳过并在全部网络中筛选已验证的物理承载。
+      try {
+        const defaultNet = await connection.getDefaultNet();
+        const defaultCaps = connection.getNetCapabilitiesSync(defaultNet);
+        const defaultBearers = defaultCaps.bearerTypes ?? [];
+        if (defaultBearers.length > 0 && !defaultBearers.includes(connection.NetBearType.BEARER_VPN)) {
+          const defaultId = NetworkProbe.readNetworkId(defaultNet);
+          if (defaultBearers.includes(connection.NetBearType.BEARER_WIFI)) {
+            return { kind: NET_KIND_WIFI, networkId: defaultId };
+          }
+          if (defaultBearers.includes(connection.NetBearType.BEARER_CELLULAR)) {
+            return { kind: NET_KIND_CELLULAR, networkId: defaultId };
+          }
+          return { kind: NET_KIND_OTHER, networkId: defaultId };
+        }
+      } catch (error) {
+        // 无默认网络或设备实现不允许查询时，继续走 getAllNets 的物理承载回退。
+      }
+
       const nets = await connection.getAllNets();
-      let hasWifi = false;
-      let hasCellular = false;
-      let hasOther = false;
-      let wifiId: number | undefined = undefined;
-      let cellularId: number | undefined = undefined;
-      let otherId: number | undefined = undefined;
+      const candidates = new Array<UnderlyingNetworkCandidate>();
       for (let index = 0; index < nets.length; index++) {
         const caps = connection.getNetCapabilitiesSync(nets[index]);
         const bearers = caps.bearerTypes ?? [];
@@ -142,29 +161,19 @@ export class NetworkProbe {
           continue; // 跳过自身 VPN 隧道
         }
         const networkId = NetworkProbe.readNetworkId(nets[index]);
+        const networkCaps = caps.networkCap ?? [];
+        const validated = networkCaps.includes(connection.NetCap.NET_CAPABILITY_VALIDATED);
         if (bearers.includes(connection.NetBearType.BEARER_WIFI)) {
-          hasWifi = true;
-          wifiId = NetworkProbe.preferStableNetworkId(wifiId, networkId);
+          candidates.push({ kind: NET_KIND_WIFI, networkId, validated });
           continue;
         }
         if (bearers.includes(connection.NetBearType.BEARER_CELLULAR)) {
-          hasCellular = true;
-          cellularId = NetworkProbe.preferStableNetworkId(cellularId, networkId);
+          candidates.push({ kind: NET_KIND_CELLULAR, networkId, validated });
         } else {
-          hasOther = true;
-          otherId = NetworkProbe.preferStableNetworkId(otherId, networkId);
+          candidates.push({ kind: NET_KIND_OTHER, networkId, validated });
         }
       }
-      if (hasWifi) {
-        return { kind: NET_KIND_WIFI, networkId: wifiId };
-      }
-      if (hasCellular) {
-        return { kind: NET_KIND_CELLULAR, networkId: cellularId };
-      }
-      if (hasOther) {
-        return { kind: NET_KIND_OTHER, networkId: otherId };
-      }
-      return { kind: NET_KIND_NONE };
+      return selectUnderlyingNetworkCandidate(candidates);
     } catch (error) {
       return { kind: NET_KIND_NONE };
     }
@@ -175,11 +184,4 @@ export class NetworkProbe {
     return value !== undefined && Number.isFinite(value) && value >= 0 ? Math.floor(value) : undefined;
   }
 
-  // getAllNets() 的顺序不保证稳定；同一承载存在多个句柄时固定选择最小 id，避免假变化。
-  private static preferStableNetworkId(current: number | undefined, candidate: number | undefined): number | undefined {
-    if (candidate === undefined) {
-      return current;
-    }
-    return current === undefined ? candidate : Math.min(current, candidate);
-  }
 }

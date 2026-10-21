@@ -26,6 +26,12 @@ export interface NetContext {
   networkId?: number;
 }
 
+export interface UnderlyingNetworkCandidate {
+  kind: NetKind;
+  networkId?: number;
+  validated: boolean;
+}
+
 /**
  * 网络变化去重签名。即使 SSID 因权限或隐藏网络不可见，不同底层 NetHandle 仍能触发复测。
  * 该签名只在进程内比较，不落盘、不作为设备或网络身份。
@@ -33,6 +39,38 @@ export interface NetContext {
 export function networkContextSignature(ctx: NetContext): string {
   const networkId = ctx.networkId === undefined ? '' : `${ctx.networkId}`;
   return `${ctx.kind}|${ctx.ssid ?? ''}|${networkId}`;
+}
+
+/**
+ * VPN 成为系统默认网络时，从剩余物理网络候选中选择最可能的真实承载。
+ * 已通过系统互联网验证的网络优先；同一层级沿用 Wi-Fi、蜂窝、其他的产品优先级，
+ * 同类多个句柄固定选择最小 ID，避免 getAllNets 顺序变化制造假切网事件。
+ */
+export function selectUnderlyingNetworkCandidate(candidates: Array<UnderlyingNetworkCandidate>): NetContext {
+  const kinds: Array<NetKind> = [NET_KIND_WIFI, NET_KIND_CELLULAR, NET_KIND_OTHER];
+  for (let validatedIndex = 0; validatedIndex < 2; validatedIndex++) {
+    const requireValidated = validatedIndex === 0;
+    for (let kindIndex = 0; kindIndex < kinds.length; kindIndex++) {
+      const kind = kinds[kindIndex];
+      let selectedId: number | undefined = undefined;
+      let found = false;
+      for (let index = 0; index < candidates.length; index++) {
+        const candidate = candidates[index];
+        if (candidate.kind !== kind || (requireValidated && !candidate.validated)) {
+          continue;
+        }
+        found = true;
+        if (candidate.networkId !== undefined &&
+          (selectedId === undefined || candidate.networkId < selectedId)) {
+          selectedId = candidate.networkId;
+        }
+      }
+      if (found) {
+        return { kind, networkId: selectedId };
+      }
+    }
+  }
+  return { kind: NET_KIND_NONE };
 }
 
 // 自动化配置（来自 AppSettings 的相关子集）
