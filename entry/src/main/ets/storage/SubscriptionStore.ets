@@ -1,7 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { ProxyNode, SubscriptionGroup, SubscriptionProfile, XrayConfigType } from '../core/Profile';
-import { dedupeProxyNodes } from '../core/NodeDedupe';
+import { dedupeProxyNodes, proxyConfigDedupeKey, proxyNodeDedupeKey } from '../core/NodeDedupe';
 import {
   DEFAULT_SUBSCRIPTION_UPDATE_INTERVAL_MINUTES,
   moveSubscriptionGroup,
@@ -400,6 +400,23 @@ export class SubscriptionStore {
     
     await SubscriptionStore.save(context, SubscriptionStore.normalize(profile));
     return SubscriptionStore.load(context);
+  }
+
+  static async findDuplicateNode(context: common.Context, outboundJson: string, configType?: XrayConfigType): Promise<ProxyNode | null> {
+    const targetKey = proxyConfigDedupeKey(outboundJson, configType);
+    if (targetKey.length === 0) {
+      return null;
+    }
+    const profile = await SubscriptionStore.load(context);
+    for (let groupIndex = 0; groupIndex < profile.groups.length; groupIndex++) {
+      const nodes = profile.groups[groupIndex].nodes;
+      for (let nodeIndex = 0; nodeIndex < nodes.length; nodeIndex++) {
+        if (proxyNodeDedupeKey(nodes[nodeIndex]) === targetKey) {
+          return nodes[nodeIndex];
+        }
+      }
+    }
+    return null;
   }
 
   static async updateManualNode(context: common.Context, nodeId: string, name: string, outboundJson: string, configType?: XrayConfigType): Promise<ManualNodeUpdateResult> {

@@ -19,20 +19,24 @@ export function dedupeProxyNodes(nodes: Array<ProxyNode>): Array<ProxyNode> {
 }
 
 export function proxyNodeDedupeKey(node: ProxyNode): string {
-  if (isDedupeExcludedConfigType(node.configType)) {
+  return proxyConfigDedupeKey(node.outboundJson, node.configType, node.rawLink);
+}
+
+export function proxyConfigDedupeKey(outboundJson: string, configType: XrayConfigType | undefined, rawLink: string = ''): string {
+  if (isDedupeExcludedConfigType(configType)) {
     return '';
   }
 
-  const validation = normalizeConfigInput(node.outboundJson, node.configType);
+  const validation = normalizeConfigInput(outboundJson, configType);
   if (validation.valid) {
     return `json:${normalizeOutboundDedupeJson(validation.normalizedJson)}`;
   }
 
-  const rawLink = node.rawLink.trim();
-  if (rawLink.length > 0) {
-    return `raw:${rawLink}`;
+  const normalizedRawLink = rawLink.trim();
+  if (normalizedRawLink.length > 0) {
+    return `raw:${normalizedRawLink}`;
   }
-  return `json:${node.outboundJson.trim()}`;
+  return `json:${outboundJson.trim()}`;
 }
 
 export function isDedupeExcludedConfigType(configType: XrayConfigType | undefined): boolean {

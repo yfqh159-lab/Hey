@@ -30,6 +30,7 @@ import { CustomAssetUrl } from '../main/ets/storage/AssetStore';
 import { ProxyProfile, SubscriptionProfile } from '../main/ets/core/Profile';
 import { decideRuntimeSettingsRestart } from '../main/ets/core/SettingsChange';
 import { decideActiveNodeRemovalAction, decideConfigChangeAction, decideNodeSwitchAction } from '../main/ets/core/RuntimeReconnect';
+import { proxyConfigDedupeKey } from '../main/ets/core/NodeDedupe';
 import { isSingboxOnlyProtocol, requiredCoreForProtocol, CORE_TYPE_SINGBOX, CORE_TYPE_XRAY } from '../main/ets/core/CoreSelection';
 import {
   DEFAULT_SUBSCRIPTION_UPDATE_INTERVAL_MINUTES,
@@ -215,6 +216,15 @@ export default function localUnitTest() {
       expect(decideActiveNodeRemovalAction(true, false)).assertEqual('none');
       // 未运行删除：不动连接。
       expect(decideActiveNodeRemovalAction(false, true)).assertEqual('none');
+    });
+  });
+
+  describe('nodeDedupe', () => {
+    it('ignores display-only outbound fields when matching imported nodes', 0, () => {
+      const renamed = VLESS_REALITY_OUTBOUND.replace('"tag":"proxy"', '"tag":"renamed"');
+      expect(proxyConfigDedupeKey(VLESS_REALITY_OUTBOUND, 'outbound'))
+        .assertEqual(proxyConfigDedupeKey(renamed, 'outbound'));
+      expect(proxyConfigDedupeKey(FULL_XRAY_CONFIG, 'full')).assertEqual('');
     });
   });
 

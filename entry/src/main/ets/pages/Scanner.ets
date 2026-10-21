@@ -6,7 +6,7 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { resolveImportedNodeName } from '../core/ImportedNodeNames';
 import { shouldExposeLocalHttpProxy } from '../core/LocalProxy';
-import { AppLanguage } from '../core/Profile';
+import { AppLanguage, XrayConfigType } from '../core/Profile';
 import { markRuntimeSettingsRestartNeeded } from '../core/SettingsChange';
 import { LOCAL_HTTP_PROXY_PORT } from '../core/XrayConfig';
 import { NODES_CONTROLLER } from '../features/nodes/NodesController';
@@ -28,6 +28,9 @@ struct ScannerPage {
   @StorageProp('appLanguage') private language: AppLanguage = DEFAULT_LANGUAGE;
   @State private importBuffer: string = '';
   @State private lastError: string = '';
+  @State private previewTitle: string = '';
+  @State private previewDetail: string = '';
+  @State private previewValid: boolean = false;
   @State private isBusy: boolean = false;
   @State private selectedNodeId: string = '';
   @State private hasAutoScanned: boolean = false;
@@ -183,6 +186,7 @@ struct ScannerPage {
                     .onClick(() => {
                       this.importBuffer = '';
                       this.lastError = '';
+                      this.updateImportPreview('');
                     })
                 }
               }
@@ -202,6 +206,7 @@ struct ScannerPage {
               .padding(12)
               .onChange((value: string) => {
                 this.importBuffer = value;
+                this.updateImportPreview(value);
               })
 
             Text(this.t('scanner.supportedPayloads'))
@@ -215,6 +220,25 @@ struct ScannerPage {
           .backgroundColor(AppColor.surface)
           .borderRadius(16)
           .shadow({ radius: 8, color: AppColor.shadowCard, offsetX: 0, offsetY: 2 })
+
+          if (this.previewTitle.length > 0) {
+            Column({ space: 6 }) {
+              Text(this.previewTitle)
+                .fontSize(14)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(this.previewValid ? AppColor.success : AppColor.danger)
+                .width('100%')
+              Text(this.previewDetail)
+                .fontSize(12)
+                .fontColor(AppColor.textSecondary)
+                .width('100%')
+                .lineHeight(17)
+            }
+            .width('100%')
+            .padding(14)
+            .backgroundColor(this.previewValid ? AppColor.successTint : AppColor.dangerTint)
+            .borderRadius(12)
+          }
 
           // 模块四：错误提示卡片
           if (this.lastError.length > 0) {
@@ -393,6 +417,7 @@ struct ScannerPage {
     }
     this.importBuffer = value.trim();
     this.lastError = '';
+    this.updateImportPreview(this.importBuffer);
     // 扫码/相册只负责识别并展示原文。必须由用户检查内容后再次点击导入，
     // 才允许保存节点；若内容是订阅 URL，也只有这一步之后才会发起网络请求。
     promptAction.showToast({ message: this.t('scanner.reviewBeforeImport') });
@@ -412,6 +437,7 @@ struct ScannerPage {
         if (text && text.trim().length > 0) {
           this.importBuffer = text.trim();
           this.lastError = '';
+          this.updateImportPreview(this.importBuffer);
           promptAction.showToast({ message: this.t('prompt.pastedConfig') });
         } else {
           promptAction.showToast({ message: this.t('prompt.clipboardTextEmpty') });
@@ -452,19 +478,33 @@ struct ScannerPage {
         // 等 sing-box 专属协议）。native(xray-core) 转换不认识 anytls/tuic，只作后备。
         const parsedNodes = SubscriptionManager.parseSubscriptionContent(value, '');
         if (parsedNodes.length > 0) {
+          let importedCount = 0;
+          let duplicateCount = 0;
           for (let index = 0; index < parsedNodes.length; index++) {
             const parsedNode = parsedNodes[index];
-            await SubscriptionStore.addManualNode(
+            if (await this.addManualNodeIfUnique(
               context,
               parsedNode.name,
               parsedNode.outboundJson,
               parsedNode.configType
-            );
+            )) {
+              importedCount++;
+            } else {
+              duplicateCount++;
+            }
+          }
+          if (importedCount === 0) {
+            this.lastError = this.f1('scanner.duplicateNodes', 'count', duplicateCount.toString());
+            SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
+            return;
           }
           markRuntimeSettingsRestartNeeded();
-          const batchMessage = parsedNodes.length === 1 ?
-            this.t('scanner.nodeImported') : this.f1('scanner.nodesImported', 'count', parsedNodes.length.toString());
+          const batchMessage = importedCount === 1 ?
+            this.t('scanner.nodeImported') : this.f1('scanner.nodesImported', 'count', importedCount.toString());
           SHARED_RUNTIME_CONTROLLER.appendLog(batchMessage);
+          if (duplicateCount > 0) {
+            SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('scanner.duplicateNodes', 'count', duplicateCount.toString()));
+          }
           promptAction.showToast({ message: batchMessage });
           router.back();
           return;
@@ -478,6 +518,7 @@ struct ScannerPage {
         }
 
         let importedCount = 0;
+        let duplicateCount = 0;
         let lastValidationError = '';
         for (let index = 0; index < nativeResult.outbounds.length; index++) {
           const outbound = nativeResult.outbounds[index];
@@ -486,17 +527,22 @@ struct ScannerPage {
             lastValidationError = imported.lastError;
             continue;
           }
-          await SubscriptionStore.addManualNode(
+          if (!await this.addManualNodeIfUnique(
             context,
             resolveImportedNodeName(imported.profile.outboundJson, outbound.name),
             imported.profile.outboundJson,
             imported.profile.configType
-          );
+          )) {
+            duplicateCount++;
+            continue;
+          }
           importedCount++;
         }
 
         if (importedCount === 0) {
-          this.lastError = lastValidationError.length > 0 ? lastValidationError : saved.lastError;
+          this.lastError = duplicateCount > 0 ?
+            this.f1('scanner.duplicateNodes', 'count', duplicateCount.toString()) :
+            (lastValidationError.length > 0 ? lastValidationError : saved.lastError);
           SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
           return;
         }
@@ -505,13 +551,20 @@ struct ScannerPage {
         const successMessage = importedCount === 1 ?
           this.t('scanner.nodeImported') : this.f1('scanner.nodesImported', 'count', importedCount.toString());
         SHARED_RUNTIME_CONTROLLER.appendLog(successMessage);
+        if (duplicateCount > 0) {
+          SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('scanner.duplicateNodes', 'count', duplicateCount.toString()));
+        }
         promptAction.showToast({ message: successMessage });
         router.back();
         return;
       }
 
       const nodeName = resolveImportedNodeName(saved.profile.outboundJson, this.t('scanner.defaultNodeName'));
-      await SubscriptionStore.addManualNode(context, nodeName, saved.profile.outboundJson, saved.profile.configType);
+      if (!await this.addManualNodeIfUnique(context, nodeName, saved.profile.outboundJson, saved.profile.configType)) {
+        this.lastError = this.f1('scanner.duplicateNode', 'name', nodeName);
+        SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
+        return;
+      }
       markRuntimeSettingsRestartNeeded();
       SHARED_RUNTIME_CONTROLLER.appendLog(this.t('log.profileSaved'));
       promptAction.showToast({ message: this.t('scanner.nodeImported') });
@@ -522,6 +575,55 @@ struct ScannerPage {
     } finally {
       this.isBusy = false;
     }
+  }
+
+  private updateImportPreview(value: string): void {
+    const input = value.trim();
+    if (input.length === 0) {
+      this.previewTitle = '';
+      this.previewDetail = '';
+      this.previewValid = false;
+      return;
+    }
+    const lower = input.toLowerCase();
+    if (lower.startsWith('http://') || lower.startsWith('https://')) {
+      this.previewTitle = this.t('scanner.previewSubscription');
+      this.previewDetail = this.t('scanner.previewSubscriptionDetail');
+      this.previewValid = true;
+      return;
+    }
+    const validation = NODES_CONTROLLER.validateConfig(input, this.language);
+    if (validation.valid) {
+      const name = resolveImportedNodeName(validation.normalizedJson, this.t('scanner.defaultNodeName'));
+      this.previewTitle = this.f1('scanner.previewNode', 'name', name);
+      this.previewDetail = this.f1('scanner.previewProtocol', 'protocol', validation.protocol.toUpperCase());
+      this.previewValid = true;
+      return;
+    }
+    const parsedNodes = SubscriptionManager.parseSubscriptionContent(input, '');
+    if (parsedNodes.length > 0) {
+      this.previewTitle = this.f1('scanner.previewNodes', 'count', parsedNodes.length.toString());
+      this.previewDetail = this.t('scanner.previewNodesDetail');
+      this.previewValid = true;
+      return;
+    }
+    this.previewTitle = this.t('scanner.previewInvalid');
+    this.previewDetail = validation.message;
+    this.previewValid = false;
+  }
+
+  private async addManualNodeIfUnique(
+    context: common.Context,
+    name: string,
+    outboundJson: string,
+    configType?: XrayConfigType
+  ): Promise<boolean> {
+    const duplicate = await SubscriptionStore.findDuplicateNode(context, outboundJson, configType);
+    if (duplicate !== null) {
+      return false;
+    }
+    await SubscriptionStore.addManualNode(context, name, outboundJson, configType);
+    return true;
   }
 
   private t(key: string): string {
