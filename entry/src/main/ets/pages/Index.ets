@@ -180,19 +180,23 @@ struct Index {
   }
 
   private async refreshFromStorage(): Promise<void> {
-    await this.loadSettings();
-    await this.loadNodes();
     // 页面不可见期间 Extension 可能已停止或仍在后台健康运行。任何设置重启、开机动作或
     // 外部控制之前先恢复权威状态，不能根据离开页面前的旧枚举决定是否启动。
-    await this.refreshRuntime();
-    await this.handlePendingRuntimeSettingsRestart();
-    await this.handlePendingAutoStartupLaunch();
-    await this.handlePendingSharedTextImport();
-    await this.handlePendingDeepLink();
-    await this.refreshDueSubscriptions();
-    await this.syncSubscriptionBackgroundSchedule();
-    // 从后台或子页回到首页时重新确认真实出口。网络承载可能已经变化，旧 IP 不应继续显示。
-    await this.recheckCurrentEgressIp();
+    if (!await this.recoverForegroundAuthority()) {
+      return;
+    }
+    try {
+      await this.handlePendingRuntimeSettingsRestart();
+      await this.handlePendingAutoStartupLaunch();
+      await this.handlePendingSharedTextImport();
+      await this.handlePendingDeepLink();
+      await this.refreshDueSubscriptions();
+      await this.syncSubscriptionBackgroundSchedule();
+      // 从后台或子页回到首页时重新确认真实出口。网络承载可能已经变化，旧 IP 不应继续显示。
+      await this.recheckCurrentEgressIp();
+    } catch (error) {
+      this.recordForegroundRecoveryError(error as Object);
+    }
   }
 
   private onPendingExternalIntentChanged(): void {
@@ -213,21 +217,44 @@ struct Index {
     }
     this.pendingExternalIntentHandling = true;
     setTimeout(async () => {
+      let completed = false;
       try {
-        await this.loadSettings();
-        await this.loadNodes();
-        await this.refreshRuntime();
+        if (!await this.recoverForegroundAuthority()) {
+          return;
+        }
         await this.handlePendingAutoStartupLaunch();
         await this.handlePendingSharedTextImport();
         await this.handlePendingDeepLink();
         await this.syncSubscriptionBackgroundSchedule();
+        completed = true;
+      } catch (error) {
+        this.recordForegroundRecoveryError(error as Object);
       } finally {
         this.pendingExternalIntentHandling = false;
-        if (this.hasPendingExternalIntent()) {
+        // 只有本轮完整执行后才立即消费随后到达的新动作。权威读取或处理失败时保留
+        // AppStorage 待办，等待下一次页面恢复/新系统事件，避免 setTimeout(0) 忙循环。
+        if (completed && this.hasPendingExternalIntent()) {
           this.consumePendingExternalIntentSoon();
         }
       }
     }, 0);
+  }
+
+  private async recoverForegroundAuthority(): Promise<boolean> {
+    try {
+      await this.loadSettings(true);
+      await this.loadNodes(true);
+      await this.refreshRuntime(true);
+      return true;
+    } catch (error) {
+      // 三个严格读取入口已写入脱敏错误；这里只负责阻断所有后续启停动作。
+      return false;
+    }
+  }
+
+  private recordForegroundRecoveryError(error: Object): void {
+    this.lastError = redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error));
+    SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
   }
 
   private async handlePendingRuntimeSettingsRestart(): Promise<void> {
@@ -2635,6 +2662,7 @@ struct Index {
     } catch (error) {
       this.lastError = redactDiagnosticText(JSON.stringify(error));
       if (strict) {
+        SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
         throw new Error(this.lastError);
       }
     }

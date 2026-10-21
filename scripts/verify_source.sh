@@ -1008,10 +1008,28 @@ if (!index.includes("@StorageLink('pendingAutoStartupLaunch') @Watch('onPendingE
 const consumerAt = index.indexOf('  private consumePendingExternalIntentSoon(): void');
 const consumerEnd = index.indexOf('\n  private async handlePendingRuntimeSettingsRestart()', consumerAt);
 const consumer = index.slice(consumerAt, consumerEnd);
-const refreshAt = consumer.indexOf('await this.refreshRuntime();');
+const recoveryAt = consumer.indexOf('if (!await this.recoverForegroundAuthority())');
 const startupAt = consumer.indexOf('await this.handlePendingAutoStartupLaunch();');
-if (consumerAt < 0 || consumerEnd < 0 || refreshAt < 0 || startupAt < refreshAt) {
+const authorityAt = consumer.indexOf('private async recoverForegroundAuthority(): Promise<boolean>');
+const authorityEnd = consumer.indexOf('\n  private recordForegroundRecoveryError(', authorityAt);
+const authority = consumer.slice(authorityAt, authorityEnd);
+if (consumerAt < 0 || consumerEnd < 0 || recoveryAt < 0 || startupAt < recoveryAt ||
+  authorityAt < 0 || authorityEnd < 0 ||
+  !authority.includes('await this.loadSettings(true);') ||
+  !authority.includes('await this.loadNodes(true);') ||
+  !authority.includes('await this.refreshRuntime(true);') ||
+  !consumer.includes('let completed = false;') ||
+  !consumer.includes('if (completed && this.hasPendingExternalIntent())')) {
   throw new Error('warm AUTO_STARTUP is not serialized after authoritative runtime recovery');
+}
+const foregroundAt = index.indexOf('  private async refreshFromStorage(): Promise<void>');
+const foregroundEnd = index.indexOf('\n  private onPendingExternalIntentChanged()', foregroundAt);
+const foreground = index.slice(foregroundAt, foregroundEnd);
+if (foregroundAt < 0 || foregroundEnd < 0 ||
+  !foreground.includes('if (!await this.recoverForegroundAuthority())') ||
+  foreground.indexOf('await this.handlePendingRuntimeSettingsRestart();') <
+    foreground.indexOf('if (!await this.recoverForegroundAuthority())')) {
+  throw new Error('foreground resume actions can run after failed authoritative reads');
 }
 NODE
 printf 'warm AUTO_STARTUP delivery verification passed\n'
