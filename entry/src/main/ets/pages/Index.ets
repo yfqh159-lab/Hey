@@ -4,10 +4,9 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import { IconButton } from '../components/IconButton';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { BOTTOM_SAFE_HEIGHT_KEY, TOP_SAFE_HEIGHT_KEY } from '../core/Immersive';
-import { shouldExposeLocalHttpProxy } from '../core/LocalProxy';
 import { APP_MODE_VPN, AppLanguage, AppRuntimeMode, AppSettings, ConnectionStatus, isProxyOnlyRuntimeMode, normalizeHomeDelayTestInterval, normalizeRealPingConcurrency, ProxyNode, ProxyProfile, resolveDelayTestUrl, RuntimeStats, SubscriptionGroup, SubscriptionProfile, XrayConfigType } from '../core/Profile';
 import { CoreSelectionStore, requiredCoreForProtocol, CORE_TYPE_SINGBOX } from '../core/CoreSelection';
-import { DELAY_TEST_BATCH_PORT_BASE, LOCAL_HTTP_PROXY_PORT, normalizeOutboundInput } from '../core/XrayConfig';
+import { DELAY_TEST_BATCH_PORT_BASE, normalizeOutboundInput } from '../core/XrayConfig';
 import { DeepLinkControlAction, DeepLinkIntent, parseDeepLink, subscriptionNameFromDeepLink } from '../core/DeepLink';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { consumeRuntimeSettingsRestartDecision } from '../core/SettingsChange';
@@ -2796,8 +2795,10 @@ struct Index {
   }
 
   private subscriptionProxyPort(): number {
-    return this.isRunning() && shouldExposeLocalHttpProxy(this.currentSettings) ?
-      LOCAL_HTTP_PROXY_PORT : 0;
+    return SubscriptionManager.resolveSubscriptionProxyPort(
+      this.runtimeMode,
+      this.status !== ConnectionStatus.IDLE
+    );
   }
 
   private async reconnectService(): Promise<void> {

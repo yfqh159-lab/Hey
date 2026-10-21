@@ -2,7 +2,7 @@ import { util } from '@kit.ArkTS';
 import { APP_HTTP_USER_AGENT } from '../core/HttpDefaults';
 import { http } from '@kit.NetworkKit';
 import { toIdnUrl } from '../core/IdnUrl';
-import { ProxyNode } from '../core/Profile';
+import { ProxyNode, isProxyOnlyRuntimeMode } from '../core/Profile';
 import { decodeBase64ToUtf8, encodeUtf8ToBase64 } from '../core/Encoding';
 import { isLoopbackOrPrivateHttpUrl } from '../core/PrivateNetwork';
 import {
@@ -10,7 +10,12 @@ import {
   parseShareLinkToOutboundJson,
   ShareLinkParseResult
 } from '../core/ShareLinkParser';
-import { LOCAL_HTTP_PROXY_HOST, normalizeOutboundInput } from '../core/XrayConfig';
+import {
+  LOCAL_HTTP_PROXY_HOST,
+  LOCAL_HTTP_PROXY_PORT,
+  VPN_INTERNAL_HTTP_PROXY_PORT,
+  normalizeOutboundInput
+} from '../core/XrayConfig';
 
 export interface SubscriptionUpdateResult {
   ok: boolean;
@@ -276,7 +281,8 @@ export class SubscriptionManager {
     for (let index = 0; index < attempts.length; index++) {
       let content = '';
       try {
-        content = await SubscriptionManager.fetchTextWithFallback(requestUrl, attempts[index], allowInsecureUrl, proxyPort);
+        content = await SubscriptionManager.fetchTextForRoute(
+          requestUrl, attempts[index], allowInsecureUrl, proxyPort);
       } catch (error) {
         lastError = error as Error;
         continue;
@@ -338,6 +344,13 @@ export class SubscriptionManager {
     return proxyPort > 0 && Math.floor(proxyPort) === proxyPort && proxyPort <= 65535;
   }
 
+  static resolveSubscriptionProxyPort(mode: string | undefined, runtimeMayOwnNetwork: boolean): number {
+    if (!runtimeMayOwnNetwork) {
+      return 0;
+    }
+    return isProxyOnlyRuntimeMode(mode) ? LOCAL_HTTP_PROXY_PORT : VPN_INTERNAL_HTTP_PROXY_PORT;
+  }
+
   static validateSubscriptionUrl(url: string, allowInsecureUrl: boolean): string {
     const trimmedUrl = url.trim();
     if (!SubscriptionManager.isHttpUrl(trimmedUrl)) {
@@ -394,15 +407,15 @@ export class SubscriptionManager {
     }
   }
 
-  private static async fetchTextWithFallback(url: string, userAgent: string, allowInsecureUrl: boolean, proxyPort: number): Promise<string> {
-    if (!SubscriptionManager.shouldUseSubscriptionProxy(proxyPort)) {
-      return SubscriptionManager.fetchText(url, 0, userAgent, allowInsecureUrl, 0);
-    }
-    try {
-      return await SubscriptionManager.fetchText(url, 0, userAgent, allowInsecureUrl, proxyPort);
-    } catch (error) {
-      return SubscriptionManager.fetchText(url, 0, userAgent, allowInsecureUrl, 0);
-    }
+  private static async fetchTextForRoute(
+    url: string,
+    userAgent: string,
+    allowInsecureUrl: boolean,
+    proxyPort: number
+  ): Promise<string> {
+    // proxyPort>0 表示当前运行态要求经代理访问。失败必须向上返回，不能把含 Token、
+    // Basic Auth 或私有路径的订阅 URL 静默改为物理网络直连。
+    return SubscriptionManager.fetchText(url, 0, userAgent, allowInsecureUrl, proxyPort);
   }
 
   private static async fetchText(url: string, redirectCount: number, userAgent: string, allowInsecureUrl: boolean, proxyPort: number): Promise<string> {

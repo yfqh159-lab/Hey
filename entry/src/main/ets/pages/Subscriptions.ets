@@ -2,9 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { IconButton } from '../components/IconButton';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
-import { shouldExposeLocalHttpProxy } from '../core/LocalProxy';
-import { AppLanguage, SubscriptionGroup } from '../core/Profile';
-import { LOCAL_HTTP_PROXY_PORT } from '../core/XrayConfig';
+import { AppLanguage, ConnectionStatus, SubscriptionGroup } from '../core/Profile';
 import { SUBSCRIPTIONS_CONTROLLER, SubscriptionsControllerState } from '../features/subscriptions/SubscriptionsController';
 import { avatarColor, monogram } from '../features/subscriptions/SubscriptionVisuals';
 import { SETTINGS_CONTROLLER } from '../features/settings/SettingsController';
@@ -14,6 +12,7 @@ import { PageHeader } from '../shell/PageHeader';
 import { formatOne } from '../utils/LocalizationPresenter';
 import { router, promptAction } from '@kit.ArkUI';
 import { AppColor, FontSz, Radius, Space } from '../theme/Theme';
+import { SubscriptionManager } from '../services/SubscriptionManager';
 
 @Entry
 @Component
@@ -23,7 +22,6 @@ struct SubscriptionsPage {
   @State private selectedGroupId: string = '';
   @State private isUpdatingAll: boolean = false;
   @State private isBusy: boolean = false;
-  private subscriptionProxyPort: number = 0;
   private confirmRemove: boolean = false;
 
   aboutToAppear(): void {
@@ -282,8 +280,6 @@ struct SubscriptionsPage {
       const settings = await SETTINGS_CONTROLLER.load(context);
       this.language = settings.language;
       this.confirmRemove = settings.confirmRemove;
-      this.subscriptionProxyPort = shouldExposeLocalHttpProxy(settings) && SHARED_RUNTIME_CONTROLLER.isRunning() ?
-        LOCAL_HTTP_PROXY_PORT : 0;
       this.applySubscriptionsState(await SUBSCRIPTIONS_CONTROLLER.load(context, this.language));
     } finally {
       this.isBusy = false;
@@ -377,7 +373,12 @@ struct SubscriptionsPage {
     this.isUpdatingAll = true;
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
-      const state = await SUBSCRIPTIONS_CONTROLLER.updateAll(context, this.language, this.subscriptionProxyPort);
+      const runtime = SHARED_RUNTIME_CONTROLLER.snapshot();
+      const proxyPort = SubscriptionManager.resolveSubscriptionProxyPort(
+        runtime.runtimeMode,
+        runtime.status !== ConnectionStatus.IDLE
+      );
+      const state = await SUBSCRIPTIONS_CONTROLLER.updateAll(context, this.language, proxyPort);
       this.applySubscriptionsState(state);
       try {
         this.getUIContext().getPromptAction().showToast({ message: state.subscriptionMessage });

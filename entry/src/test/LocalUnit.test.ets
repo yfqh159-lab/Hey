@@ -4189,6 +4189,13 @@ export default function localUnitTest() {
       expect(SubscriptionManager.shouldUseSubscriptionProxy(LOCAL_HTTP_PROXY_PORT)).assertTrue();
       expect(SubscriptionManager.shouldUseSubscriptionProxy(LOCAL_HTTP_PROXY_PORT + 0.5)).assertFalse();
       expect(SubscriptionManager.shouldUseSubscriptionProxy(65536)).assertFalse();
+
+      expect(SubscriptionManager.resolveSubscriptionProxyPort(APP_MODE_VPN, true))
+        .assertEqual(VPN_INTERNAL_HTTP_PROXY_PORT);
+      expect(SubscriptionManager.resolveSubscriptionProxyPort(APP_MODE_PROXY_ONLY, true))
+        .assertEqual(LOCAL_HTTP_PROXY_PORT);
+      expect(SubscriptionManager.resolveSubscriptionProxyPort(APP_MODE_VPN, false)).assertEqual(0);
+      expect(SubscriptionManager.resolveSubscriptionProxyPort(APP_MODE_PROXY_ONLY, false)).assertEqual(0);
     });
 
     it('moves subscription groups without mutating the source list', 0, () => {

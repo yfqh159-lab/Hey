@@ -1,9 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
-import { shouldExposeLocalHttpProxy } from '../core/LocalProxy';
-import { AppLanguage, ProxyNode, SubscriptionGroup } from '../core/Profile';
-import { LOCAL_HTTP_PROXY_PORT } from '../core/XrayConfig';
+import { AppLanguage, ConnectionStatus, ProxyNode, SubscriptionGroup } from '../core/Profile';
 import { NODES_CONTROLLER, NodesControllerState } from '../features/nodes/NodesController';
 import { SubscriptionNodeListRow } from '../features/subscriptions/SubscriptionRows';
 import { SUBSCRIPTIONS_CONTROLLER, SubscriptionsControllerState } from '../features/subscriptions/SubscriptionsController';
@@ -17,6 +15,7 @@ import { isScanCancelled, requestCameraPermission, scanQrCode } from '../utils/Q
 import { router, promptAction } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { scanCore } from '@kit.ScanKit';
+import { SubscriptionManager } from '../services/SubscriptionManager';
 
 interface SubscriptionNodeRowModel {
   node: ProxyNode;
@@ -41,7 +40,6 @@ struct SubscriptionDetailPage {
   @State private showCard: boolean = false;
   @State private cardType: 'success' | 'error' | 'info' = 'info';
   private timerId: number = -1;
-  private subscriptionProxyPort: number = 0;
 
   aboutToAppear(): void {
     const params = this.getUIContext().getRouter().getParams() as Record<string, Object>;
@@ -253,8 +251,6 @@ struct SubscriptionDetailPage {
     const settings = await SETTINGS_CONTROLLER.load(context);
     this.language = settings.language;
     this.groupName = this.t('subscription.detail.title');
-    this.subscriptionProxyPort = shouldExposeLocalHttpProxy(settings) && SHARED_RUNTIME_CONTROLLER.isRunning() ?
-      LOCAL_HTTP_PROXY_PORT : 0;
     let state = await SUBSCRIPTIONS_CONTROLLER.load(context, this.language);
 
     // 寻找对应的分组，激活它以加载节点
@@ -296,7 +292,13 @@ struct SubscriptionDetailPage {
 
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
-      const state = await SUBSCRIPTIONS_CONTROLLER.update(context, this.groupId, this.subscriptionUrl, this.selectedNodeId, this.language, this.subscriptionProxyPort);
+      const runtime = SHARED_RUNTIME_CONTROLLER.snapshot();
+      const proxyPort = SubscriptionManager.resolveSubscriptionProxyPort(
+        runtime.runtimeMode,
+        runtime.status !== ConnectionStatus.IDLE
+      );
+      const state = await SUBSCRIPTIONS_CONTROLLER.update(
+        context, this.groupId, this.subscriptionUrl, this.selectedNodeId, this.language, proxyPort);
       this.applySubscriptionsState(state);
       SHARED_RUNTIME_CONTROLLER.appendLog(state.subscriptionMessage);
     } finally {

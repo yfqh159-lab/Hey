@@ -1,4 +1,5 @@
 import { common } from '@kit.AbilityKit';
+import { redactDiagnosticText } from '../../core/DiagnosticRedaction';
 import { translate } from '../../core/I18n';
 import { AppLanguage, ProxyNode, SubscriptionGroup, SubscriptionProfile } from '../../core/Profile';
 import {
@@ -465,12 +466,12 @@ export class SubscriptionsController {
 
   private stringifyError(error: Error): string {
     if (error.message.length > 0) {
-      return error.message;
+      return redactDiagnosticText(error.message);
     }
     if (error.name.length > 0) {
-      return error.name;
+      return redactDiagnosticText(error.name);
     }
-    return `${error}`;
+    return redactDiagnosticText(`${error}`);
   }
 }
 
