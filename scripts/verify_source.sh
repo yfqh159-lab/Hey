@@ -1407,6 +1407,8 @@ const config = fs.readFileSync('entry/src/main/ets/core/XrayConfig.ets', 'utf8')
 const assets = fs.readFileSync('entry/src/main/ets/features/assets/AssetsController.ets', 'utf8');
 const subscriptions = fs.readFileSync('entry/src/main/ets/services/SubscriptionManager.ets', 'utf8');
 const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeController.ets', 'utf8');
+const readmeZh = fs.readFileSync('README.zh-CN.md', 'utf8');
+const acceptance = fs.readFileSync('docs/device-acceptance.md', 'utf8');
 const inboundAt = config.indexOf("const proxyOnlyHttpInboundTag = 'proxy-app-http-in';");
 const inboundEnd = config.indexOf('\n  if (appendHttpProxy)', inboundAt);
 const inbound = config.slice(inboundAt, inboundEnd);
@@ -1419,7 +1421,10 @@ if (!config.includes('export const PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT: number =
   inbound.includes('localSocksUsername') || inbound.includes('localSocksPassword') ||
   !assets.includes('isProxyOnlyRuntimeMode(mode) ? PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT') ||
   !subscriptions.includes('isProxyOnlyRuntimeMode(mode) ? PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT') ||
-  !runtime.includes('return PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT;')) {
+  !runtime.includes('return PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT;') ||
+  !readmeZh.includes('内部 HTTP `18084`') ||
+  !acceptance.includes('本地代理使用内部 `18084`') ||
+  !acceptance.includes('本地代理走仅回环内部 `18084`')) {
   throw new Error('proxy-only HTTP isolation or partial-credential authentication regressed');
 }
 NODE
