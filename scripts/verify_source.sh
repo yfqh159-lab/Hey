@@ -1576,6 +1576,17 @@ if (!runtime.includes('private runtimeRefreshBusy: boolean = false;') ||
   !refreshWrapper.includes('if (this.runtimeRefreshTail === settled) {')) {
   throw new Error('cross-page runtime refreshes are not single-flight or authoritative reads are not serialized');
 }
+const performRefreshEnd = runtime.indexOf('\n  private async reconcilePersistedVpnState(', performRefreshAt);
+const performRefresh = runtime.slice(performRefreshAt, performRefreshEnd);
+if (performRefreshEnd < 0 ||
+  !runtime.includes('const CORE_SELECTION_READ_TIMEOUT_MS: number = 2000;') ||
+  !runtime.includes('private coreSelectionLoadInFlight: Promise<CoreType> | null = null;') ||
+  !runtime.includes('private loadCoreSelectionSingleFlight(context: common.Context): Promise<CoreType>') ||
+  !runtime.includes('this.releaseCoreSelectionLoad(promise)') ||
+  !performRefresh.includes('this.loadCoreSelectionSingleFlight(context), CORE_SELECTION_READ_TIMEOUT_MS') ||
+  !performRefresh.includes('await this.refreshDiagnostics(context, language);')) {
+  throw new Error('a stalled idle core-label read can block authoritative runtime refreshes');
+}
 const persistedReconcileAt = runtime.indexOf('  private async reconcilePersistedVpnState(');
 const persistedReconcileEnd = runtime.indexOf('\n  private resetUnhealthyVpnStateConfirmation()', persistedReconcileAt);
 const persistedReconcile = runtime.slice(persistedReconcileAt, persistedReconcileEnd);

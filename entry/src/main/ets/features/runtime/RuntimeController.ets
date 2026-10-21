@@ -10,7 +10,7 @@ import {
 } from '../../core/RuntimeHealth';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppLanguage, AppRuntimeMode, AppSettings, ConnectionStatus, normalizeAppRuntimeMode, ProxyProfile, RuntimeStats } from '../../core/Profile';
 import { LOCAL_HTTP_PROXY_PORT, VPN_DATA_SOCKS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT } from '../../core/XrayConfig';
-import { CoreSelectionStore, isSingboxCore } from '../../core/CoreSelection';
+import { CoreSelectionStore, CoreType, isSingboxCore } from '../../core/CoreSelection';
 import { ConnectionController, ConnectionSnapshot } from '../../services/ConnectionController';
 import { NetSceneStopFlag } from '../../services/NetSceneStopFlag';
 import { isPersistedVpnCleanupIncomplete, isPersistedVpnRuntimeHealthy, isPersistedVpnRuntimeSessionStopped, VpnRuntimeStateStore } from '../../services/VpnRuntimeStateStore';
@@ -35,6 +35,20 @@ const EMPTY_STATS: RuntimeStats = {
 const LOCAL_PROXY_HEALTH_INTERVAL_MS: number = 5000;
 const LOCAL_PROXY_UNHEALTHY_SAMPLE_LIMIT: number = 2;
 const MISSING_VPN_STATE_SAMPLE_LIMIT: number = 3;
+const CORE_SELECTION_READ_TIMEOUT_MS: number = 2000;
+
+function withRuntimeStoreTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timerId = setTimeout(() => reject(new Error('runtime store read timed out')), timeoutMs);
+    promise.then((value: T) => {
+      clearTimeout(timerId);
+      resolve(value);
+    }, (error: Object) => {
+      clearTimeout(timerId);
+      reject(error);
+    });
+  });
+}
 
 export interface RuntimeViewState {
   status: ConnectionStatus;
@@ -103,6 +117,10 @@ export class RuntimeController {
   // 状态缺失累计为多次；权威恢复可排队，普通观察只取当前快照而不制造刷新积压。
   private runtimeRefreshBusy: boolean = false;
   private runtimeRefreshTail: Promise<void> = Promise.resolve();
+  // 空闲态的内核偏好只影响日志标签，不能因 ArkData 永久 pending 卡住真实 VPN 状态
+  // 刷新。超时后复用同一底层任务，直到它真正结算，避免每秒继续排队。
+  private coreSelectionLoadInFlight: Promise<CoreType> | null = null;
+  private coreSelectionReadWarningLogged: boolean = false;
 
   async start(context: common.Context, profile: ProxyProfile, settings: AppSettings, language: AppLanguage): Promise<RuntimeViewState> {
     if (this.status === ConnectionStatus.STARTING || this.status === ConnectionStatus.STOPPING ||
@@ -321,8 +339,22 @@ export class RuntimeController {
     // 运行中显示实际使用的内核（anytls/tuic 会强制切到 sing-box）；空闲时显示全局设置。
     const snap = this.controller.getSnapshot();
     const running = snap.status === ConnectionStatus.RUNNING || snap.status === ConnectionStatus.STARTING;
-    const effectiveCore = running ? snap.coreType : await CoreSelectionStore.load(context);
-    this.coreLabel = isSingboxCore(effectiveCore) ? 'sing-box' : 'Xray';
+    if (running) {
+      this.coreLabel = isSingboxCore(snap.coreType) ? 'sing-box' : 'Xray';
+    } else {
+      try {
+        const effectiveCore = await withRuntimeStoreTimeout(
+          this.loadCoreSelectionSingleFlight(context), CORE_SELECTION_READ_TIMEOUT_MS);
+        this.coreLabel = isSingboxCore(effectiveCore) ? 'sing-box' : 'Xray';
+        this.coreSelectionReadWarningLogged = false;
+      } catch (error) {
+        // 仅保留上一次标签；前面的权威 VPN 状态校正和后面的诊断刷新必须继续。
+        if (!this.coreSelectionReadWarningLogged) {
+          this.coreSelectionReadWarningLogged = true;
+          console.error(`Runtime core label refresh failed: ${redactDiagnosticText(JSON.stringify(error))}`);
+        }
+      }
+    }
     await this.refreshDiagnostics(context, language);
     this.coreEntries = readCoreLogEntries(context.filesDir);
     this.stats = this.localizeStats(this.stats, language);
@@ -502,6 +534,25 @@ export class RuntimeController {
       return;
     }
     this.resetUnhealthyVpnStateConfirmation();
+  }
+
+  private loadCoreSelectionSingleFlight(context: common.Context): Promise<CoreType> {
+    if (this.coreSelectionLoadInFlight !== null) {
+      return this.coreSelectionLoadInFlight;
+    }
+    const promise = CoreSelectionStore.load(context);
+    this.coreSelectionLoadInFlight = promise;
+    promise.then(
+      (_coreType: CoreType): void => this.releaseCoreSelectionLoad(promise),
+      (_error: Object): void => this.releaseCoreSelectionLoad(promise)
+    );
+    return promise;
+  }
+
+  private releaseCoreSelectionLoad(promise: Promise<CoreType>): void {
+    if (this.coreSelectionLoadInFlight === promise) {
+      this.coreSelectionLoadInFlight = null;
+    }
   }
 
   private isCurrentRecoveredVpnCandidate(
