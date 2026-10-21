@@ -152,6 +152,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     this.cleanupAgainRequested = false;
     this.lastCleanupComplete = false;
     this.unhealthySampleCount = 0;
+    this.healthProbeInFlight = false;
     this.runtimeStateWriteFailureCount = 0;
     this.lastRuntimeStateAt = 0;
     this.runtimeHealthProbePort = 0;
@@ -562,7 +563,9 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         this.emitInfo('Net scene poll failed.', this.errorMessage(error));
       }
     } finally {
-      this.netScenePollInFlight = false;
+      if (sessionGeneration === this.sessionGeneration) {
+        this.netScenePollInFlight = false;
+      }
     }
   }
 
@@ -616,7 +619,9 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
           `session=${this.sessionId}`);
       }
     } finally {
-      this.coreReloading = false;
+      if (sessionGeneration === this.sessionGeneration) {
+        this.coreReloading = false;
+      }
     }
   }
 
@@ -831,7 +836,9 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         this.noteUnhealthySample(`statsError=${this.errorMessage(error)}`);
       }
     } finally {
-      this.healthProbeInFlight = false;
+      if (sessionGeneration === this.sessionGeneration) {
+        this.healthProbeInFlight = false;
+      }
     }
   }
 

@@ -1705,6 +1705,18 @@ printf 'bounded network observation verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');
+const vpn = fs.readFileSync('entry/src/main/ets/vpn/HeyVpnAbility.ets', 'utf8');
+if (!vpn.includes('this.healthProbeInFlight = false;') ||
+  (vpn.match(/if \(sessionGeneration === this\.sessionGeneration\) \{\n\s+this\.netScenePollInFlight = false;/g) || []).length !== 1 ||
+  (vpn.match(/if \(sessionGeneration === this\.sessionGeneration\) \{\n\s+this\.coreReloading = false;/g) || []).length !== 1 ||
+  (vpn.match(/if \(sessionGeneration === this\.sessionGeneration\) \{\n\s+this\.healthProbeInFlight = false;/g) || []).length !== 1) {
+  throw new Error('late VPN session tasks can release in-flight guards owned by a newer session');
+}
+NODE
+printf 'VPN session-owned in-flight guard verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
 const probe = fs.readFileSync('entry/src/main/ets/services/RuntimeHealthProbe.ets', 'utf8');
 const tcpAt = probe.indexOf('export async function probeRuntimeTcpHealth(');
 const waitAt = probe.indexOf('\nexport async function waitForRuntimeSocksHealth(', tcpAt);
