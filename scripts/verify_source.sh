@@ -1053,6 +1053,19 @@ if (stopMethodStart < 0 || stopMethodEnd < 0 || stopCatchAt < 0 || fallbackVpnSt
   throw new Error('local proxy stop failures can still fall through to VPN Extension cleanup');
 }
 
+const reloadStart = controller.indexOf('  async reloadProxyOnlyAfterNetworkChange(');
+const reloadEnd = controller.indexOf('\n  private isCurrentProxyReload(', reloadStart);
+const reload = controller.slice(reloadStart, reloadEnd);
+const reloadCatch = reload.indexOf('} catch (error) {');
+const reloadRollback = reload.indexOf('const stopResult = stopNativeXray();', reloadCatch);
+const reloadCleanupLatch = reload.indexOf('this.cleanupRequired = !stopResult.ok;', reloadRollback);
+const reloadError = reload.indexOf('this.status = ConnectionStatus.ERROR;', reloadCleanupLatch);
+if (reloadStart < 0 || reloadEnd < 0 || reloadCatch < 0 || reloadRollback < reloadCatch ||
+  reloadCleanupLatch < reloadRollback || reloadError < reloadCleanupLatch ||
+  !reload.includes('本地核心清理失败：${stopResult.message}')) {
+  throw new Error('proxy-only handover rollback can hide residual native core resources');
+}
+
 if (!config.includes('if (vpnMode) {\n    inbounds.push(tunInbound);') ||
   !config.includes('settings.localSocksEnabled || proxyOnlyMode')) {
   throw new Error('Xray runtime config no longer keeps TUN and local proxy inbounds mode-scoped');

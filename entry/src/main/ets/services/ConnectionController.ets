@@ -494,12 +494,16 @@ export class ConnectionController {
       if (!this.isCurrentProxyReload(generation, sessionStartedAt)) {
         return this.getSnapshot();
       }
-      stopNativeXray();
+      const stopResult = stopNativeXray();
+      // 重载可能已经启动了新核心，或旧核心在前一步未能完全停止。回滚结果必须参与
+      // 启动闩锁；否则残留监听器存在时页面仍会允许叠加下一次连接。
+      this.cleanupRequired = !stopResult.ok;
       const businessError = error as BusinessError;
+      const cleanupFailure = stopResult.ok ? '' : `；本地核心清理失败：${stopResult.message}`;
       this.status = ConnectionStatus.ERROR;
       this.startedAt = 0;
       this.lastError = redactDiagnosticText(
-        `本地代理网络切换恢复失败，请手动重连：${businessError.message ?? JSON.stringify(error)}`
+        `本地代理网络切换恢复失败，请手动重连：${businessError.message ?? JSON.stringify(error)}${cleanupFailure}`
       );
       DiagnosticLog.append(context, {
         at: Date.now(),
