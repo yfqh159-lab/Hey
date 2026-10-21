@@ -2455,9 +2455,14 @@ const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeCont
 const netScene = fs.readFileSync('entry/src/main/ets/services/NetworkSceneManager.ets', 'utf8');
 const tests = fs.readFileSync('entry/src/test/LocalUnit.test.ets', 'utf8');
 if (!stopFlag.includes('export interface NetSceneStopRecord') ||
+  !stopFlag.includes("import { isValidVpnSessionId } from '../vpn/VpnConstants';") ||
   !stopFlag.includes('writeFlag(context, { sessionId: sessionId, stoppedAt: at });') ||
   !stopFlag.includes('writeFlag(context, { sessionId: sessionId, stoppedAt: 0 });') ||
-  !stopFlag.includes('record.sessionId === expectedSessionId && record.stoppedAt > 0') ||
+  !stopFlag.includes('!isValidVpnSessionId(record.sessionId)') ||
+  !stopFlag.includes('isValidVpnSessionId(expectedSessionId)') ||
+  !stopFlag.includes('record.sessionId === expectedSessionId && Number.isFinite(record.stoppedAt)') ||
+  !stopFlag.includes('Number.isFinite(stoppedAt)') ||
+  stopFlag.includes('!Number.isNaN(stoppedAt)') ||
   !runtime.includes('context, recoveredStartedAt, recoveredSessionId') ||
   !runtime.includes('runtimeVpnSessionId(): string') ||
   !netScene.includes('SHARED_RUNTIME_CONTROLLER.runtimeVpnSessionId()') ||

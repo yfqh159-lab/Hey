@@ -3623,6 +3623,7 @@ export default function localUnitTest() {
       expect(wasNetSceneStoppedAfter(200, 200)).assertFalse();
       expect(wasNetSceneStoppedAfter(201, 200)).assertTrue();
       expect(wasNetSceneStoppedAfter(Number.NaN, 200)).assertFalse();
+      expect(wasNetSceneStoppedAfter(Number.POSITIVE_INFINITY, 200)).assertFalse();
     });
 
     it('uses only complete network-scene stop flag writes', 0, () => {
@@ -3661,6 +3662,8 @@ export default function localUnitTest() {
       expect(wasNetSceneStoppedForSession(legacy, 200, 'vpn-current')).assertFalse();
       expect(wasNetSceneStoppedForSession(legacy, 200, '')).assertTrue();
       expect(parseNetSceneStopRecord('{"sessionId":"","stoppedAt":300}')).assertEqual(null);
+      expect(parseNetSceneStopRecord('{"sessionId":"../escape","stoppedAt":300}')).assertEqual(null);
+      expect(parseNetSceneStopRecord('{"sessionId":"vpn-current","stoppedAt":1e309}')).assertEqual(null);
       expect(parseNetSceneStopRecord('{"sessionId":"vpn-current","stoppedAt":-1}')).assertEqual(null);
     });
 

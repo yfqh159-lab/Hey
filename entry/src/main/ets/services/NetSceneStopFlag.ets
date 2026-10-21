@@ -9,6 +9,7 @@
 
 import { common } from '@kit.AbilityKit';
 import { fileIo as fs } from '@kit.CoreFileKit';
+import { isValidVpnSessionId } from '../vpn/VpnConstants';
 
 const FLAG_FILE_NAME: string = 'net_scene_stopped_at';
 const FLAG_TEMP_FILE_NAME: string = 'net_scene_stopped_at.tmp';
@@ -24,7 +25,7 @@ function flagPath(context: common.Context, fileName: string = FLAG_FILE_NAME): s
 }
 
 function writeFlag(context: common.Context, record: NetSceneStopRecord): void {
-  if (record.sessionId.length === 0 || !Number.isFinite(record.stoppedAt) ||
+  if (!isValidVpnSessionId(record.sessionId) || !Number.isFinite(record.stoppedAt) ||
     Math.floor(record.stoppedAt) !== record.stoppedAt || record.stoppedAt < 0) {
     throw new Error('Invalid network scene stop record.');
   }
@@ -108,7 +109,7 @@ export function parseNetSceneStopRecord(content: string | null): NetSceneStopRec
   if (trimmed.startsWith('{')) {
     try {
       const record = JSON.parse(trimmed) as NetSceneStopRecord;
-      if (typeof record.sessionId !== 'string' || record.sessionId.length === 0 ||
+      if (typeof record.sessionId !== 'string' || !isValidVpnSessionId(record.sessionId) ||
         !Number.isFinite(record.stoppedAt) || Math.floor(record.stoppedAt) !== record.stoppedAt ||
         record.stoppedAt < 0) {
         return null;
@@ -159,8 +160,8 @@ export function selectNetSceneStopRecord(
 }
 
 export function wasNetSceneStoppedAfter(stoppedAt: number, sessionStartedAt: number): boolean {
-  return !Number.isNaN(stoppedAt) && stoppedAt > 0 &&
-    !Number.isNaN(sessionStartedAt) && stoppedAt > Math.max(0, sessionStartedAt);
+  return Number.isFinite(stoppedAt) && stoppedAt > 0 &&
+    Number.isFinite(sessionStartedAt) && stoppedAt > Math.max(0, sessionStartedAt);
 }
 
 export function wasNetSceneStoppedForSession(
@@ -169,7 +170,8 @@ export function wasNetSceneStoppedForSession(
   expectedSessionId: string
 ): boolean {
   if (expectedSessionId.length > 0) {
-    return record.sessionId === expectedSessionId && record.stoppedAt > 0;
+    return isValidVpnSessionId(expectedSessionId) && isValidVpnSessionId(record.sessionId) &&
+      record.sessionId === expectedSessionId && Number.isFinite(record.stoppedAt) && record.stoppedAt > 0;
   }
   return wasNetSceneStoppedAfter(record.stoppedAt, sessionStartedAt);
 }
