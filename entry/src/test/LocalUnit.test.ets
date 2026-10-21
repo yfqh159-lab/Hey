@@ -32,7 +32,11 @@ import { CustomAssetUrl } from '../main/ets/storage/AssetStore';
 import { ProxyProfile, SubscriptionProfile } from '../main/ets/core/Profile';
 import { decideRuntimeSettingsRestart } from '../main/ets/core/SettingsChange';
 import { decideActiveNodeRemovalAction, decideConfigChangeAction, decideNodeSwitchAction } from '../main/ets/core/RuntimeReconnect';
-import { isMissingVpnRuntimeStateUnhealthy, isProxyOnlyRuntimeUnhealthy } from '../main/ets/core/RuntimeHealth';
+import {
+  isMissingVpnRuntimeStateUnhealthy,
+  isProxyOnlyRuntimeUnhealthy,
+  shouldApplyVpnDiagnosticError
+} from '../main/ets/core/RuntimeHealth';
 import { proxyConfigDedupeKey } from '../main/ets/core/NodeDedupe';
 import { isSingboxOnlyProtocol, requiredCoreForProtocol, CORE_TYPE_SINGBOX, CORE_TYPE_XRAY } from '../main/ets/core/CoreSelection';
 import {
@@ -2681,6 +2685,23 @@ export default function localUnitTest() {
       expect(isMissingVpnRuntimeStateUnhealthy(APP_MODE_VPN, ConnectionStatus.IDLE, 3)).assertFalse();
       expect(isMissingVpnRuntimeStateUnhealthy(APP_MODE_VPN, ConnectionStatus.RUNNING, 1, 1)).assertTrue();
       expect(isMissingVpnRuntimeStateUnhealthy(APP_MODE_VPN, ConnectionStatus.RUNNING, 3, 0)).assertFalse();
+    });
+
+    it('only applies current VPN session diagnostic errors to runtime state', 0, () => {
+      expect(shouldApplyVpnDiagnosticError(
+        APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 101, 'error', 'vpn')).assertTrue();
+      expect(shouldApplyVpnDiagnosticError(
+        APP_MODE_VPN, ConnectionStatus.STARTING, 100, 100, 'error', 'vpn')).assertTrue();
+      expect(shouldApplyVpnDiagnosticError(
+        APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 99, 'error', 'vpn')).assertFalse();
+      expect(shouldApplyVpnDiagnosticError(
+        APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 101, 'error', 'subscription-work')).assertFalse();
+      expect(shouldApplyVpnDiagnosticError(
+        APP_MODE_VPN, ConnectionStatus.RUNNING, 100, 101, 'warn', 'vpn')).assertFalse();
+      expect(shouldApplyVpnDiagnosticError(
+        APP_MODE_PROXY_ONLY, ConnectionStatus.RUNNING, 100, 101, 'error', 'vpn')).assertFalse();
+      expect(shouldApplyVpnDiagnosticError(
+        APP_MODE_VPN, ConnectionStatus.IDLE, 100, 101, 'error', 'vpn')).assertFalse();
     });
 
     it('parses current connection IP API responses', 0, () => {

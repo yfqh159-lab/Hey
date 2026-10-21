@@ -33,3 +33,20 @@ export function isMissingVpnRuntimeStateUnhealthy(
   return normalizeAppRuntimeMode(mode) === APP_MODE_VPN &&
     status === ConnectionStatus.RUNNING && sampleLimit > 0 && missingSamples >= sampleLimit;
 }
+
+/**
+ * 只有当前 VPN 会话产生的 Extension 错误才能改变连接状态。订阅后台任务等组件共用
+ * 诊断文件，它们的错误只应出现在日志里；本地代理健康由进程内探测单独判断。
+ */
+export function shouldApplyVpnDiagnosticError(
+  mode: string | undefined,
+  status: ConnectionStatus,
+  startedAt: number,
+  eventAt: number,
+  eventLevel: string,
+  eventSource: string
+): boolean {
+  const active = status === ConnectionStatus.RUNNING || status === ConnectionStatus.STARTING;
+  return normalizeAppRuntimeMode(mode) === APP_MODE_VPN && active && startedAt > 0 &&
+    eventAt >= startedAt && eventLevel === 'error' && eventSource === 'vpn';
+}

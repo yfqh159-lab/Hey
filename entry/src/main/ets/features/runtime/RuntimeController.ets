@@ -1,7 +1,11 @@
 import { common } from '@kit.AbilityKit';
 import { DEFAULT_LANGUAGE, translate } from '../../core/I18n';
 import { shouldExposeLocalHttpProxy } from '../../core/LocalProxy';
-import { isMissingVpnRuntimeStateUnhealthy, isProxyOnlyRuntimeUnhealthy } from '../../core/RuntimeHealth';
+import {
+  isMissingVpnRuntimeStateUnhealthy,
+  isProxyOnlyRuntimeUnhealthy,
+  shouldApplyVpnDiagnosticError
+} from '../../core/RuntimeHealth';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppLanguage, AppRuntimeMode, AppSettings, ConnectionStatus, normalizeAppRuntimeMode, ProxyProfile, RuntimeStats } from '../../core/Profile';
 import { LOCAL_HTTP_PROXY_PORT, VPN_INTERNAL_HTTP_PROXY_PORT } from '../../core/XrayConfig';
 import { CoreSelectionStore, isSingboxCore } from '../../core/CoreSelection';
@@ -665,14 +669,19 @@ export class RuntimeController {
       return;
     }
     const event = events[0];
-    if (event.level !== 'error') {
+    if (!shouldApplyVpnDiagnosticError(
+      this.runtimeMode,
+      this.status,
+      this.startedAt,
+      event.at,
+      event.level,
+      event.source
+    )) {
       return;
     }
     const message = event.details !== undefined && event.details.length > 0 ? `${event.message} ${event.details}` : event.message;
     this.lastError = localizeCoreMessage(language, message);
-    if (this.status === ConnectionStatus.RUNNING || this.status === ConnectionStatus.STARTING) {
-      this.status = ConnectionStatus.ERROR;
-    }
+    this.status = ConnectionStatus.ERROR;
   }
 }
 
