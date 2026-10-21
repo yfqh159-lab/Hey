@@ -4401,6 +4401,20 @@ export default function localUnitTest() {
       const internalRule = rules[0];
       expect((internalRule.inbound as Array<string>)[0]).assertEqual('internal-http-in');
       expect(internalRule.outbound as string).assertEqual('proxy');
+      const ipv6BlockRule = rules[2];
+      expect(ipv6BlockRule.ip_version as number).assertEqual(6);
+      expect(ipv6BlockRule.outbound as string).assertEqual('block');
+      const outbounds = config.outbounds as Array<Record<string, Object>>;
+      expect(outbounds.some((item: Record<string, Object>): boolean =>
+        item.type === 'block' && item.tag === 'block')).assertTrue();
+
+      const ipv6Settings = buildSettingsFixture();
+      ipv6Settings.ipv6Enabled = true;
+      const ipv6Generated = buildSingboxConfig(validation.normalizedJson, ipv6Settings);
+      const ipv6Config = JSON.parse(ipv6Generated.configJson) as Record<string, Object>;
+      const ipv6Route = ipv6Config.route as Record<string, Object>;
+      const ipv6Rules = ipv6Route.rules as Array<Record<string, Object>>;
+      expect(ipv6Rules.some((item: Record<string, Object>): boolean => item.ip_version === 6)).assertFalse();
     });
 
     it('flags anytls/tuic as sing-box-only so the Xray core path forces a switch', 0, () => {

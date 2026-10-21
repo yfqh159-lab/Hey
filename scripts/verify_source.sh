@@ -185,6 +185,21 @@ printf 'mandatory VPN DNS interception verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');
+const singbox = fs.readFileSync('entry/src/main/ets/core/SingboxConfig.ets', 'utf8');
+const blockGuardAt = singbox.indexOf('if (!ipv6Enabled) {');
+const privateRuleAt = singbox.indexOf("routeRules.push({ ip_is_private: true, outbound: 'direct' });");
+if (!singbox.includes('ip_version?: number;') ||
+  !singbox.includes("const blockOut: SbOutbound = { type: 'block', tag: 'block' };") ||
+  blockGuardAt < 0 || privateRuleAt < blockGuardAt ||
+  !singbox.slice(blockGuardAt, privateRuleAt).includes("routeRules.push({ ip_version: 6, outbound: 'block' });") ||
+  !singbox.includes('outbounds: [proxy, directOut, blockOut, dnsOut],')) {
+  throw new Error('sing-box can forward IPv6 targets while the VPN IPv6 setting is disabled');
+}
+NODE
+printf 'sing-box disabled-IPv6 block verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
 const health = fs.readFileSync('entry/src/main/ets/core/RuntimeHealth.ets', 'utf8');
 const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeController.ets', 'utf8');
 const routedDownloads = [

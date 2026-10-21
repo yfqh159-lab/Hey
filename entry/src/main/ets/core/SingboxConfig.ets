@@ -119,6 +119,7 @@ interface SbRouteRule {
   protocol?: string;
   outbound?: string;
   ip_is_private?: boolean;
+  ip_version?: number;
 }
 
 interface SbRoute {
@@ -577,6 +578,7 @@ export function buildSingboxConfig(outboundJson: string, settings?: AppSettings,
   };
 
   const directOut: SbOutbound = { type: 'direct', tag: 'direct' };
+  const blockOut: SbOutbound = { type: 'block', tag: 'block' };
   const dnsOut: SbOutbound = { type: 'dns', tag: 'dns-out' };
 
   const dns: SbDns = {
@@ -596,14 +598,19 @@ export function buildSingboxConfig(outboundJson: string, settings?: AppSettings,
     dns.rules = [{ domain: [serverHost], server: 'direct-dns' }];
   }
 
+  const routeRules = new Array<SbRouteRule>();
+  // Hey 自身显式使用该回环入口，是为了让被 VPN 排除的应用进程仍经当前节点联网。
+  // 必须早于私网直连等普通流量规则，避免自定义 Geo/IP 检查目标绕过节点。
+  routeRules.push({ inbound: ['internal-http-in'], outbound: 'proxy' });
+  routeRules.push({ protocol: 'dns', outbound: 'dns-out' });
+  if (!ipv6Enabled) {
+    // 系统始终把 ::/0 纳入 TUN 以防物理旁路。关闭 IPv6 时还要像 Xray 一样阻断
+    // 应用自带 DoH/缓存得到的 IPv6 目标，而不只是让内置 DNS 返回 A 记录。
+    routeRules.push({ ip_version: 6, outbound: 'block' });
+  }
+  routeRules.push({ ip_is_private: true, outbound: 'direct' });
   const route: SbRoute = {
-    rules: [
-      // Hey 自身显式使用该回环入口，是为了让被 VPN 排除的应用进程仍经当前节点联网。
-      // 必须早于私网直连等普通流量规则，避免自定义 Geo/IP 检查目标绕过节点。
-      { inbound: ['internal-http-in'], outbound: 'proxy' },
-      { protocol: 'dns', outbound: 'dns-out' },
-      { ip_is_private: true, outbound: 'direct' }
-    ],
+    rules: routeRules,
     final: 'proxy',
     auto_detect_interface: false
   };
@@ -618,7 +625,7 @@ export function buildSingboxConfig(outboundJson: string, settings?: AppSettings,
     log,
     dns,
     inbounds: [socksIn, internalHttpIn],
-    outbounds: [proxy, directOut, dnsOut],
+    outbounds: [proxy, directOut, blockOut, dnsOut],
     route
   };
 
