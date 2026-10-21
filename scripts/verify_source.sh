@@ -107,6 +107,11 @@ if (!source.includes("request.on('headersReceive', redirectHeaderListener);") ||
   !source.includes("return failedRemoteIpInfo('unsafe-redirect');")) {
   throw new Error('exit-IP verification trusts Network Kit automatic redirects without HTTPS validation');
 }
+if (!source.includes('const MAX_REMOTE_IP_RESPONSE_BYTES: number = 4096;') ||
+  !fetchBody.includes('maxLimit: MAX_REMOTE_IP_RESPONSE_BYTES') ||
+  !source.includes('content.length > MAX_REMOTE_IP_RESPONSE_BYTES')) {
+  throw new Error('exit-IP response is not bounded before and after Network Kit materialization');
+}
 NODE
 printf 'HTTPS-only proxied exit-IP verification passed\n'
 

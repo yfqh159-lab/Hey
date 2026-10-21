@@ -16,6 +16,7 @@ export interface RemoteIpInfoResult {
 }
 
 const MAX_REMOTE_IP_REDIRECTS: number = 5;
+const MAX_REMOTE_IP_RESPONSE_BYTES: number = 4096;
 
 function withRequestTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -57,12 +58,14 @@ export async function fetchRemoteIpInfo(ipApiUrl: string, proxyPort: number, tim
     const options: http.HttpRequestOptions = {
       method: http.RequestMethod.GET,
       expectDataType: http.HttpDataType.STRING,
+      maxLimit: MAX_REMOTE_IP_RESPONSE_BYTES,
       readTimeout: timeoutMs,
       connectTimeout: timeoutMs,
       usingCache: false,
       header: {
         'User-Agent': APP_HTTP_USER_AGENT,
         'Accept': 'application/json, text/plain, */*',
+        'Accept-Encoding': 'identity',
         'Cache-Control': 'no-cache'
       },
       usingProxy: {
@@ -109,7 +112,7 @@ export function areSafeRemoteIpRedirects(redirectUrls: Array<string>, maxRedirec
 }
 
 export function parseRemoteIpInfoContent(content: string): RemoteIpInfoResult {
-  if (content.length > 4096) {
+  if (content.length > MAX_REMOTE_IP_RESPONSE_BYTES) {
     return failedRemoteIpInfo('response-too-large');
   }
   try {
