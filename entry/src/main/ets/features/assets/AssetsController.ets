@@ -19,6 +19,7 @@ import {
   parseSha256Checksum,
   resolveGeoRecoveryAction
 } from '../../core/GeoAssets';
+import { redactDiagnosticText } from '../../core/DiagnosticRedaction';
 import { APP_HTTP_USER_AGENT } from '../../core/HttpDefaults';
 import { shouldExposeLocalHttpProxy } from '../../core/LocalProxy';
 import { AppLanguage } from '../../core/Profile';
@@ -264,7 +265,7 @@ export class AssetsController {
         }
       } catch (e) {}
 
-      const errMsg = error instanceof Error ? error.message : JSON.stringify(error);
+      const errMsg = redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error));
       promptAction.showToast({
         message: this.t(language, 'assets.downloadFailed')
           .replace('{title}', fileName)
@@ -312,7 +313,10 @@ export class AssetsController {
       }
       onComplete();
     } catch (error) {
-      promptAction.showToast({ message: this.t(language, 'assets.updateAllError').replace('{error}', JSON.stringify(error)) });
+      promptAction.showToast({
+        message: this.t(language, 'assets.updateAllError')
+          .replace('{error}', redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error)))
+      });
       onComplete();
     }
   }

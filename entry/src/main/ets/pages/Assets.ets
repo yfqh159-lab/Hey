@@ -3,6 +3,7 @@ import { preferences } from '@kit.ArkData';
 import { picker } from '@kit.CoreFileKit';
 import fs from '@ohos.file.fs';
 import { hasDuplicateAssetName, isEditableCustomAssetUrl, isSafeCustomAssetName, normalizeScannedAssetUrl } from '../core/AssetUrls';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { GEOIP_FILE_NAME, GEOSITE_FILE_NAME } from '../core/GeoAssets';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { AppLanguage } from '../core/Profile';
@@ -880,7 +881,7 @@ struct AssetsPage {
       SHARED_RUNTIME_CONTROLLER.appendLog(message);
       this.toast(message);
     } catch (error) {
-      const message = error instanceof Error ? error.message : JSON.stringify(error);
+      const message = redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error));
       await this.loadGeoMetadata();
       const localized = this.f1('assets.geo.checkFailed', 'error', message);
       SHARED_RUNTIME_CONTROLLER.appendLog(localized);
