@@ -73,6 +73,9 @@ export class NetworkSceneManager {
   // NetworkKit 事件可能在上一次 Preferences 读取的外层超时后继续到达。复用仍未
   // 结算的底层读取，避免每次补判都向 SettingsStore 队列追加永久等待的任务。
   private settingsLoadInFlight: Promise<AppSettings> | null = null;
+  // Network Kit 查询同样可能忽略外层截止时间。网络事件与前台补判在
+  // 原查询真正结算前复用同一 Promise，防止锁屏/切网抖动持续叠加系统任务。
+  private networkProbeInFlight: Promise<NetContext> | null = null;
 
   /** 启动网络变化监听（幂等），生命周期跟随 UIAbility，与自动断开开关无关。 */
   ensureStarted(context: common.Context, owner?: Object): void {
@@ -310,7 +313,7 @@ export class NetworkSceneManager {
         return;
       }
       const ctx = await withTimeout(
-        NetworkProbe.readCurrentNetContext(),
+        this.loadNetworkContextSingleFlight(),
         EVALUATION_STEP_TIMEOUT_MS,
         'Network evaluation probe timed out.'
       );
@@ -424,6 +427,25 @@ export class NetworkSceneManager {
       (_error: Object): void => this.releaseSettingsLoad(promise)
     );
     return promise;
+  }
+
+  private loadNetworkContextSingleFlight(): Promise<NetContext> {
+    if (this.networkProbeInFlight !== null) {
+      return this.networkProbeInFlight;
+    }
+    const promise = NetworkProbe.readCurrentNetContext();
+    this.networkProbeInFlight = promise;
+    promise.then(
+      (_context: NetContext): void => this.releaseNetworkProbe(promise),
+      (_error: Object): void => this.releaseNetworkProbe(promise)
+    );
+    return promise;
+  }
+
+  private releaseNetworkProbe(promise: Promise<NetContext>): void {
+    if (this.networkProbeInFlight === promise) {
+      this.networkProbeInFlight = null;
+    }
   }
 
   private async confirmDisconnectStillConfigured(

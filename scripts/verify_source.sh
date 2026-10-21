@@ -2234,6 +2234,9 @@ if ! grep -q 'NET_SCENE_POLL_STEP_TIMEOUT_MS' "${vpn_ability}" ||
   ! grep -Fq 'private settingsLoadInFlight: Promise<AppSettings> | null = null;' "${net_scene_manager}" ||
   ! grep -Fq 'this.loadSettingsSingleFlight(context),' "${net_scene_manager}" ||
   ! grep -Fq 'this.releaseSettingsLoad(promise)' "${net_scene_manager}" ||
+  ! grep -Fq 'private networkProbeInFlight: Promise<NetContext> | null = null;' "${net_scene_manager}" || \
+  ! grep -Fq 'this.loadNetworkContextSingleFlight(),' "${net_scene_manager}" || \
+  ! grep -Fq 'this.releaseNetworkProbe(promise)' "${net_scene_manager}" || \
   ! grep -q 'Network evaluation probe timed out' "${net_scene_manager}"; then
   echo 'network observation promises are not bounded or single-flight for retry' >&2
   exit 1
