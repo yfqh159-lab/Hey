@@ -2678,7 +2678,7 @@ struct Index {
   private async performRuntimeRefresh(strict: boolean): Promise<void> {
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
-      let state = await SHARED_RUNTIME_CONTROLLER.refresh(context, this.language);
+      let state = await SHARED_RUNTIME_CONTROLLER.refresh(context, this.language, strict);
       if (state.status === ConnectionStatus.RUNNING && this.outboundJson.trim().length > 0) {
         const profile: ProxyProfile = {
           outboundJson: this.outboundJson,

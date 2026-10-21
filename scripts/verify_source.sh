@@ -830,6 +830,12 @@ if (!indexSource.includes('private runtimeRefreshBusy: boolean = false;') ||
   !runtimeRefresh.includes('if (this.runtimeRefreshTail === settled) {')) {
   throw new Error('periodic and authoritative runtime refreshes can overlap or reorder');
 }
+const runtimeRefreshPerformEnd = indexSource.indexOf('\n  // 首页「当前连接」', runtimeRefreshPerformAt);
+const runtimeRefreshPerform = indexSource.slice(runtimeRefreshPerformAt, runtimeRefreshPerformEnd);
+if (runtimeRefreshPerformEnd < 0 ||
+  !runtimeRefreshPerform.includes('SHARED_RUNTIME_CONTROLLER.refresh(context, this.language, strict)')) {
+  throw new Error('strict page recovery does not request a fresh shared runtime read');
+}
 NODE
 printf 'simplified add surface verification passed\n'
 
@@ -1158,13 +1164,25 @@ if (!health.includes('expectedSessionId: string') || !health.includes('eventDeta
 }
 const applyAt = runtime.indexOf('  private async applyDiagnosticError(');
 const apply = runtime.slice(applyAt);
-const refreshAt = runtime.indexOf('  async refresh(context: common.Context, language: AppLanguage)');
-const reconcileCallAt = runtime.indexOf('await this.reconcilePersistedVpnState(context, language);', refreshAt);
-const diagnosticPrecheckAt = runtime.indexOf('await this.applyPendingVpnDiagnosticError(context, language);', refreshAt);
-if (applyAt < 0 || refreshAt < 0 || diagnosticPrecheckAt < refreshAt || reconcileCallAt < diagnosticPrecheckAt ||
+const refreshAt = runtime.indexOf('  async refresh(\n    context: common.Context,');
+const performRefreshAt = runtime.indexOf('  private async performRefresh(', refreshAt);
+const reconcileCallAt = runtime.indexOf('await this.reconcilePersistedVpnState(context, language);', performRefreshAt);
+const diagnosticPrecheckAt = runtime.indexOf('await this.applyPendingVpnDiagnosticError(context, language);', performRefreshAt);
+if (applyAt < 0 || refreshAt < 0 || performRefreshAt < refreshAt ||
+  diagnosticPrecheckAt < performRefreshAt || reconcileCallAt < diagnosticPrecheckAt ||
   !apply.includes('for (let index = 0; index < events.length; index++)') ||
   !apply.includes('connection.vpnSessionId') || !apply.includes('candidate.details')) {
   throw new Error('cleanup info/state can hide a fatal current-session VPN diagnostic');
+}
+const refreshWrapper = runtime.slice(refreshAt, performRefreshAt);
+if (!runtime.includes('private runtimeRefreshBusy: boolean = false;') ||
+  !runtime.includes('private runtimeRefreshTail: Promise<void> = Promise.resolve();') ||
+  !refreshWrapper.includes('if (!authoritative && this.runtimeRefreshBusy) {') ||
+  !refreshWrapper.includes('return this.snapshot();') ||
+  !refreshWrapper.includes('this.performRefresh(context, language)') ||
+  !refreshWrapper.includes('this.runtimeRefreshTail = settled;') ||
+  !refreshWrapper.includes('if (this.runtimeRefreshTail === settled) {')) {
+  throw new Error('cross-page runtime refreshes are not single-flight or authoritative reads are not serialized');
 }
 if (!vpn.includes("this.emitInfo('VPN runtime state heartbeat write failed; retrying.'") ||
   !vpn.includes("`session=${this.sessionId}; error=${this.errorMessage(error)}`") ||

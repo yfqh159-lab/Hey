@@ -99,6 +99,10 @@ export class RuntimeController {
   // 隔离 start() 的页面层续体；否则“取消完成后立即再次连接”时，第一次 start 的迟到
   // 返回可能拿到第二次会话的快照，却用第一次的节点/设置安排出口检测并写启动日志。
   private runtimeStartGeneration: number = 0;
+  // Index 与 Logs 都可能按秒刷新同一个单例。共享层必须阻止跨页面并发读取把一次临时
+  // 状态缺失累计为多次；权威恢复可排队，普通观察只取当前快照而不制造刷新积压。
+  private runtimeRefreshBusy: boolean = false;
+  private runtimeRefreshTail: Promise<void> = Promise.resolve();
 
   async start(context: common.Context, profile: ProxyProfile, settings: AppSettings, language: AppLanguage): Promise<RuntimeViewState> {
     if (this.status === ConnectionStatus.STARTING || this.status === ConnectionStatus.STOPPING ||
@@ -274,7 +278,35 @@ export class RuntimeController {
     return this.snapshot();
   }
 
-  async refresh(context: common.Context, language: AppLanguage): Promise<RuntimeViewState> {
+  async refresh(
+    context: common.Context,
+    language: AppLanguage,
+    authoritative: boolean = false
+  ): Promise<RuntimeViewState> {
+    if (!authoritative && this.runtimeRefreshBusy) {
+      return this.snapshot();
+    }
+    const previous = this.runtimeRefreshTail;
+    this.runtimeRefreshBusy = true;
+    const operation = previous.then(
+      (): Promise<RuntimeViewState> => this.performRefresh(context, language),
+      (): Promise<RuntimeViewState> => this.performRefresh(context, language)
+    );
+    const settled = operation.then(
+      (): void => {},
+      (): void => {}
+    );
+    this.runtimeRefreshTail = settled;
+    try {
+      return await operation;
+    } finally {
+      if (this.runtimeRefreshTail === settled) {
+        this.runtimeRefreshBusy = false;
+      }
+    }
+  }
+
+  private async performRefresh(context: common.Context, language: AppLanguage): Promise<RuntimeViewState> {
     // Extension 可能在两次前台刷新之间已经写入致命 error 并完成自清理。若先读取
     // inactive 持久状态，下面会把 RUNNING 直接校正成 IDLE，随后错误因状态已改变而
     // 无法再应用。先消费精确匹配当前会话的错误，保留“异常断开”而不是伪装成正常停止。
