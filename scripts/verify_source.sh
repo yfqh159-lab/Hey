@@ -1826,7 +1826,12 @@ const applySnapshot = start.indexOf('this.applySnapshot(snapshot, language);', c
 if (!runtime.includes('private runtimeStartGeneration: number = 0;') ||
   !start.includes('const runtimeStartGeneration = ++this.runtimeStartGeneration;') ||
   controllerAwait < 0 || generationGuard < controllerAwait || applySnapshot < generationGuard ||
-  !stop.includes('this.runtimeStartGeneration++;')) {
+  !stop.includes('this.runtimeStartGeneration++;') ||
+  stop.indexOf('this.runtimeStartGeneration++;') > stop.indexOf('if (this.status === ConnectionStatus.STOPPING)') ||
+  !stop.includes('const persisted = VpnRuntimeStateStore.readWithEvidence(context).state;') ||
+  !stop.includes('persisted !== null && persisted.active') ||
+  !stop.includes('this.controller.reconcileRunning(') ||
+  !stop.includes('await this.controller.stop(context);')) {
   throw new Error('runtime start continuations are not generation-isolated from cancellation');
 }
 const reconnectAt = runtime.indexOf('  async reconnectWithProfile(', stopAt);
@@ -2092,11 +2097,11 @@ const persistedReconcileEnd = runtime.indexOf('\n  private resetUnhealthyVpnStat
 const persistedReconcile = runtime.slice(persistedReconcileAt, persistedReconcileEnd);
 const recoveredProbeAt = persistedReconcile.indexOf('await probeRuntimeSocksHealth(VPN_DATA_SOCKS_PORT)');
 const firstCandidateCheckAt = persistedReconcile.indexOf(
-  'this.isCurrentRecoveredVpnCandidate(context, recoveredSessionId, recoveredStartedAt)', recoveredProbeAt);
+  'context, recoveredSessionId, recoveredStartedAt, recoveredGeneration)', recoveredProbeAt);
 const stopFlagAt = persistedReconcile.indexOf(
   'await NetSceneStopFlag.wasStopped(\n        context, recoveredStartedAt, recoveredSessionId)', firstCandidateCheckAt);
 const secondCandidateCheckAt = persistedReconcile.indexOf(
-  'this.isCurrentRecoveredVpnCandidate(context, recoveredSessionId, recoveredStartedAt)', stopFlagAt);
+  'context, recoveredSessionId, recoveredStartedAt, recoveredGeneration)', stopFlagAt);
 const recoveredApplyAt = persistedReconcile.indexOf(
   'this.controller.reconcileRunning(\n        recoveredStartedAt, persisted.coreType, recoveredSessionId)', stopFlagAt);
 const normalizedActiveStartedAtCount =
@@ -2116,6 +2121,8 @@ if (persistedReconcileAt < 0 || persistedReconcileEnd < 0 ||
   recoveredApplyAt < secondCandidateCheckAt ||
   !persistedReconcile.includes('await this.cleanupUnhealthyVpn(context, language);') ||
   !runtime.includes('private isCurrentRecoveredVpnCandidate(') ||
+  !persistedReconcile.includes('const recoveredGeneration = this.runtimeStartGeneration;') ||
+  !runtime.includes('this.runtimeStartGeneration !== expectedGeneration') ||
   !runtime.includes('current.sessionId === expectedSessionId') ||
   !runtime.includes('current.startedAt === expectedStartedAt')) {
   throw new Error('persisted VPN recovery can trust a stale active file or overwrite a newer session');

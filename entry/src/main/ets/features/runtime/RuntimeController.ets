@@ -166,12 +166,31 @@ export class RuntimeController {
   }
 
   async stop(context: common.Context, language: AppLanguage): Promise<RuntimeViewState> {
-    if (this.status === ConnectionStatus.IDLE || this.status === ConnectionStatus.STOPPING) {
+    // 即使本地控制器仍是 IDLE，也要先使正在探测持久 VPN 的恢复续体失效，并让底层
+    // ConnectionController 取消尚未完成的启动/重载。否则用户明确断开后，旧探针仍可
+    // 把 Extension 中的会话迟到接管成 RUNNING。
+    this.runtimeStartGeneration++;
+    if (this.status === ConnectionStatus.STOPPING) {
       return this.snapshot();
     }
-    // 在任何 await 前让所有在途 start() 的页面层续体失效。底层控制器另有自己的代际，
-    // 两层分别保护 native 生命周期和 RuntimeController 的日志/探测/UI 镜像。
-    this.runtimeStartGeneration++;
+    if (this.status === ConnectionStatus.IDLE) {
+      const persisted = VpnRuntimeStateStore.readWithEvidence(context).state;
+      if (persisted !== null && persisted.active) {
+        // UI 可能在后台会话核实完成前收到用户停止。先接管已知会话只为了向同一
+        // Extension 下发停止与取消标志；这里绝不启动核心或创建 TUN。
+        this.applySnapshot(this.controller.reconcileRunning(
+          persisted.startedAt, persisted.coreType, persisted.sessionId), language);
+        this.runtimeMode = APP_MODE_VPN;
+      } else if (persisted !== null && isPersistedVpnCleanupIncomplete(persisted)) {
+        this.applySnapshot(this.controller.reconcileCleanupRequired(
+          persisted.sessionId, persisted.coreType, translate(language, 'runtime.vpnCleanupRequired')), language);
+        this.runtimeMode = APP_MODE_VPN;
+      } else {
+        // ConnectionController.stop() 在 IDLE 也会同步递增底层启动/重载代际。
+        await this.controller.stop(context);
+        return this.snapshot();
+      }
+    }
     const stoppingMode = this.runtimeMode;
     // 与 start 相同，同步发布 STOPPING，阻止前台按钮和网络变化评估重复下发停止或
     // 在清理完成前启动另一套核心/TUN。
@@ -494,8 +513,10 @@ export class RuntimeController {
     if (this.status === ConnectionStatus.IDLE) {
       const recoveredSessionId = persisted.sessionId;
       const recoveredStartedAt = persisted.startedAt;
+      const recoveredGeneration = this.runtimeStartGeneration;
       const dataPlane = await probeRuntimeSocksHealth(VPN_DATA_SOCKS_PORT);
-      if (!this.isCurrentRecoveredVpnCandidate(context, recoveredSessionId, recoveredStartedAt)) {
+      if (!this.isCurrentRecoveredVpnCandidate(
+        context, recoveredSessionId, recoveredStartedAt, recoveredGeneration)) {
         return;
       }
       if (!dataPlane.ok) {
@@ -526,7 +547,8 @@ export class RuntimeController {
         context, recoveredStartedAt, recoveredSessionId);
       // 探针或停止标志读取期间，用户可能已经启动另一模式或 Extension 已换会话。
       // 迟到结果不得把新的 STARTING/本地代理状态覆盖成旧 VPN 会话。
-      if (!this.isCurrentRecoveredVpnCandidate(context, recoveredSessionId, recoveredStartedAt)) {
+      if (!this.isCurrentRecoveredVpnCandidate(
+        context, recoveredSessionId, recoveredStartedAt, recoveredGeneration)) {
         return;
       }
       if (sceneStopped) {
@@ -566,9 +588,10 @@ export class RuntimeController {
   private isCurrentRecoveredVpnCandidate(
     context: common.Context,
     expectedSessionId: string,
-    expectedStartedAt: number
+    expectedStartedAt: number,
+    expectedGeneration: number
   ): boolean {
-    if (this.status !== ConnectionStatus.IDLE) {
+    if (this.status !== ConnectionStatus.IDLE || this.runtimeStartGeneration !== expectedGeneration) {
       return false;
     }
     const current = VpnRuntimeStateStore.read(context);
