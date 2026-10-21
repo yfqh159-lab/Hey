@@ -11,6 +11,7 @@ import { SettingsStore } from '../storage/SettingsStore';
 import { NETWORK_SCENE_MANAGER } from '../services/NetworkSceneManager';
 import { prepareNativeXrayAssets } from '../native/HeyNative';
 import { ASSETS_CONTROLLER } from '../features/assets/AssetsController';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 
 const DOMAIN = 0x0000;
 
@@ -22,13 +23,14 @@ export default class EntryAbility extends UIAbility {
       ASSETS_CONTROLLER.recoverInterruptedBuiltinGeoUpdate(this.context);
     } catch (error) {
       hilog.error(DOMAIN, 'testTag', 'Failed to recover interrupted Geo update before core initialization: %{public}s',
-        error instanceof Error ? error.message : JSON.stringify(error));
+        redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error)));
     }
     // 必须早于扫码/分享解析等任何可能懒加载 Go c-shared 核心的页面逻辑。
     // Go runtime 初始化后再由 musl setenv 改写 environ 可能触发原生崩溃。
     const assetInit = prepareNativeXrayAssets(this.context.filesDir);
     if (!assetInit.ok) {
-      hilog.error(DOMAIN, 'testTag', 'Failed to initialize Xray assets before native core load: %{public}s', assetInit.message);
+      hilog.error(DOMAIN, 'testTag', 'Failed to initialize Xray assets before native core load: %{public}s',
+        redactDiagnosticText(assetInit.message));
     }
     this.applyStoredColorMode();
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onCreate');
@@ -97,13 +99,15 @@ export default class EntryAbility extends UIAbility {
       // 全屏沉浸 + 采集安全区 + 系统栏配色，须在首帧加载前就绪
       setupImmersive(windowStage, this.context, settings.uiModeNight);
     }).catch((err: Error) => {
-      hilog.error(DOMAIN, 'testTag', 'Failed to seed language. Cause: %{public}s', JSON.stringify(err));
+      hilog.error(DOMAIN, 'testTag', 'Failed to seed language. Cause: %{public}s',
+        redactDiagnosticText(JSON.stringify(err)));
       AppStorage.setOrCreate(APP_LANGUAGE_STORAGE_KEY, DEFAULT_LANGUAGE);
       setupImmersive(windowStage, this.context, UI_MODE_NIGHT_SYSTEM);
     }).then(() => {
       windowStage.loadContent('pages/Index', (err) => {
         if (err.code) {
-          hilog.error(DOMAIN, 'testTag', 'Failed to load the content. Cause: %{public}s', JSON.stringify(err));
+          hilog.error(DOMAIN, 'testTag', 'Failed to load the content. Cause: %{public}s',
+            redactDiagnosticText(JSON.stringify(err)));
           return;
         }
         hilog.info(DOMAIN, 'testTag', 'Succeeded in loading the content.');
@@ -145,11 +149,13 @@ export default class EntryAbility extends UIAbility {
     SettingsStore.load(this.context).then((settings) => {
       applyColorMode(this.context, settings.uiModeNight);
     }).catch((err: Error) => {
-      hilog.error(DOMAIN, 'testTag', 'Failed to load colorMode. Cause: %{public}s', JSON.stringify(err));
+      hilog.error(DOMAIN, 'testTag', 'Failed to load colorMode. Cause: %{public}s',
+        redactDiagnosticText(JSON.stringify(err)));
       try {
         applyColorMode(this.context, UI_MODE_NIGHT_SYSTEM);
       } catch (fallbackErr) {
-        hilog.error(DOMAIN, 'testTag', 'Failed to set fallback colorMode. Cause: %{public}s', JSON.stringify(fallbackErr));
+        hilog.error(DOMAIN, 'testTag', 'Failed to set fallback colorMode. Cause: %{public}s',
+          redactDiagnosticText(JSON.stringify(fallbackErr)));
       }
     });
   }

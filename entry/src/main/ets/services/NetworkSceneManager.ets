@@ -18,6 +18,7 @@ import { SettingsStore } from '../storage/SettingsStore';
 import { NetSceneStopFlag } from './NetSceneStopFlag';
 import { SHARED_RUNTIME_CONTROLLER } from '../features/runtime/RuntimeController';
 import { NetworkProbe } from './NetworkProbe';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'NetScene';
@@ -58,7 +59,8 @@ export class NetworkSceneManager {
       netConnection.on('netCapabilitiesChange', () => this.scheduleEvaluate(false));
       netConnection.register((error: Object) => {
         if (error !== undefined && error !== null) {
-          hilog.warn(DOMAIN, TAG, 'register net connection failed: %{public}s', JSON.stringify(error));
+          hilog.warn(DOMAIN, TAG, 'register net connection failed: %{public}s',
+            redactDiagnosticText(JSON.stringify(error)));
         }
       });
       this.netConnection = netConnection;
@@ -67,7 +69,7 @@ export class NetworkSceneManager {
       // 启动后立刻补判一次当前网络
       this.refreshNow(true);
     } catch (error) {
-      hilog.error(DOMAIN, TAG, 'ensureStarted failed: %{public}s', JSON.stringify(error));
+      hilog.error(DOMAIN, TAG, 'ensureStarted failed: %{public}s', redactDiagnosticText(JSON.stringify(error)));
     }
   }
 
@@ -83,11 +85,11 @@ export class NetworkSceneManager {
       try {
         netConnection.unregister((error: Object) => {
           if (error !== undefined && error !== null) {
-            hilog.warn(DOMAIN, TAG, 'unregister failed: %{public}s', JSON.stringify(error));
+            hilog.warn(DOMAIN, TAG, 'unregister failed: %{public}s', redactDiagnosticText(JSON.stringify(error)));
           }
         });
       } catch (error) {
-        hilog.warn(DOMAIN, TAG, 'unregister threw: %{public}s', JSON.stringify(error));
+        hilog.warn(DOMAIN, TAG, 'unregister threw: %{public}s', redactDiagnosticText(JSON.stringify(error)));
       }
     }
     this.netConnection = undefined;
@@ -189,7 +191,7 @@ export class NetworkSceneManager {
         await SHARED_RUNTIME_CONTROLLER.recheckCurrentEgressIp(this.currentLanguage());
       }
     } catch (error) {
-      hilog.error(DOMAIN, TAG, 'evaluate failed: %{public}s', JSON.stringify(error));
+      hilog.error(DOMAIN, TAG, 'evaluate failed: %{public}s', redactDiagnosticText(JSON.stringify(error)));
     } finally {
       this.evaluating = false;
       if (this.evaluationPending && this.context !== null) {

@@ -109,6 +109,38 @@ fi
 
 node <<'NODE'
 const fs = require('fs');
+const path = require('path');
+
+function etsFiles(dir) {
+  const result = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) result.push(...etsFiles(fullPath));
+    else if (entry.isFile() && entry.name.endsWith('.ets')) result.push(fullPath);
+  }
+  return result;
+}
+
+const unsafe = [];
+for (const file of etsFiles('entry/src/main/ets')) {
+  const source = fs.readFileSync(file, 'utf8');
+  const callPattern = /(?:console|hilog)[.](?:error|warn|info|debug|log)[(][\s\S]{0,1000}?[)][;]/g;
+  for (const match of source.matchAll(callPattern)) {
+    const call = match[0];
+    if (call.includes('JSON.stringify(') && !call.includes('redactDiagnosticText(')) {
+      const line = source.slice(0, match.index).split('\n').length;
+      unsafe.push(`${file}:${line}`);
+    }
+  }
+}
+if (unsafe.length > 0) {
+  throw new Error(`raw JSON error was written to console/hilog: ${unsafe.join(', ')}`);
+}
+NODE
+printf 'ArkTS console/hilog error redaction verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
 const source = fs.readFileSync('entry/src/main/ets/core/I18n.ets', 'utf8');
 
 function translationMapKeys(name) {

@@ -27,7 +27,7 @@ export class DiagnosticLog {
       fs.writeSync(file.fd, `${JSON.stringify(DiagnosticLog.redact(event))}\n`);
       fs.closeSync(file);
     } catch (error) {
-      console.error(`Diagnostic append failed: ${JSON.stringify(error)}`);
+      console.error(`Diagnostic append failed: ${redactDiagnosticText(JSON.stringify(error))}`);
     }
   }
 
@@ -40,7 +40,7 @@ export class DiagnosticLog {
       const raw = await fs.readText(path);
       return DiagnosticLog.parse(raw, limit);
     } catch (error) {
-      console.error(`Diagnostic read failed: ${JSON.stringify(error)}`);
+      console.error(`Diagnostic read failed: ${redactDiagnosticText(JSON.stringify(error))}`);
       return [];
     }
   }
@@ -51,7 +51,7 @@ export class DiagnosticLog {
       const file = fs.openSync(path, fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
       fs.closeSync(file);
     } catch (error) {
-      console.error(`Diagnostic clear failed: ${JSON.stringify(error)}`);
+      console.error(`Diagnostic clear failed: ${redactDiagnosticText(JSON.stringify(error))}`);
     }
   }
 
@@ -103,7 +103,7 @@ export class DiagnosticLog {
       fs.writeSync(file.fd, trimmed);
       fs.closeSync(file);
     } catch (error) {
-      console.error(`Diagnostic rotate failed: ${JSON.stringify(error)}`);
+      console.error(`Diagnostic rotate failed: ${redactDiagnosticText(JSON.stringify(error))}`);
     }
   }
 

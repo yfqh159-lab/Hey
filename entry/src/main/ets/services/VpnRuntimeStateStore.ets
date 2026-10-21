@@ -1,6 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { util } from '@kit.ArkTS';
 import { fileIo as fs } from '@kit.CoreFileKit';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 
 const VPN_RUNTIME_STATE_FILE: string = 'hey-vpn-runtime-state.json';
 const VPN_RUNTIME_STATE_TEMP_FILE: string = 'hey-vpn-runtime-state.tmp';
@@ -122,18 +123,18 @@ export class VpnRuntimeStateStore {
       fs.renameSync(tempPath, targetPath);
       return true;
     } catch (error) {
-      console.error(`VPN runtime state write failed: ${JSON.stringify(error)}`);
+      console.error(`VPN runtime state write failed: ${redactDiagnosticText(JSON.stringify(error))}`);
       try {
         VpnRuntimeStateStore.removeIfExists(tempPath);
       } catch (cleanupError) {
-        console.error(`VPN runtime state temp cleanup failed: ${JSON.stringify(cleanupError)}`);
+        console.error(`VPN runtime state temp cleanup failed: ${redactDiagnosticText(JSON.stringify(cleanupError))}`);
       }
       try {
         if (!fs.accessSync(targetPath) && fs.accessSync(backupPath)) {
           fs.renameSync(backupPath, targetPath);
         }
       } catch (restoreError) {
-        console.error(`VPN runtime state restore failed: ${JSON.stringify(restoreError)}`);
+        console.error(`VPN runtime state restore failed: ${redactDiagnosticText(JSON.stringify(restoreError))}`);
       }
       return false;
     } finally {
@@ -141,7 +142,7 @@ export class VpnRuntimeStateStore {
         try {
           fs.closeSync(file);
         } catch (closeError) {
-          console.error(`VPN runtime state close failed: ${JSON.stringify(closeError)}`);
+          console.error(`VPN runtime state close failed: ${redactDiagnosticText(JSON.stringify(closeError))}`);
         }
       }
     }

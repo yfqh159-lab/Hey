@@ -249,7 +249,7 @@ struct LogsPage {
       this.coreLabel = SHARED_RUNTIME_CONTROLLER.coreLabelText();
     } catch (error) {
       // 刷新失败不阻断页面，保留上次状态，避免日志面板被异常清空。
-      console.error(`Logs refresh failed: ${JSON.stringify(error)}`);
+      console.error(`Logs refresh failed: ${redactDiagnosticText(JSON.stringify(error))}`);
     }
   }
 

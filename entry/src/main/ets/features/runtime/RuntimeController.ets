@@ -609,7 +609,7 @@ export class RuntimeController {
       await this.applyDiagnosticError(context, events, language);
     } catch (error) {
       // 诊断解析失败绝不能让 refresh 整体抛出——否则页面收不到 snapshot，日志面板会全空。
-      console.error(`Diagnostic refresh failed: ${JSON.stringify(error)}`);
+      console.error(`Diagnostic refresh failed: ${redactDiagnosticText(JSON.stringify(error))}`);
     } finally {
       this.diagnosticRefreshing = false;
     }
