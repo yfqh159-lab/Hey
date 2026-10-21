@@ -131,11 +131,12 @@ traffic stats.
   apps, so the page lists a handful of common local apps as typing shortcuts
   and lets you enter any package name by hand. Nothing is ever selected for
   you, and the list is neither derived from nor tied to any destination.
-- Network scenario automation: a user-authored list of trusted Wi-Fi SSIDs plus
-  a cellular toggle drive automatic connect/disconnect. The VPN Extension
-  process polls the current network, because it is the only component
-  HarmonyOS keeps alive in the background. The app never classifies a network
-  on its own — the list is entirely yours.
+- Network continuity and scenario automation: the VPN Extension records only
+  actual underlying bearer changes and keeps the TUN/core running so new Xray
+  connections can follow the system's new default network. An optional,
+  user-authored list of trusted Wi-Fi SSIDs plus a cellular toggle can request
+  automatic disconnect only; it never auto-connects. The app never classifies
+  a network on its own — the list is entirely yours.
 - VPN continuity state: the VPN Extension writes a credential-free health
   heartbeat in the shared app sandbox. If the UI process is recreated while the
   extension is still healthy, it adopts that existing session without starting

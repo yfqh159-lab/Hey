@@ -194,11 +194,27 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     }
     try {
       const settings = await SETTINGS_CONTROLLER.load(this.context);
+      const ctx = await NetworkProbe.readCurrentNetContext();
+      const signature = `${ctx.kind}|${ctx.ssid ?? ''}`;
+      // 首次只 seed 不动作——避免拆掉用户「在可信网络手动开的 VPN」；仅对之后的网络切换生效。
+      if (!this.netSceneSeeded) {
+        this.netSceneSeeded = true;
+        this.netSceneSignature = signature;
+        this.emitInfo('Underlying network observed.',
+          `kind=${ctx.kind}; ssid=${ctx.ssid === undefined ? '<none>' : '<redacted>'}; automation=${settings.netAutomationEnabled}`);
+        return;
+      }
+      if (signature === this.netSceneSignature) {
+        return;
+      }
+      this.netSceneSignature = signature;
+      this.emitInfo('Underlying network changed.',
+        `kind=${ctx.kind}; ssid=${ctx.ssid === undefined ? '<none>' : '<redacted>'}; automation=${settings.netAutomationEnabled}`);
+      // TUN 与核心保持运行，让新建出站自然使用系统的新默认承载。自动化关闭时只记录变化，
+      // 不重启、不自动连接/断开，避免一次 Wi-Fi/蜂窝切换被放大成完整 VPN 中断。
       if (!settings.netAutomationEnabled) {
         return;
       }
-      const ctx = await NetworkProbe.readCurrentNetContext();
-      const signature = `${ctx.kind}|${ctx.ssid ?? ''}`;
       const cfg: NetAutomationConfig = {
         enabled: settings.netAutomationEnabled,
         // 固定为「仅可信网络自动断开」——不做自动连接（已移除方向选项）。
@@ -206,19 +222,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         cellularTrusted: settings.netAutomationCellularTrusted
       };
       const action = decideNetAutomationAction(ctx, cfg, true);
-      // 诊断：确认后台轮询是否在跑、SSID 是否可读、决策是否正确。
-      this.emitInfo('Net scene poll.',
-        `kind=${ctx.kind}; ssid=${ctx.ssid === undefined ? '<none>' : '<redacted>'}; seeded=${this.netSceneSeeded}; changed=${signature !== this.netSceneSignature}; action=${action}`);
-      // 首次只 seed 不动作——避免拆掉用户「在可信网络手动开的 VPN」；仅对之后的网络切换生效。
-      if (!this.netSceneSeeded) {
-        this.netSceneSeeded = true;
-        this.netSceneSignature = signature;
-        return;
-      }
-      if (signature === this.netSceneSignature) {
-        return;
-      }
-      this.netSceneSignature = signature;
+      this.emitInfo('Net scene decision.', `kind=${ctx.kind}; action=${action}`);
       if (action === NET_ACTION_DISCONNECT) {
         this.emitInfo('Net scene: trusted network, auto-disconnecting.', `kind=${ctx.kind}`);
         // 写跨进程标志，供主进程回前台校正「运行中」滞留状态。
