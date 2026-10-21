@@ -521,21 +521,33 @@ struct ScannerPage {
       }
 
       // 解析节点
-      const saved = await NODES_CONTROLLER.saveProfile(context, value, this.language);
-      if (saved.profile === null) {
+      // 扫码确认只应新增节点，不应借“解析”之名先改写当前 Profile。否则重复导入或
+      // 批量导入也会悄悄改变后续连接的回退配置。先做纯校验，真正去重成功后再落库。
+      const validation = NODES_CONTROLLER.validateConfig(value, this.language);
+      if (!validation.valid) {
         // 先用内置订阅解析器批量解析（支持 base64、多行分享链接、Clash YAML，涵盖 anytls/tuic
         // 等 sing-box 专属协议）。native(xray-core) 转换不认识 anytls/tuic，只作后备。
         const parsedNodes = SubscriptionManager.parseSubscriptionContent(value, '');
         if (parsedNodes.length > 0) {
           let importedCount = 0;
           let duplicateCount = 0;
+          let lastValidationError = '';
           for (let index = 0; index < parsedNodes.length; index++) {
             const parsedNode = parsedNodes[index];
+            const imported = NODES_CONTROLLER.validateConfig(
+              parsedNode.outboundJson,
+              this.language,
+              parsedNode.configType
+            );
+            if (!imported.valid) {
+              lastValidationError = imported.message;
+              continue;
+            }
             if (await this.addManualNodeIfUnique(
               context,
               parsedNode.name,
-              parsedNode.outboundJson,
-              parsedNode.configType
+              imported.normalizedJson,
+              imported.configType
             )) {
               importedCount++;
             } else {
@@ -543,7 +555,9 @@ struct ScannerPage {
             }
           }
           if (importedCount === 0) {
-            this.lastError = this.f1('scanner.duplicateNodes', 'count', duplicateCount.toString());
+            this.lastError = duplicateCount > 0 ?
+              this.f1('scanner.duplicateNodes', 'count', duplicateCount.toString()) :
+              (lastValidationError.length > 0 ? lastValidationError : validation.message);
             SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
             return;
           }
@@ -560,7 +574,8 @@ struct ScannerPage {
 
         const nativeResult = convertNativeShareTextToOutbounds(value);
         if (!nativeResult.ok) {
-          this.lastError = nativeResult.message.length > 0 ? `${saved.lastError}\n${nativeResult.message}` : saved.lastError;
+          this.lastError = nativeResult.message.length > 0 ?
+            `${validation.message}\n${nativeResult.message}` : validation.message;
           SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
           return;
         }
@@ -570,16 +585,16 @@ struct ScannerPage {
         let lastValidationError = '';
         for (let index = 0; index < nativeResult.outbounds.length; index++) {
           const outbound = nativeResult.outbounds[index];
-          const imported = await NODES_CONTROLLER.saveProfile(context, outbound.outboundJson, this.language, 'outbound');
-          if (imported.profile === null) {
-            lastValidationError = imported.lastError;
+          const imported = NODES_CONTROLLER.validateConfig(outbound.outboundJson, this.language, 'outbound');
+          if (!imported.valid) {
+            lastValidationError = imported.message;
             continue;
           }
           if (!await this.addManualNodeIfUnique(
             context,
-            resolveImportedNodeName(imported.profile.outboundJson, outbound.name),
-            imported.profile.outboundJson,
-            imported.profile.configType
+            resolveImportedNodeName(imported.normalizedJson, outbound.name),
+            imported.normalizedJson,
+            imported.configType
           )) {
             duplicateCount++;
             continue;
@@ -590,7 +605,7 @@ struct ScannerPage {
         if (importedCount === 0) {
           this.lastError = duplicateCount > 0 ?
             this.f1('scanner.duplicateNodes', 'count', duplicateCount.toString()) :
-            (lastValidationError.length > 0 ? lastValidationError : saved.lastError);
+            (lastValidationError.length > 0 ? lastValidationError : validation.message);
           SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
           return;
         }
@@ -606,8 +621,13 @@ struct ScannerPage {
         return;
       }
 
-      const nodeName = resolveImportedNodeName(saved.profile.outboundJson, this.t('scanner.defaultNodeName'));
-      if (!await this.addManualNodeIfUnique(context, nodeName, saved.profile.outboundJson, saved.profile.configType)) {
+      const nodeName = resolveImportedNodeName(validation.normalizedJson, this.t('scanner.defaultNodeName'));
+      if (!await this.addManualNodeIfUnique(
+        context,
+        nodeName,
+        validation.normalizedJson,
+        validation.configType
+      )) {
         this.lastError = this.f1('scanner.duplicateNode', 'name', nodeName);
         SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
         return;
