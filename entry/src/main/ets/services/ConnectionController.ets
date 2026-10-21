@@ -61,6 +61,9 @@ export class ConnectionController {
   private proxyReloadConfigType: XrayConfigType | undefined = undefined;
   // 用户停止或新启动会递增代际，使网络切换中正在等待 DNS/SOCKS 的恢复任务立即失效。
   private proxyReloadGeneration: number = 0;
+  // 启动流程跨越设置读取、域名解析、系统授权与就绪确认。用户停止必须让所有迟到
+  // continuation 失效，禁止它们在 stop 之后继续创建 VPN/核心或覆盖空闲状态。
+  private startGeneration: number = 0;
 
   getSnapshot(): ConnectionSnapshot {
     return {
@@ -100,6 +103,8 @@ export class ConnectionController {
 
     this.proxyReloadGeneration++;
     this.clearProxyReloadState();
+    this.startGeneration++;
+    const startGeneration = this.startGeneration;
 
     const validation = normalizeConfigInput(profile.outboundJson, profile.configType);
     if (!validation.valid) {
@@ -114,16 +119,26 @@ export class ConnectionController {
     // 内核分流：sing-box（预览）走独立的配置生成 + native 生命周期。
     // anytls / tuic 等 sing-box 独有协议 Xray 没有对应 outbound，无论全局开关如何都强制走 sing-box。
     const coreType = await CoreSelectionStore.load(context);
+    if (!this.isCurrentStart(startGeneration)) {
+      return this.getSnapshot();
+    }
     const forceSingbox = validation.configType === 'outbound' && isSingboxOnlyProtocol(validation.protocol);
     const useSingbox = isSingboxCore(coreType) || forceSingbox;
     this.effectiveCoreType = useSingbox ? CORE_TYPE_SINGBOX : CORE_TYPE_XRAY;
     if (useSingbox) {
-      return this.startSingbox(context, validation.normalizedJson, validation.configType, profile.updatedAt, settings);
+      return this.startSingbox(
+        context, validation.normalizedJson, validation.configType, profile.updatedAt, startGeneration, settings);
     }
 
     const runtimeSettings = validation.configType === 'full' ? settings : this.resolveRuntimeSettings(settings);
     const runtimeConfigJson = await this.resolveRuntimeConfigJson(context, validation.normalizedJson, validation.configType);
+    if (!this.isCurrentStart(startGeneration)) {
+      return this.getSnapshot();
+    }
     const resolvedRuntimeSettings = await OUTBOUND_DOMAIN_RESOLVER.resolve(context, runtimeConfigJson, runtimeSettings, validation.configType);
+    if (!this.isCurrentStart(startGeneration)) {
+      return this.getSnapshot();
+    }
     this.generatedConfig = buildRuntimeXrayConfig(runtimeConfigJson, resolvedRuntimeSettings, validation.configType);
     // 让核心把分级运行日志落盘，供 Logcat 页读取（绝对路径，VPN 扩展进程与主进程共享沙箱）。
     // 启动前清空旧文件：核心日志本就是逐会话的，避免跨会话累积、文件无限增长。
@@ -156,6 +171,9 @@ export class ConnectionController {
       if (this.runtimeMode === APP_MODE_PROXY_ONLY) {
         this.vpnSessionId = '';
         await this.startProxyOnly(context);
+        if (!this.isCurrentStart(startGeneration)) {
+          return this.getSnapshot();
+        }
         this.status = ConnectionStatus.RUNNING;
         this.startedAt = Date.now();
         return this.getSnapshot();
@@ -173,11 +191,17 @@ export class ConnectionController {
         vpnSessionId,
         handoverConfigJson
       )), START_VPN_TIMEOUT_MS, '启动 VPN 超时：系统 VPN 授权服务没有响应。若 hilog 中出现 com.huawei.hmos.vpndialog bundle not exist，说明当前系统镜像缺少 VPN 授权组件，请改用真机测试。');
+      if (!this.isCurrentStart(startGeneration)) {
+        return this.getSnapshot();
+      }
       hilog.info(LOG_DOMAIN, LOG_TAG, 'startVpnExtensionAbility returned.');
       const startEvent = await this.waitForVpnStartEvent(context, requestedAt, vpnSessionId, (event: DiagnosticEvent) => {
         return event.source === 'vpn' && this.matchesVpnSession(event, vpnSessionId) &&
           (event.message === VPN_STARTED_MESSAGE || event.message === VPN_START_FAILED_MESSAGE);
       });
+      if (!this.isCurrentStart(startGeneration)) {
+        return this.getSnapshot();
+      }
       if (startEvent === null) {
         throw new Error('启动 VPN 未确认完成：VPN 扩展没有回写启动完成状态。');
       }
@@ -187,6 +211,9 @@ export class ConnectionController {
       this.status = ConnectionStatus.RUNNING;
       this.startedAt = requestedAt;
     } catch (error) {
+      if (!this.isCurrentStart(startGeneration)) {
+        return this.getSnapshot();
+      }
       const businessError = error as BusinessError;
       this.status = ConnectionStatus.ERROR;
       const action = this.runtimeMode === APP_MODE_PROXY_ONLY ? '启动仅代理模式失败' : '启动 VPN 失败';
@@ -205,6 +232,7 @@ export class ConnectionController {
     normalizedJson: string,
     configType: string | undefined,
     profileUpdatedAt: number,
+    startGeneration: number,
     settings?: AppSettings
   ): Promise<ConnectionSnapshot> {
     const mode = normalizeAppRuntimeMode(settings?.mode, APP_MODE_VPN);
@@ -244,10 +272,16 @@ export class ConnectionController {
         profileUpdatedAt,
         vpnSessionId
       )), START_VPN_TIMEOUT_MS, '启动 VPN 超时：系统 VPN 授权服务没有响应。若为模拟器缺少 VPN 授权组件，请改用真机测试。');
+      if (!this.isCurrentStart(startGeneration)) {
+        return this.getSnapshot();
+      }
       const startEvent = await this.waitForVpnStartEvent(context, requestedAt, vpnSessionId, (event: DiagnosticEvent) => {
         return event.source === 'vpn' && this.matchesVpnSession(event, vpnSessionId) &&
           (event.message === VPN_STARTED_MESSAGE || event.message === VPN_START_FAILED_MESSAGE);
       });
+      if (!this.isCurrentStart(startGeneration)) {
+        return this.getSnapshot();
+      }
       if (startEvent === null) {
         throw new Error('启动 sing-box 未确认完成：VPN 扩展没有回写启动完成状态。');
       }
@@ -257,6 +291,9 @@ export class ConnectionController {
       this.status = ConnectionStatus.RUNNING;
       this.startedAt = requestedAt;
     } catch (error) {
+      if (!this.isCurrentStart(startGeneration)) {
+        return this.getSnapshot();
+      }
       const businessError = error as BusinessError;
       this.status = ConnectionStatus.ERROR;
       this.lastError = redactDiagnosticText(`启动 sing-box 失败：${businessError.message ?? JSON.stringify(error)}`);
@@ -419,6 +456,10 @@ export class ConnectionController {
     this.proxyReloadConfigType = undefined;
   }
 
+  private isCurrentStart(generation: number): boolean {
+    return this.startGeneration === generation && this.status === ConnectionStatus.STARTING;
+  }
+
   private resolveRuntimeSettings(settings?: AppSettings): AppSettings | undefined {
     if (!shouldUseDynamicLocalSocksPort(settings)) {
       return settings;
@@ -446,6 +487,7 @@ export class ConnectionController {
     // 必须早于状态判断：即使另一路已把控制器置为 IDLE，也要取消仍在等待 DNS/SOCKS 的
     // 网络切换恢复任务，保证用户停止后绝不发生迟到重启。
     this.proxyReloadGeneration++;
+    this.startGeneration++;
     if (this.status === ConnectionStatus.IDLE || this.status === ConnectionStatus.STOPPING) {
       return this.getSnapshot();
     }
@@ -509,6 +551,7 @@ export class ConnectionController {
   // 不下发停止命令（隧道已不存在）。仅在自认为运行/启动中时生效。
   reconcileStopped(): ConnectionSnapshot {
     this.proxyReloadGeneration++;
+    this.startGeneration++;
     if (this.status === ConnectionStatus.RUNNING || this.status === ConnectionStatus.STARTING) {
       this.status = ConnectionStatus.IDLE;
       this.startedAt = 0;
