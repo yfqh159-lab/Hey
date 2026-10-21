@@ -5,7 +5,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppRuntimeMode, AppSettings, ConnectionStatus, GeneratedXrayConfig, normalizeAppRuntimeMode, ProxyProfile, RuntimeStats } from '../core/Profile';
 import { resolveDynamicPolicyGroupConfigJson } from '../core/AdvancedOutboundBuilder';
 import { selectRuntimeLocalSocksPort, shouldUseDynamicLocalSocksPort, withRuntimeLocalSocksPort } from '../core/LocalProxy';
-import { buildRuntimeXrayConfig, DELAY_TEST_BATCH_PORT_BASE, DELAY_TEST_BATCH_PORT_COUNT, DELAY_TEST_SOCKS_PORT, injectXrayLogFile, LOCAL_HTTP_PROXY_PORT, METRICS_PORT, normalizeConfigInput, VPN_DATA_SOCKS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT, XRAY_CORE_LOG_FILE } from '../core/XrayConfig';
+import { appReservedRuntimePorts, buildRuntimeXrayConfig, injectXrayLogFile, normalizeConfigInput, VPN_DATA_SOCKS_PORT, XRAY_CORE_LOG_FILE } from '../core/XrayConfig';
 import { normalizeCoreLogLevel } from '../core/ProtocolOptions';
 import { CORE_TYPE_SINGBOX, CORE_TYPE_XRAY, CoreSelectionStore, CoreType, isSingboxCore, isSingboxOnlyProtocol } from '../core/CoreSelection';
 import { buildSingboxConfig } from '../core/SingboxConfig';
@@ -285,17 +285,7 @@ export class ConnectionController {
   }
 
   private reservedRuntimePorts(): Array<number> {
-    const ports: Array<number> = [
-      LOCAL_HTTP_PROXY_PORT,
-      VPN_DATA_SOCKS_PORT,
-      VPN_INTERNAL_HTTP_PROXY_PORT,
-      DELAY_TEST_SOCKS_PORT,
-      METRICS_PORT
-    ];
-    for (let index = 0; index < DELAY_TEST_BATCH_PORT_COUNT; index++) {
-      ports.push(DELAY_TEST_BATCH_PORT_BASE + index);
-    }
-    return ports;
+    return appReservedRuntimePorts();
   }
 
   async stop(context: common.Context): Promise<ConnectionSnapshot> {
