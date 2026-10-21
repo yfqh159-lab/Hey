@@ -277,19 +277,21 @@ export class VpnRuntimeStateStore {
   }
 
   private static recoverInterruptedWrite(targetPath: string, tempPath: string, backupPath: string): void {
-    if (fs.accessSync(targetPath)) {
-      VpnRuntimeStateStore.removeIfExists(tempPath);
-      return;
-    }
     if (fs.accessSync(tempPath)) {
       const tempState = parsePersistedVpnRuntimeState(fs.readTextSync(tempPath));
       if (tempState !== null) {
+        // 完整 temp 已经 fsync，代表比主文件更新的提交意图（尤其可能是 active → stopped）。
+        // 与读取侧的 temp > primary > backup 顺序保持一致，不能因为旧主文件仍在就删除它。
+        VpnRuntimeStateStore.removeIfExists(backupPath);
+        if (fs.accessSync(targetPath)) {
+          fs.renameSync(targetPath, backupPath);
+        }
         fs.renameSync(tempPath, targetPath);
         return;
       }
       VpnRuntimeStateStore.removeIfExists(tempPath);
     }
-    if (fs.accessSync(backupPath)) {
+    if (!fs.accessSync(targetPath) && fs.accessSync(backupPath)) {
       fs.renameSync(backupPath, targetPath);
     }
   }

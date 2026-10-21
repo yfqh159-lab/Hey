@@ -2766,6 +2766,26 @@ printf 'recoverable backup restore verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');
+const store = fs.readFileSync('entry/src/main/ets/services/VpnRuntimeStateStore.ets', 'utf8');
+const recoverAt = store.indexOf('  private static recoverInterruptedWrite(');
+const recoverEnd = store.indexOf('\n  private static readArtifactSnapshot(', recoverAt);
+const recover = store.slice(recoverAt, recoverEnd);
+const tempCheckAt = recover.indexOf('if (fs.accessSync(tempPath))');
+const parseAt = recover.indexOf('parsePersistedVpnRuntimeState(fs.readTextSync(tempPath))', tempCheckAt);
+const backupRemoveAt = recover.indexOf('removeIfExists(backupPath)', parseAt);
+const targetBackupAt = recover.indexOf('fs.renameSync(targetPath, backupPath);', backupRemoveAt);
+const promoteAt = recover.indexOf('fs.renameSync(tempPath, targetPath);', targetBackupAt);
+const fallbackAt = recover.indexOf('!fs.accessSync(targetPath) && fs.accessSync(backupPath)', promoteAt);
+if (recoverAt < 0 || recoverEnd < 0 || tempCheckAt < 0 || parseAt < tempCheckAt ||
+  backupRemoveAt < parseAt || targetBackupAt < backupRemoveAt || promoteAt < targetBackupAt ||
+  fallbackAt < promoteAt || recover.indexOf('if (fs.accessSync(targetPath)) {\n      VpnRuntimeStateStore.removeIfExists(tempPath);') >= 0) {
+  throw new Error('VPN runtime write recovery can discard a complete newer temp state');
+}
+NODE
+printf 'VPN runtime temp promotion verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
 const source = fs.readFileSync('entry/src/main/ets/core/I18n.ets', 'utf8');
 
 function translationMapKeys(name) {
