@@ -702,6 +702,18 @@ if (!source.includes('private operationTail: Promise<void> = Promise.resolve();'
 NODE
 printf 'control-card manager operation ordering verification passed\n'
 
+control_card_manager="entry/src/main/ets/services/ControlCardManager.ets"
+if ! grep -Fq "const CONTROL_CARD_UPDATE_TIMEOUT_MS: number = 2000;" "${control_card_manager}" || \
+  ! grep -Fq "private pendingUpdates: Map<string, Promise<void>>" "${control_card_manager}" || \
+  ! grep -Fq "private latestStates: Map<string, ControlCardFormData>" "${control_card_manager}" || \
+  ! grep -Fq "if (this.pendingUpdates.has(formId))" "${control_card_manager}" || \
+  ! grep -Fq "await withControlCardUpdateTimeout(updatePromise)" "${control_card_manager}" || \
+  ! grep -Fq "this.finishFormUpdate(context, formId, updatePromise, updateVersion)" "${control_card_manager}" || \
+  ! grep -Fq "this.invalidateFormUpdate(formId);" "${control_card_manager}"; then
+  throw_error "control-card FormKit updates must be bounded, single-flight, and late-result repaired"
+fi
+printf 'bounded control-card FormKit update verification passed\n'
+
 # Foreground settings changes and a WorkScheduler callback can both reconcile subscription
 # jobs. Serialize the complete stop/start/index-write operation and avoid recursive queue entry
 # when sync discovers that every group is disabled.

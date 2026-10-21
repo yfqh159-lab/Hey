@@ -15,6 +15,21 @@ import { translate } from '../core/I18n';
 import { probeRuntimeTcpHealth } from './RuntimeHealthProbe';
 
 const CONTROL_CARD_REFRESH_INTERVAL_MS: number = 3000;
+const CONTROL_CARD_UPDATE_TIMEOUT_MS: number = 2000;
+
+function withControlCardUpdateTimeout(promise: Promise<void>): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const timerId = setTimeout(() => reject(new Error('control card update timed out')),
+      CONTROL_CARD_UPDATE_TIMEOUT_MS);
+    promise.then(() => {
+      clearTimeout(timerId);
+      resolve();
+    }, (error: Object) => {
+      clearTimeout(timerId);
+      reject(error);
+    });
+  });
+}
 
 export class ControlCardManager {
   private lastSyncAt: number = 0;
@@ -22,6 +37,11 @@ export class ControlCardManager {
   // 同一进程内首页周期同步、Form 系统刷新和 Extension 清理可能同时更新同一表单。
   // 按调用顺序串行，避免旧“运行中”系统调用比后来的停止更新更晚完成并覆盖卡片。
   private operationTail: Promise<void> = Promise.resolve();
+  // FormKit Promise 可能永久不结算。每个 formId 最多保留一次底层调用；超时只释放
+  // 管理器队列，迟到调用结算后若期间已有新状态，再补发最新版本，避免旧状态覆盖停止态。
+  private pendingUpdates: Map<string, Promise<void>> = new Map<string, Promise<void>>();
+  private latestStates: Map<string, ControlCardFormData> = new Map<string, ControlCardFormData>();
+  private updateVersions: Map<string, number> = new Map<string, number>();
 
   async registerForm(context: common.Context, formId: string): Promise<void> {
     return this.enqueueOperation((): Promise<void> => this.registerFormNow(context, formId));
@@ -43,6 +63,7 @@ export class ControlCardManager {
     if (formId.length === 0) {
       return;
     }
+    this.invalidateFormUpdate(formId);
     await ControlCardStore.removeFormId(context, formId);
   }
 
@@ -251,8 +272,20 @@ export class ControlCardManager {
   }
 
   private async updateOne(context: common.Context, formId: string, state: ControlCardFormData): Promise<void> {
+    const updateVersion = (this.updateVersions.get(formId) ?? 0) + 1;
+    this.updateVersions.set(formId, updateVersion);
+    this.latestStates.set(formId, state);
+    if (this.pendingUpdates.has(formId)) {
+      return;
+    }
     try {
-      await formProvider.updateForm(formId, formBindingData.createFormBindingData(state));
+      const updatePromise = formProvider.updateForm(formId, formBindingData.createFormBindingData(state));
+      this.pendingUpdates.set(formId, updatePromise);
+      updatePromise.then(
+        (): void => this.finishFormUpdate(context, formId, updatePromise, updateVersion),
+        (_error: Object): void => this.finishFormUpdate(context, formId, updatePromise, updateVersion)
+      );
+      await withControlCardUpdateTimeout(updatePromise);
     } catch (error) {
       DiagnosticLog.append(context, {
         at: Date.now(),
@@ -262,6 +295,36 @@ export class ControlCardManager {
         details: JSON.stringify(error)
       });
     }
+  }
+
+  private finishFormUpdate(
+    context: common.Context,
+    formId: string,
+    updatePromise: Promise<void>,
+    completedVersion: number
+  ): void {
+    if (this.pendingUpdates.get(formId) !== updatePromise) {
+      return;
+    }
+    this.pendingUpdates.delete(formId);
+    const latestVersion = this.updateVersions.get(formId) ?? 0;
+    const latestState = this.latestStates.get(formId);
+    if (latestState === undefined) {
+      this.updateVersions.delete(formId);
+      return;
+    }
+    if (latestVersion === completedVersion) {
+      return;
+    }
+    // 旧底层调用已经真正结算，此时才允许同一 formId 发起下一次系统更新。修复任务
+    // 仍进入统一串行队列，因此不会越过更新期间到达的注册、停止或移除操作。
+    this.enqueueOperation((): Promise<void> => this.updateOne(context, formId, latestState))
+      .catch((_error: Object): void => {});
+  }
+
+  private invalidateFormUpdate(formId: string): void {
+    this.updateVersions.set(formId, (this.updateVersions.get(formId) ?? 0) + 1);
+    this.latestStates.delete(formId);
   }
 }
 
