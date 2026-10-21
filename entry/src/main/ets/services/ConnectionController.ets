@@ -79,7 +79,8 @@ export class ConnectionController {
   }
 
   async start(context: common.Context, profile: ProxyProfile, settings?: AppSettings): Promise<ConnectionSnapshot> {
-    if (this.status === ConnectionStatus.STARTING || this.status === ConnectionStatus.RUNNING) {
+    if (this.status === ConnectionStatus.STARTING || this.status === ConnectionStatus.RUNNING ||
+      this.status === ConnectionStatus.STOPPING) {
       return this.getSnapshot();
     }
 

@@ -90,7 +90,15 @@ export class RuntimeController {
   private missingVpnStateSampleCount: number = 0;
 
   async start(context: common.Context, profile: ProxyProfile, settings: AppSettings, language: AppLanguage): Promise<RuntimeViewState> {
+    if (this.status === ConnectionStatus.STARTING || this.status === ConnectionStatus.STOPPING ||
+      this.status === ConnectionStatus.RUNNING) {
+      return this.snapshot();
+    }
     this.runtimeMode = normalizeAppRuntimeMode(settings.mode, APP_MODE_VPN);
+    // 必须在第一个 await 前公开忙碌态：网络场景管理器、首页和日志页共用此单例，
+    // 否则底层正在异步启动时另一个入口仍会看到旧的 IDLE/RUNNING 并发起重叠操作。
+    this.status = ConnectionStatus.STARTING;
+    this.startedAt = Date.now();
     this.activeProfile = profile;
     this.activeSettings = settings;
     this.resetConnectionDelay();
@@ -113,7 +121,13 @@ export class RuntimeController {
   }
 
   async stop(context: common.Context, language: AppLanguage): Promise<RuntimeViewState> {
+    if (this.status === ConnectionStatus.IDLE || this.status === ConnectionStatus.STOPPING) {
+      return this.snapshot();
+    }
     const stoppingMode = this.runtimeMode;
+    // 与 start 相同，同步发布 STOPPING，阻止前台按钮和网络变化评估重复下发停止或
+    // 在清理完成前启动另一套核心/TUN。
+    this.status = ConnectionStatus.STOPPING;
     this.resetConnectionDelay();
     this.resetEgressIp();
     this.resetProxyHealth();
