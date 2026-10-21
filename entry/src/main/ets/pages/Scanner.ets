@@ -609,6 +609,13 @@ struct ScannerPage {
     }
     const lower = input.toLowerCase();
     if (lower.startsWith('http://') || lower.startsWith('https://')) {
+      const validationMessage = SubscriptionManager.validateSubscriptionUrl(input, false);
+      if (validationMessage.length > 0) {
+        this.previewTitle = this.t('scanner.previewInvalid');
+        this.previewDetail = localizeCoreMessage(this.language, validationMessage);
+        this.previewValid = false;
+        return;
+      }
       this.previewTitle = this.t('scanner.previewSubscription');
       this.previewDetail = this.t('scanner.previewSubscriptionDetail');
       this.previewValid = true;

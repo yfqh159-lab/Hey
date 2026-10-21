@@ -3787,9 +3787,18 @@ export default function localUnitTest() {
 
     it('validates insecure subscription urls subscription settings', 0, () => {
       expect(SubscriptionManager.validateSubscriptionUrl('https://sub.example/list', false)).assertEqual('');
+      expect(SubscriptionManager.validateSubscriptionUrl('https://user:pass@sub.example:8443/list', false)).assertEqual('');
+      expect(SubscriptionManager.validateSubscriptionUrl('https://[2001:db8::1]:8443/list', false)).assertEqual('');
       expect(SubscriptionManager.validateSubscriptionUrl('http://sub.example/list', true)).assertEqual('');
       expect(SubscriptionManager.validateSubscriptionUrl('http://sub.example/list', false)).assertContain('不安全');
       expect(SubscriptionManager.validateSubscriptionUrl('ftp://sub.example/list', true)).assertContain('http:// 或 https://');
+      expect(SubscriptionManager.validateSubscriptionUrl('https://', false)).assertContain('主机名或端口');
+      expect(SubscriptionManager.validateSubscriptionUrl('https://:443/list', false)).assertContain('主机名或端口');
+      expect(SubscriptionManager.validateSubscriptionUrl('https://sub.example:/list', false)).assertContain('主机名或端口');
+      expect(SubscriptionManager.validateSubscriptionUrl('https://sub.example:65536/list', false)).assertContain('主机名或端口');
+      expect(SubscriptionManager.validateSubscriptionUrl('https://sub.example:abc/list', false)).assertContain('主机名或端口');
+      expect(SubscriptionManager.validateSubscriptionUrl('https://2001:db8::1/list', false)).assertContain('主机名或端口');
+      expect(SubscriptionManager.validateSubscriptionUrl('https://sub.example\\@evil.example/list', false)).assertContain('主机名或端口');
     });
 
     it('converts IDN subscription hosts to punycode HttpUtil', 0, () => {

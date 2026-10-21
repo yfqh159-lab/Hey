@@ -343,6 +343,9 @@ export class SubscriptionManager {
     if (!SubscriptionManager.isHttpUrl(trimmedUrl)) {
       return '订阅链接必须是 http:// 或 https://。';
     }
+    if (!SubscriptionManager.hasValidHttpAuthority(trimmedUrl)) {
+      return '订阅链接缺少有效的主机名或端口。';
+    }
     if (!allowInsecureUrl && SubscriptionManager.isInsecureHttpUrl(trimmedUrl) && !isLoopbackOrPrivateHttpUrl(trimmedUrl)) {
       return 'HTTP 订阅链接不安全，请开启允许不安全订阅链接后重试。';
     }
@@ -1623,6 +1626,76 @@ export class SubscriptionManager {
 
   private static isInsecureHttpUrl(value: string): boolean {
     return value.toLowerCase().startsWith('http://');
+  }
+
+  private static hasValidHttpAuthority(value: string): boolean {
+    for (let index = 0; index < value.length; index++) {
+      const code = value.charCodeAt(index);
+      if (code <= 0x20 || code === 0x7F || value.charAt(index) === '\\') {
+        return false;
+      }
+    }
+
+    const authority = SubscriptionManager.urlAuthority(value);
+    if (authority.length === 0) {
+      return false;
+    }
+    const hostPort = authority.substring(authority.lastIndexOf('@') + 1);
+    if (hostPort.length === 0) {
+      return false;
+    }
+
+    let host = '';
+    let port = '';
+    if (hostPort.startsWith('[')) {
+      const close = hostPort.indexOf(']');
+      if (close <= 1) {
+        return false;
+      }
+      host = hostPort.substring(1, close);
+      const suffix = hostPort.substring(close + 1);
+      if (suffix.length > 0) {
+        if (!suffix.startsWith(':')) {
+          return false;
+        }
+        port = suffix.substring(1);
+      }
+    } else {
+      if (hostPort.indexOf('[') >= 0 || hostPort.indexOf(']') >= 0) {
+        return false;
+      }
+      const firstColon = hostPort.indexOf(':');
+      const lastColon = hostPort.lastIndexOf(':');
+      if (firstColon >= 0 && firstColon !== lastColon) {
+        // IPv6 literals in URLs must be enclosed in brackets.
+        return false;
+      }
+      if (lastColon >= 0) {
+        host = hostPort.substring(0, lastColon);
+        port = hostPort.substring(lastColon + 1);
+      } else {
+        host = hostPort;
+      }
+    }
+
+    if (host.length === 0 || host === '.') {
+      return false;
+    }
+    if (port.length > 0) {
+      for (let index = 0; index < port.length; index++) {
+        const code = port.charCodeAt(index);
+        if (code < 0x30 || code > 0x39) {
+          return false;
+        }
+      }
+      const portNumber = Number(port);
+      if (portNumber <= 0 || portNumber > 65535) {
+        return false;
+      }
+    } else if (hostPort.endsWith(':')) {
+      return false;
+    }
+    return true;
   }
 
   private static buildEmbeddedBasicAuthorizationHeader(url: string): string {
