@@ -2115,6 +2115,23 @@ struct Index {
     try {
       this.runtimeMode = normalizeAppRuntimeMode(this.currentSettings.mode, APP_MODE_VPN);
       this.status = ConnectionStatus.STARTING;
+      // 后台 WorkScheduler 不共享 UI 单例。必须先持久化 STARTING 路由意图，再允许
+      // Xray/VPN 创建 socket；否则带 Token 的订阅任务可能在状态提交窗口误走直连。
+      await CONTROL_CARD_MANAGER.persistRuntimeState(
+        context,
+        this.status,
+        this.elapsedText,
+        this.language,
+        this.lastError,
+        false,
+        this.runtimeMode,
+        SHARED_RUNTIME_CONTROLLER.requiresCleanup()
+      );
+      // 用户可在 STARTING 时点停止；stopConnection 已把页面校正为非 STARTING，旧
+      // 持久化续体不得随后调用共享控制器重新启动。
+      if (this.status !== ConnectionStatus.STARTING) {
+        return false;
+      }
       this.syncControlCard();
       const state = await SHARED_RUNTIME_CONTROLLER.start(context, saved.profile, this.currentSettings, this.language);
       this.applyRuntimeState(state);

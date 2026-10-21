@@ -57,17 +57,33 @@ export class ControlCardManager {
     if (this.shouldSkipSync(now, immediateKey)) {
       return;
     }
-    const state = await ControlCardStore.saveState(
-      context,
-      buildControlCardFormData(
-        language, status, elapsedText, lastError, vpnBacked, runtimeMode, cleanupRequired)
-    );
+    const state = await this.persistRuntimeState(
+      context, status, elapsedText, language, lastError, vpnBacked, runtimeMode, cleanupRequired);
     const formIds = await ControlCardStore.loadFormIds(context);
     for (let index = 0; index < formIds.length; index++) {
       await this.updateOne(context, formIds[index], state);
     }
     this.lastSyncAt = now;
     this.lastImmediateKey = immediateKey;
+  }
+
+  // 启动数据面前先等待这一步，给 WorkScheduler 等独立进程一个持久的 fail-closed
+  // 路由意图。这里只写状态，不依赖桌面卡片 ID 或系统表单更新是否可用。
+  async persistRuntimeState(
+    context: common.Context,
+    status: ConnectionStatus,
+    elapsedText: string,
+    language: AppLanguage,
+    lastError: string,
+    vpnBacked: boolean,
+    runtimeMode: AppRuntimeMode,
+    cleanupRequired: boolean = false
+  ): Promise<ControlCardFormData> {
+    return ControlCardStore.saveState(
+      context,
+      buildControlCardFormData(
+        language, status, elapsedText, lastError, vpnBacked, runtimeMode, cleanupRequired)
+    );
   }
 
   private shouldSkipSync(now: number, immediateKey: string): boolean {

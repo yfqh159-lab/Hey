@@ -1208,6 +1208,7 @@ const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeCont
 const runtimeStateStore = fs.readFileSync('entry/src/main/ets/services/VpnRuntimeStateStore.ets', 'utf8');
 const controlCardManager = fs.readFileSync('entry/src/main/ets/services/ControlCardManager.ets', 'utf8');
 const subscriptionWorker = fs.readFileSync('entry/src/main/ets/work/SubscriptionUpdateWorkAbility.ets', 'utf8');
+const indexPage = fs.readFileSync('entry/src/main/ets/pages/Index.ets', 'utf8');
 const vpn = fs.readFileSync('entry/src/main/ets/vpn/HeyVpnAbility.ets', 'utf8');
 if (!connection.includes('vpnSessionId: string;') ||
   !connection.includes('vpnSessionId: this.vpnSessionId')) {
@@ -1234,11 +1235,33 @@ if (!runtimeStateStore.includes('static readWithEvidence(context: common.Context
   !runtimeStateStore.includes('// 无法确认是瞬时访问错误还是损坏，涉及订阅凭据时必须保守处理。')) {
   throw new Error('VPN state and artifact validity are not derived from one authoritative snapshot');
 }
-if (!subscriptionWorker.includes(
-  'const vpnStateRead = VpnRuntimeStateStore.readWithEvidence(context);') ||
-  !subscriptionWorker.includes('vpnStateRead.authoritativeArtifactInvalid ||') ||
-  !subscriptionWorker.includes('(vpnStateRead.state !== null && vpnStateRead.state.active)')) {
-  throw new Error('background subscriptions can mix VPN state and validity from different filesystem snapshots');
+const workerVpnBeforeAt = subscriptionWorker.indexOf(
+  'const vpnStateBefore = VpnRuntimeStateStore.readWithEvidence(context);');
+const workerCardAt = subscriptionWorker.indexOf(
+  'const controlCardState = await ControlCardStore.loadState(context);', workerVpnBeforeAt);
+const workerVpnAfterAt = subscriptionWorker.indexOf(
+  'const vpnStateAfter = VpnRuntimeStateStore.readWithEvidence(context);', workerCardAt);
+const workerRouteAt = subscriptionWorker.indexOf(
+  'this.vpnMayOwnNetwork(vpnStateBefore) || this.vpnMayOwnNetwork(vpnStateAfter)', workerVpnAfterAt);
+if (workerVpnBeforeAt < 0 || workerCardAt < workerVpnBeforeAt || workerVpnAfterAt < workerCardAt ||
+  workerRouteAt < workerVpnAfterAt ||
+  !subscriptionWorker.includes('read.authoritativeArtifactInvalid || (read.state !== null && read.state.active)')) {
+  throw new Error('background subscriptions can miss a VPN transition while loading persisted routing state');
+}
+if (!controlCardManager.includes('async persistRuntimeState(') ||
+  !controlCardManager.includes('return ControlCardStore.saveState(')) {
+  throw new Error('control card runtime state cannot be durably fenced before data-plane startup');
+}
+const pageStartAt = indexPage.indexOf('  private async startConnectionInternal(): Promise<boolean>');
+const pageStartEnd = indexPage.indexOf('\n  private showProxySharingStartWarning(', pageStartAt);
+const pageStart = indexPage.slice(pageStartAt, pageStartEnd);
+const pageStartingAt = pageStart.indexOf('this.status = ConnectionStatus.STARTING;');
+const pagePersistAt = pageStart.indexOf('await CONTROL_CARD_MANAGER.persistRuntimeState(', pageStartingAt);
+const pageCancelAt = pageStart.indexOf('if (this.status !== ConnectionStatus.STARTING)', pagePersistAt);
+const pageControllerStartAt = pageStart.indexOf('await SHARED_RUNTIME_CONTROLLER.start(', pageCancelAt);
+if (pageStartAt < 0 || pageStartEnd < 0 || pageStartingAt < 0 || pagePersistAt < pageStartingAt ||
+  pageCancelAt < pagePersistAt || pageControllerStartAt < pageCancelAt) {
+  throw new Error('UI startup can open the data plane before persisting STARTING or resume after cancellation');
 }
 const startWaitAt = connection.indexOf('  private async waitForVpnStartEvent(');
 const cleanupWaitAt = connection.indexOf('  private async waitForVpnCleanupEvent(', startWaitAt);

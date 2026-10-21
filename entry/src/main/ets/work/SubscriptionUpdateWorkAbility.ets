@@ -5,7 +5,7 @@ import { SUBSCRIPTIONS_CONTROLLER } from '../features/subscriptions/Subscription
 import { DiagnosticLog } from '../services/DiagnosticLog';
 import { SubscriptionBackgroundScheduler } from '../services/SubscriptionBackgroundScheduler';
 import { SubscriptionManager } from '../services/SubscriptionManager';
-import { VpnRuntimeStateStore } from '../services/VpnRuntimeStateStore';
+import { PersistedVpnRuntimeStateReadResult, VpnRuntimeStateStore } from '../services/VpnRuntimeStateStore';
 import { ConnectionStatus } from '../core/Profile';
 import { ControlCardStore } from '../storage/ControlCardStore';
 
@@ -32,11 +32,11 @@ export default class SubscriptionUpdateWorkAbility extends WorkSchedulerExtensio
       // WorkScheduler 不能依赖 UI 单例。VPN 状态即使心跳稍旧也按“可能仍持有 VPN”
       // 处理；控制卡片状态补足本地代理模式。崩溃留下的运行态宁可令回环请求失败，
       // 也不把包含 Token/Basic Auth 的订阅 URL 降级到物理网络直连。
-      const vpnStateRead = VpnRuntimeStateStore.readWithEvidence(context);
+      const vpnStateBefore = VpnRuntimeStateStore.readWithEvidence(context);
       const controlCardState = await ControlCardStore.loadState(context);
+      const vpnStateAfter = VpnRuntimeStateStore.readWithEvidence(context);
       const proxyPort = SubscriptionManager.resolvePersistedSubscriptionProxyPort(
-        vpnStateRead.authoritativeArtifactInvalid ||
-          (vpnStateRead.state !== null && vpnStateRead.state.active),
+        this.vpnMayOwnNetwork(vpnStateBefore) || this.vpnMayOwnNetwork(vpnStateAfter),
         controlCardState.runtimeMode,
         controlCardState.runtimeStatus !== ConnectionStatus.IDLE
       );
@@ -71,6 +71,10 @@ export default class SubscriptionUpdateWorkAbility extends WorkSchedulerExtensio
     }
     const groupId = parameters['groupId'];
     return typeof groupId === 'string' ? groupId.trim() : '';
+  }
+
+  private vpnMayOwnNetwork(read: PersistedVpnRuntimeStateReadResult): boolean {
+    return read.authoritativeArtifactInvalid || (read.state !== null && read.state.active);
   }
 
   private stringifyError(error: Error | Object): string {
