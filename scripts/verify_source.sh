@@ -1627,6 +1627,22 @@ printf 'bounded network observation verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');
+const probe = fs.readFileSync('entry/src/main/ets/services/RuntimeHealthProbe.ets', 'utf8');
+const tcpAt = probe.indexOf('export async function probeRuntimeTcpHealth(');
+const waitAt = probe.indexOf('\nexport async function waitForRuntimeSocksHealth(', tcpAt);
+const tcp = probe.slice(tcpAt, waitAt);
+if (tcpAt < 0 || waitAt < 0 ||
+  !tcp.includes('await withProbeTimeout(') ||
+  !tcp.includes('tcp.connect({') ||
+  !tcp.includes('await withProbeTimeout(tcp.close(), Math.min(500, timeoutMs));') ||
+  !probe.includes('function withProbeTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T>')) {
+  throw new Error('runtime SOCKS health connect/close promises are not bounded');
+}
+NODE
+printf 'bounded runtime health probe verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
 
 const app = JSON.parse(fs.readFileSync('AppScope/app.json5', 'utf8'));
 const bundleName = app?.app?.bundleName;

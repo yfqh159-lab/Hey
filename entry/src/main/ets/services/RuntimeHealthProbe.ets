@@ -21,24 +21,31 @@ export async function probeRuntimeTcpHealth(
   port: number,
   timeoutMs: number = 1500
 ): Promise<RuntimeHealthProbeResult> {
-  if (!isRuntimeHealthPort(port)) {
+  if (!isRuntimeHealthPort(port) || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     return { ok: false, status: 'invalid-endpoint' };
   }
   const tcp = socket.constructTCPSocketInstance();
   try {
-    await tcp.connect({
-      address: {
-        address: '127.0.0.1',
-        port
-      },
-      timeout: timeoutMs
-    });
+    // Some device builds have been observed to leave NetworkKit promises pending
+    // beyond the option timeout. Keep an outer deadline so the Extension health
+    // loop cannot permanently retain healthProbeInFlight and stop heartbeats.
+    await withProbeTimeout(
+      tcp.connect({
+        address: {
+          address: '127.0.0.1',
+          port
+        },
+        timeout: timeoutMs
+      }),
+      timeoutMs
+    );
     return { ok: true, status: 'ok' };
   } catch (_error) {
     return { ok: false, status: 'tcp-failed' };
   } finally {
     try {
-      await tcp.close();
+      // close() is cleanup, not a reason to wedge startup or runtime polling.
+      await withProbeTimeout(tcp.close(), Math.min(500, timeoutMs));
     } catch (_) {
     }
   }
@@ -78,5 +85,20 @@ export function isRuntimeHealthPort(port: number): boolean {
 function delay(milliseconds: number): Promise<void> {
   return new Promise<void>((resolve: () => void) => {
     setTimeout(resolve, milliseconds);
+  });
+}
+
+function withProbeTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timerId = setTimeout(() => {
+      reject(new Error('runtime health probe timed out'));
+    }, timeoutMs);
+    promise.then((value: T) => {
+      clearTimeout(timerId);
+      resolve(value);
+    }, (error: Object) => {
+      clearTimeout(timerId);
+      reject(error);
+    });
   });
 }
