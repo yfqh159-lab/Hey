@@ -3,6 +3,7 @@ import Want from '@ohos.app.ability.Want';
 import { DNS_VPN, normalizeVpnDnsServers } from '../core/DnsAddresses';
 import {
   DEFAULT_VPN_MTU,
+  AppSettings,
   normalizeVpnBypassLanMode,
   normalizeVpnMtuValue,
   resolveVpnInterfaceAddressConfig,
@@ -62,6 +63,7 @@ export const VPN_CORE_TYPE_KEY: string = 'coreType';
 export const VPN_HEALTH_PORT_KEY: string = 'healthPort';
 export const VPN_PROFILE_UPDATED_AT_KEY: string = 'profileUpdatedAt';
 export const VPN_HANDOVER_CONFIG_KEY: string = 'handoverConfigJson';
+export const VPN_SETTINGS_SNAPSHOT_KEY: string = 'settingsSnapshotJson';
 
 export function isValidVpnSessionId(value: string): boolean {
   return value.length > 0 && value.length <= 96 && /^[A-Za-z0-9_-]+$/.test(value);
@@ -87,7 +89,8 @@ export function createVpnWant(
   healthPort?: number,
   profileUpdatedAt?: number,
   sessionId?: string,
-  handoverConfigJson?: string
+  handoverConfigJson?: string,
+  settingsSnapshot?: AppSettings
 ): Want {
   return {
     deviceId: '',
@@ -99,7 +102,10 @@ export function createVpnWant(
       healthPort: (healthPort ?? 0) as Object,
       profileUpdatedAt: (profileUpdatedAt ?? 0) as Object,
       sessionId: (sessionId ?? '') as Object,
-      handoverConfigJson: (handoverConfigJson ?? '') as Object
+      handoverConfigJson: (handoverConfigJson ?? '') as Object,
+      // 核心配置、系统 VpnConfig 与 tun2socks 必须使用同一次点击连接时的设置。
+      // Extension 若稍后重新读取 Preferences，用户并发编辑会造成两套数据面配置错配。
+      settingsSnapshotJson: (settingsSnapshot === undefined ? '' : JSON.stringify(settingsSnapshot)) as Object
     }
   };
 }

@@ -12,7 +12,7 @@ import {
   shouldReloadActiveCoreAfterNetworkChange
 } from '../core/NetworkAutomation';
 import { NetSceneStopFlag } from '../services/NetSceneStopFlag';
-import { APP_MODE_VPN, AppLanguage, ConnectionStatus, resolveVpnInterfaceAddressConfig, RuntimeStats } from '../core/Profile';
+import { APP_MODE_VPN, AppLanguage, AppSettings, ConnectionStatus, resolveVpnInterfaceAddressConfig, RuntimeStats } from '../core/Profile';
 import {
   createDefaultVpnConfig,
   normalizeVpnMtu,
@@ -21,10 +21,12 @@ import {
   VPN_HANDOVER_CONFIG_KEY,
   VPN_HEALTH_PORT_KEY,
   VPN_PROFILE_UPDATED_AT_KEY,
+  VPN_SETTINGS_SNAPSHOT_KEY,
   VPN_SESSION_ID_KEY,
   isValidVpnSessionId
 } from './VpnConstants';
 import { SETTINGS_CONTROLLER } from '../features/settings/SettingsController';
+import { SettingsStore } from '../storage/SettingsStore';
 import {
   getNativeStats,
   startNativeHevTun,
@@ -248,7 +250,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       const creatingConnection = vpnExtension.createVpnConnection(this.context);
       this.vpnConnection = creatingConnection;
       this.emitInfo('Creating VPN connection.');
-      const settings = await SETTINGS_CONTROLLER.load(this.context);
+      const settings = await this.resolveStartSettings(want);
       this.activeLanguage = settings.language;
       this.ensureStartAllowed('settings load', sessionGeneration);
       await this.seedNetSceneBaseline(settings.netAutomationEnabled, sessionGeneration);
@@ -369,6 +371,19 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       this.emitError('VPN start failed.', `session=${this.sessionId}; error=${this.errorMessage(error)}`);
       await this.cleanup();
     }
+  }
+
+  private async resolveStartSettings(want: Want): Promise<AppSettings> {
+    const snapshotJson = this.getStringParameter(want, VPN_SETTINGS_SNAPSHOT_KEY, '');
+    if (snapshotJson.length === 0) {
+      // 兼容升级前或系统重投递的旧启动请求；新请求始终携带原子设置快照。
+      return SETTINGS_CONTROLLER.load(this.context);
+    }
+    const selection = SettingsStore.selectStoredSettings(snapshotJson, '');
+    if (selection.settings === null) {
+      throw new Error('VPN start settings snapshot is invalid.');
+    }
+    return selection.settings;
   }
 
   // 在 VPN 扩展生命周期内用自驱动定时器尽力轮询网络场景，补充 UI 进程退后台后可能

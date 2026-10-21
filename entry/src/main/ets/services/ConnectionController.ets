@@ -235,7 +235,8 @@ export class ConnectionController {
         this.generatedConfig.runtimeHealthPort ?? VPN_DATA_SOCKS_PORT,
         profile.updatedAt,
         vpnSessionId,
-        handoverConfigJson
+        handoverConfigJson,
+        runtimeSettings
       )), START_VPN_TIMEOUT_MS, '启动 VPN 超时：系统 VPN 授权服务没有响应。若 hilog 中出现 com.huawei.hmos.vpndialog bundle not exist，说明当前系统镜像缺少 VPN 授权组件，请改用真机测试。');
       if (!this.isCurrentStart(startGeneration)) {
         return this.getSnapshot();
@@ -325,7 +326,9 @@ export class ConnectionController {
         CORE_TYPE_SINGBOX,
         VPN_DATA_SOCKS_PORT,
         profileUpdatedAt,
-        vpnSessionId
+        vpnSessionId,
+        undefined,
+        settings
       )), START_VPN_TIMEOUT_MS, '启动 VPN 超时：系统 VPN 授权服务没有响应。若为模拟器缺少 VPN 授权组件，请改用真机测试。');
       if (!this.isCurrentStart(startGeneration)) {
         return this.getSnapshot();

@@ -407,6 +407,35 @@ if (!config.includes('if (vpnMode) {\n    inbounds.push(tunInbound);') ||
 NODE
 printf 'optional TUN/runtime mode separation verification passed\n'
 
+# The core config, VpnConfig and TUN engine form one launch transaction. The UI process
+# must pass the exact normalized settings snapshot used to build the core config; loading
+# mutable Preferences later in the Extension could mix IPv6/DNS/app-routing/MTU settings
+# from a newer edit into the older core config.
+node <<'NODE'
+const fs = require('fs');
+const constants = fs.readFileSync('entry/src/main/ets/vpn/VpnConstants.ets', 'utf8');
+const controller = fs.readFileSync('entry/src/main/ets/services/ConnectionController.ets', 'utf8');
+const ability = fs.readFileSync('entry/src/main/ets/vpn/HeyVpnAbility.ets', 'utf8');
+
+if (!constants.includes("export const VPN_SETTINGS_SNAPSHOT_KEY: string = 'settingsSnapshotJson';") ||
+  !constants.includes("settingsSnapshotJson: (settingsSnapshot === undefined ? '' : JSON.stringify(settingsSnapshot)) as Object")) {
+  throw new Error('VPN start Want does not carry its immutable settings snapshot');
+}
+if (!controller.includes('handoverConfigJson,\n        runtimeSettings') ||
+  !controller.includes('undefined,\n        settings')) {
+  throw new Error('Xray and sing-box VPN starts do not pass their launch settings snapshot');
+}
+const startAt = ability.indexOf('  private async startVpn(');
+const resolverAt = ability.indexOf('  private async resolveStartSettings(', startAt);
+if (startAt < 0 || resolverAt < 0 ||
+  !ability.slice(startAt, resolverAt).includes('const settings = await this.resolveStartSettings(want);') ||
+  !ability.slice(resolverAt).includes("const selection = SettingsStore.selectStoredSettings(snapshotJson, '');") ||
+  !ability.slice(resolverAt).includes("throw new Error('VPN start settings snapshot is invalid.');")) {
+  throw new Error('VPN Extension does not validate and use the launch settings snapshot');
+}
+NODE
+printf 'VPN launch settings snapshot verification passed\n'
+
 node <<'NODE'
 const fs = require('fs');
 const ability = fs.readFileSync('entry/src/main/ets/entryability/EntryAbility.ets', 'utf8');
