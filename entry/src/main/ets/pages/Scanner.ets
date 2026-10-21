@@ -4,18 +4,17 @@ import { picker } from '@kit.CoreFileKit';
 import { scanBarcode, scanCore, detectBarcode } from '@kit.ScanKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
+import { subscriptionNameFromDeepLink } from '../core/DeepLink';
 import { resolveImportedNodeName } from '../core/ImportedNodeNames';
-import { shouldExposeLocalHttpProxy } from '../core/LocalProxy';
 import { AppLanguage, XrayConfigType } from '../core/Profile';
 import { markRuntimeSettingsRestartNeeded } from '../core/SettingsChange';
-import { LOCAL_HTTP_PROXY_PORT } from '../core/XrayConfig';
 import { NODES_CONTROLLER } from '../features/nodes/NodesController';
 import { SETTINGS_CONTROLLER } from '../features/settings/SettingsController';
 import { SHARED_RUNTIME_CONTROLLER } from '../features/runtime/RuntimeController';
 import { SUBSCRIPTIONS_CONTROLLER } from '../features/subscriptions/SubscriptionsController';
 import { AppRoute } from '../shell/AppRoute';
 import { PageHeader } from '../shell/PageHeader';
-import { formatOne } from '../utils/LocalizationPresenter';
+import { formatOne, localizeCoreMessage } from '../utils/LocalizationPresenter';
 import { ensureReadPasteboardPermission } from '../utils/ClipboardPermission';
 import { SubscriptionStore } from '../storage/SubscriptionStore';
 import { convertNativeShareTextToOutbounds } from '../services/NativeShareConverter';
@@ -32,12 +31,10 @@ struct ScannerPage {
   @State private previewDetail: string = '';
   @State private previewValid: boolean = false;
   @State private isBusy: boolean = false;
-  @State private selectedNodeId: string = '';
   @State private hasAutoScanned: boolean = false;
   @State private isPressedScanCard: boolean = false;
   @State private isPressedPhotoCard: boolean = false;
   @State private isPressedImportBtn: boolean = false;
-  private subscriptionProxyPort: number = 0;
   private startScanImmediate: boolean = false;
 
   aboutToAppear(): void {
@@ -334,9 +331,6 @@ struct ScannerPage {
       const settings = await SETTINGS_CONTROLLER.load(context);
       this.language = settings.language;
       this.startScanImmediate = settings.startScanImmediate;
-      this.subscriptionProxyPort = shouldExposeLocalHttpProxy(settings) && SHARED_RUNTIME_CONTROLLER.isRunning() ?
-        LOCAL_HTTP_PROXY_PORT : 0;
-      this.selectedNodeId = (await NODES_CONTROLLER.load(context, this.language)).selectedNodeId;
       this.tryStartImmediateScan();
     } catch (error) {
       this.lastError = this.f1('scanner.loadStateFailed', 'error', JSON.stringify(error));
@@ -419,7 +413,7 @@ struct ScannerPage {
     this.lastError = '';
     this.updateImportPreview(this.importBuffer);
     // 扫码/相册只负责识别并展示原文。必须由用户检查内容后再次点击导入，
-    // 才允许保存节点；若内容是订阅 URL，也只有这一步之后才会发起网络请求。
+    // 才允许保存节点或订阅来源；订阅内容仍需在订阅页由用户主动更新。
     promptAction.showToast({ message: this.t('scanner.reviewBeforeImport') });
   }
 
@@ -464,9 +458,43 @@ struct ScannerPage {
       const context = getContext(this) as common.Context;
       // 判定是否是订阅地址
       if (value.toLowerCase().startsWith('http://') || value.toLowerCase().startsWith('https://')) {
-        const state = await SUBSCRIPTIONS_CONTROLLER.update(context, '', value, this.selectedNodeId, this.language, this.subscriptionProxyPort);
-        SHARED_RUNTIME_CONTROLLER.appendLog(state.subscriptionMessage);
-        promptAction.showToast({ message: this.t('scanner.subscriptionUpdated') });
+        const validationMessage = SubscriptionManager.validateSubscriptionUrl(value, false);
+        if (validationMessage.length > 0) {
+          this.lastError = localizeCoreMessage(this.language, validationMessage);
+          SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
+          return;
+        }
+
+        const existingProfile = await SubscriptionStore.load(context);
+        const existingGroup = SubscriptionStore.findGroupByUrl(existingProfile.groups, value);
+        if (existingGroup !== null) {
+          await SUBSCRIPTIONS_CONTROLLER.selectGroup(context, existingGroup, this.language);
+          const duplicateMessage = this.t('scanner.subscriptionAlreadyAdded');
+          SHARED_RUNTIME_CONTROLLER.appendLog(duplicateMessage);
+          promptAction.showToast({ message: duplicateMessage });
+          router.pushUrl({ url: AppRoute.SUBSCRIPTIONS });
+          return;
+        }
+
+        const state = await SUBSCRIPTIONS_CONTROLLER.addGroup(
+          context,
+          subscriptionNameFromDeepLink(value),
+          value,
+          '',
+          '',
+          '',
+          '',
+          false,
+          this.language
+        );
+        if (SubscriptionStore.findGroupByUrl(state.subscriptionGroups, value) === null) {
+          this.lastError = state.subscriptionMessage;
+          SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
+          return;
+        }
+        const addedMessage = this.t('scanner.subscriptionAdded');
+        SHARED_RUNTIME_CONTROLLER.appendLog(addedMessage);
+        promptAction.showToast({ message: addedMessage });
         router.pushUrl({ url: AppRoute.SUBSCRIPTIONS });
         return;
       }
