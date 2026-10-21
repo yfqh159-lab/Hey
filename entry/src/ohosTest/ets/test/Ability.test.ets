@@ -13,6 +13,8 @@ import {
   VPN_BYPASS_LAN_IPV4_ROUTES,
   VPN_COMMAND_KEY,
   VPN_COMMAND_STOP,
+  VPN_CORE_TYPE_KEY,
+  VPN_HEALTH_PORT_KEY,
   VPN_MTU
 } from '../../../main/ets/vpn/VpnConstants';
 
@@ -23,10 +25,12 @@ export default function abilityTest() {
   describe('HeyVpnAbility wiring', () => {
     it('creates a start want targeting the vpn extension', 0, () => {
       const config = buildXrayConfig(OUTBOUND_JSON);
-      const want = createVpnWant(config.configJson);
+      const want = createVpnWant(config.configJson, 'xray', config.runtimeHealthPort);
       expect(want.bundleName).assertEqual(BUNDLE_NAME);
       expect(want.abilityName).assertEqual(VPN_ABILITY_NAME);
       expect(want.parameters?.['xrayConfigJson']?.toString()).assertContain('"outbounds"');
+      expect(want.parameters?.[VPN_CORE_TYPE_KEY]?.toString()).assertEqual('xray');
+      expect(want.parameters?.[VPN_HEALTH_PORT_KEY]?.toString()).assertEqual('18082');
       expect(want.parameters?.['socksHost'] === undefined).assertTrue();
       expect(want.parameters?.['socksPort'] === undefined).assertTrue();
     });
