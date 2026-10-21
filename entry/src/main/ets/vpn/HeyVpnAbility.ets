@@ -37,6 +37,8 @@ const STATS_INTERVAL_MS: number = 2000;
 // 分属不同进程，不能用主进程 native 全局变量判断隧道是否仍在运行。
 const HEALTH_INTERVAL_MS: number = 5000;
 const RUNTIME_STATE_INTERVAL_MS: number = 4000;
+// 连续两次采样都看不到核心或 TUN 才判定失效，避免单次桥查询抖动误拆连接。
+const UNHEALTHY_SAMPLE_LIMIT: number = 2;
 // 网络场景轮询间隔：VPN 扩展进程后台存活，自驱动定时器可跑（区别于后台收不到的 connection.on 事件）。
 const NET_SCENE_POLL_MS: number = 5000;
 
@@ -49,6 +51,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   private activeCoreType: string = 'xray';
   private lastRuntimeStateAt: number = 0;
   private cleaningUp: boolean = false;
+  private unhealthySampleCount: number = 0;
   // 网络场景自动化（后台断开）：VPN 扩展进程内轮询网络，切到可信网络即拆隧道。
   private netScenePollTimerId: number = -1;
   private netSceneSignature: string = '';
@@ -284,16 +287,28 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
 
   private startStatsTimer(intervalMs: number): void {
     this.stopStatsTimer();
+    this.unhealthySampleCount = 0;
     this.statsTimerId = setInterval(() => {
-      this.recordStats();
+      this.recordStatsSafely();
     }, intervalMs);
-    this.recordStats();
+    this.recordStatsSafely();
   }
 
   private stopStatsTimer(): void {
     if (this.statsTimerId >= 0) {
       clearInterval(this.statsTimerId);
       this.statsTimerId = -1;
+    }
+  }
+
+  private recordStatsSafely(): void {
+    if (this.cleaningUp) {
+      return;
+    }
+    try {
+      this.recordStats();
+    } catch (error) {
+      this.noteUnhealthySample(`statsError=${this.errorMessage(error)}`);
     }
   }
 
@@ -332,6 +347,20 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       xrayRunning: stats.xrayRunning,
       tunRunning: stats.tunRunning
     });
+    if (!stats.xrayRunning || !stats.tunRunning) {
+      this.noteUnhealthySample(`core=${stats.xrayRunning}; tun=${stats.tunRunning}`);
+      return;
+    }
+    this.unhealthySampleCount = 0;
+  }
+
+  private noteUnhealthySample(details: string): void {
+    this.unhealthySampleCount++;
+    if (this.unhealthySampleCount < UNHEALTHY_SAMPLE_LIMIT || this.cleaningUp) {
+      return;
+    }
+    this.emitError('VPN runtime became unhealthy; cleaning up without reconnecting.', details);
+    this.requestCleanup('Unhealthy VPN runtime cleanup requested.', `session=${this.sessionId}`);
   }
 
   private emitInfo(message: string, details: string = ''): void {

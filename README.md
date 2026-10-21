@@ -139,9 +139,10 @@ traffic stats.
 - VPN continuity state: the VPN Extension writes a credential-free health
   heartbeat in the shared app sandbox. If the UI process is recreated while the
   extension is still healthy, it adopts that existing session without starting
-  a new connection. A stale or unhealthy session is cleaned up and left in an
-  error state for manual reconnect; the app never reconnects after a manual
-  disconnect.
+  a new connection. The extension also tears down its own residual VPN after
+  two consecutive unhealthy core/TUN samples, without reconnecting. A stale or
+  unhealthy session is left for manual reconnect; the app never reconnects
+  after a manual disconnect.
 - Data files and diagnostics: one-tap, user-initiated `geoip.dat` and
   `geosite.dat` checks from the maintained default release, published SHA-256
   verification, safe replacement/rollback, advanced user-supplied URLs with
