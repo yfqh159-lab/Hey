@@ -682,7 +682,6 @@ struct AssetsPage {
       return;
     }
     const context = this.getUIContext().getHostContext() as common.Context;
-    await this.clearGeoMetadata();
     await ASSETS_CONTROLLER.downloadAsset(
       context,
       fileName,
@@ -692,7 +691,11 @@ struct AssetsPage {
         this.downloadingFile = fileName;
         this.updateFileStatus();
       },
-      () => {},
+      () => {
+        // 单文件高级来源成功后，默认整组发布元数据不再适用；失败时必须保留
+        // 旧文件及其最后一次有效校验信息，不能在请求前就清空。
+        this.clearGeoMetadata();
+      },
       () => {},
       () => {
         this.downloadingFile = '';
