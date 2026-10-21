@@ -60,7 +60,7 @@ import { parseCoreLog } from '../main/ets/services/CoreLogReader';
 import { nativeDelayFailureStatus } from '../main/ets/services/DelayTester';
 import { isRuntimeHealthPort } from '../main/ets/services/RuntimeHealthProbe';
 import { parseNetSceneStopTimestamp, selectNetSceneStopTimestamp, wasNetSceneStoppedAfter } from '../main/ets/services/NetSceneStopFlag';
-import { PersistedVpnRuntimeState, VPN_RUNTIME_HEARTBEAT_STALE_MS, isPersistedVpnRuntimeHealthy, parsePersistedVpnRuntimeState, selectPersistedVpnRuntimeState, shouldCleanupAfterVpnRuntimeStateWriteFailures } from '../main/ets/services/VpnRuntimeStateStore';
+import { PersistedVpnRuntimeState, VPN_RUNTIME_HEARTBEAT_STALE_MS, isPersistedVpnRuntimeHealthy, isPersistedVpnRuntimeSessionReady, parsePersistedVpnRuntimeState, selectPersistedVpnRuntimeState, shouldCleanupAfterVpnRuntimeStateWriteFailures } from '../main/ets/services/VpnRuntimeStateStore';
 import { buildAssetDownloadProxyPorts, resolveAssetDownloadProxyPlan } from '../main/ets/features/assets/AssetsController';
 import {
   applyDelayTestPostActionsToGroups,
@@ -3142,6 +3142,27 @@ export default function localUnitTest() {
       expect(shouldCleanupAfterVpnRuntimeStateWriteFailures(4)).assertTrue();
       expect(shouldCleanupAfterVpnRuntimeStateWriteFailures(2.5)).assertFalse();
       expect(shouldCleanupAfterVpnRuntimeStateWriteFailures(Number.NaN)).assertFalse();
+    });
+
+    it('accepts persisted VPN startup only for the expected fresh healthy session', 0, () => {
+      const state: PersistedVpnRuntimeState = {
+        sessionId: 'session-new',
+        active: true,
+        startedAt: 1001,
+        heartbeatAt: 1002,
+        coreType: 'xray',
+        xrayRunning: true,
+        tunRunning: true
+      };
+      expect(isPersistedVpnRuntimeSessionReady(state, 'session-new', 1000, 1003)).assertTrue();
+      expect(isPersistedVpnRuntimeSessionReady(state, 'session-old', 1000, 1003)).assertFalse();
+      expect(isPersistedVpnRuntimeSessionReady(state, 'session-new', 1002, 1003)).assertFalse();
+      state.active = false;
+      expect(isPersistedVpnRuntimeSessionReady(state, 'session-new', 1000, 1003)).assertFalse();
+      state.active = true;
+      state.tunRunning = false;
+      expect(isPersistedVpnRuntimeSessionReady(state, 'session-new', 1000, 1003)).assertFalse();
+      expect(isPersistedVpnRuntimeSessionReady(null, 'session-new', 1000, 1003)).assertFalse();
     });
 
     it('ignores stale network-scene stop flags from older vpn sessions', 0, () => {

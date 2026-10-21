@@ -54,6 +54,17 @@ export function shouldCleanupAfterVpnRuntimeStateWriteFailures(failureCount: num
     failureCount >= VPN_RUNTIME_STATE_WRITE_FAILURE_LIMIT;
 }
 
+export function isPersistedVpnRuntimeSessionReady(
+  state: PersistedVpnRuntimeState | null,
+  expectedSessionId: string,
+  requestedAt: number,
+  now: number
+): boolean {
+  return state !== null && expectedSessionId.length > 0 && state.sessionId === expectedSessionId &&
+    Number.isFinite(requestedAt) && requestedAt > 0 && state.startedAt >= requestedAt &&
+    isPersistedVpnRuntimeHealthy(state, now);
+}
+
 export function selectPersistedVpnRuntimeState(
   primaryContent: string | null,
   backupContent: string | null,

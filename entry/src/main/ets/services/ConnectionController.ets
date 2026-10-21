@@ -17,6 +17,10 @@ import { DiagnosticEvent, DiagnosticLog } from './DiagnosticLog';
 import { clearCoreLog, clearSingboxLog } from './CoreLogReader';
 import { OUTBOUND_DOMAIN_RESOLVER } from './OutboundDomainResolver';
 import { waitForRuntimeSocksHealth } from './RuntimeHealthProbe';
+import {
+  VpnRuntimeStateStore,
+  isPersistedVpnRuntimeSessionReady
+} from './VpnRuntimeStateStore';
 
 const LOG_DOMAIN: number = 0x0001;
 const LOG_TAG: string = 'HeyVpn';
@@ -140,7 +144,7 @@ export class ConnectionController {
         vpnSessionId
       )), START_VPN_TIMEOUT_MS, '启动 VPN 超时：系统 VPN 授权服务没有响应。若 hilog 中出现 com.huawei.hmos.vpndialog bundle not exist，说明当前系统镜像缺少 VPN 授权组件，请改用真机测试。');
       hilog.info(LOG_DOMAIN, LOG_TAG, 'startVpnExtensionAbility returned.');
-      const startEvent = await this.waitForDiagnosticEvent(context, requestedAt, START_VPN_READY_TIMEOUT_MS, (event: DiagnosticEvent) => {
+      const startEvent = await this.waitForVpnStartEvent(context, requestedAt, vpnSessionId, (event: DiagnosticEvent) => {
         return event.source === 'vpn' && this.matchesVpnSession(event, vpnSessionId) &&
           (event.message === VPN_STARTED_MESSAGE || event.message === VPN_START_FAILED_MESSAGE);
       });
@@ -210,7 +214,7 @@ export class ConnectionController {
         profileUpdatedAt,
         vpnSessionId
       )), START_VPN_TIMEOUT_MS, '启动 VPN 超时：系统 VPN 授权服务没有响应。若为模拟器缺少 VPN 授权组件，请改用真机测试。');
-      const startEvent = await this.waitForDiagnosticEvent(context, requestedAt, START_VPN_READY_TIMEOUT_MS, (event: DiagnosticEvent) => {
+      const startEvent = await this.waitForVpnStartEvent(context, requestedAt, vpnSessionId, (event: DiagnosticEvent) => {
         return event.source === 'vpn' && this.matchesVpnSession(event, vpnSessionId) &&
           (event.message === VPN_STARTED_MESSAGE || event.message === VPN_START_FAILED_MESSAGE);
       });
@@ -425,6 +429,54 @@ export class ConnectionController {
       await this.sleep(DIAGNOSTIC_POLL_INTERVAL_MS);
     }
     return this.findDiagnosticEvent(context, since, predicate);
+  }
+
+  private async waitForVpnStartEvent(
+    context: common.Context,
+    requestedAt: number,
+    sessionId: string,
+    predicate: (event: DiagnosticEvent) => boolean
+  ): Promise<DiagnosticEvent | null> {
+    const deadline = Date.now() + START_VPN_READY_TIMEOUT_MS;
+    while (Date.now() <= deadline) {
+      const event = await this.findDiagnosticEvent(context, requestedAt, predicate);
+      if (event !== null) {
+        // A session-matched terminal failure remains authoritative even if an
+        // older active snapshot is still awaiting cleanup.
+        return event;
+      }
+      const persisted = VpnRuntimeStateStore.read(context);
+      const now = Date.now();
+      if (isPersistedVpnRuntimeSessionReady(persisted, sessionId, requestedAt, now)) {
+        hilog.info(LOG_DOMAIN, LOG_TAG,
+          'VPN start confirmed from persisted data-plane state for session=%{public}s.', sessionId);
+        return {
+          at: persisted?.heartbeatAt ?? now,
+          level: 'info',
+          source: 'vpn',
+          message: VPN_STARTED_MESSAGE,
+          details: `session=${sessionId}; confirmation=runtime-state`
+        };
+      }
+      await this.sleep(DIAGNOSTIC_POLL_INTERVAL_MS);
+    }
+
+    const event = await this.findDiagnosticEvent(context, requestedAt, predicate);
+    if (event !== null) {
+      return event;
+    }
+    const persisted = VpnRuntimeStateStore.read(context);
+    const now = Date.now();
+    if (!isPersistedVpnRuntimeSessionReady(persisted, sessionId, requestedAt, now)) {
+      return null;
+    }
+    return {
+      at: persisted?.heartbeatAt ?? now,
+      level: 'info',
+      source: 'vpn',
+      message: VPN_STARTED_MESSAGE,
+      details: `session=${sessionId}; confirmation=runtime-state`
+    };
   }
 
   private async findDiagnosticEvent(
