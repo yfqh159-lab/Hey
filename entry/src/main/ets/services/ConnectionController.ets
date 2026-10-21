@@ -4,8 +4,8 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppRuntimeMode, AppSettings, ConnectionStatus, GeneratedXrayConfig, normalizeAppRuntimeMode, ProxyProfile, RuntimeStats } from '../core/Profile';
 import { resolveDynamicPolicyGroupConfigJson } from '../core/AdvancedOutboundBuilder';
-import { selectRuntimeLocalSocksPort, shouldExposeLocalHttpProxy, shouldUseDynamicLocalSocksPort, withRuntimeLocalSocksPort } from '../core/LocalProxy';
-import { buildRuntimeXrayConfig, injectXrayLogFile, LOCAL_HTTP_PROXY_PORT, METRICS_PORT, normalizeConfigInput, VPN_DATA_SOCKS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT, XRAY_CORE_LOG_FILE } from '../core/XrayConfig';
+import { selectRuntimeLocalSocksPort, shouldUseDynamicLocalSocksPort, withRuntimeLocalSocksPort } from '../core/LocalProxy';
+import { buildRuntimeXrayConfig, DELAY_TEST_BATCH_PORT_BASE, DELAY_TEST_BATCH_PORT_COUNT, DELAY_TEST_SOCKS_PORT, injectXrayLogFile, LOCAL_HTTP_PROXY_PORT, METRICS_PORT, normalizeConfigInput, VPN_DATA_SOCKS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT, XRAY_CORE_LOG_FILE } from '../core/XrayConfig';
 import { normalizeCoreLogLevel } from '../core/ProtocolOptions';
 import { CORE_TYPE_SINGBOX, CORE_TYPE_XRAY, CoreSelectionStore, CoreType, isSingboxCore, isSingboxOnlyProtocol } from '../core/CoreSelection';
 import { buildSingboxConfig } from '../core/SingboxConfig';
@@ -270,7 +270,7 @@ export class ConnectionController {
       return settings;
     }
     const resolvedSettings = settings as AppSettings;
-    const reservedPorts = this.reservedRuntimePorts(resolvedSettings);
+    const reservedPorts = this.reservedRuntimePorts();
     const freePorts = getNativeFreePorts(reservedPorts.length + 1);
     const runtimePort = selectRuntimeLocalSocksPort(resolvedSettings, freePorts.ok ? freePorts.ports : [], reservedPorts);
     return withRuntimeLocalSocksPort(resolvedSettings, runtimePort);
@@ -284,10 +284,16 @@ export class ConnectionController {
     return resolveDynamicPolicyGroupConfigJson(configJson, subscription.groups);
   }
 
-  private reservedRuntimePorts(settings: AppSettings): Array<number> {
-    const ports: Array<number> = [METRICS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT];
-    if (shouldExposeLocalHttpProxy(settings)) {
-      ports.push(LOCAL_HTTP_PROXY_PORT);
+  private reservedRuntimePorts(): Array<number> {
+    const ports: Array<number> = [
+      LOCAL_HTTP_PROXY_PORT,
+      VPN_DATA_SOCKS_PORT,
+      VPN_INTERNAL_HTTP_PROXY_PORT,
+      DELAY_TEST_SOCKS_PORT,
+      METRICS_PORT
+    ];
+    for (let index = 0; index < DELAY_TEST_BATCH_PORT_COUNT; index++) {
+      ports.push(DELAY_TEST_BATCH_PORT_BASE + index);
     }
     return ports;
   }

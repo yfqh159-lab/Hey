@@ -28,6 +28,7 @@ import {
 } from '../core/Profile';
 import { DEFAULT_CORE_LOG_LEVEL, DEFAULT_MUX_XUDP_QUIC, normalizeCoreLogLevel, normalizeMuxXudpQuic } from '../core/ProtocolOptions';
 import { DNS_PROXY } from '../core/DnsAddresses';
+import { isReservedAppRuntimePort } from '../core/XrayConfig';
 
 const PREFERENCES_NAME: string = 'hey_vpn_settings';
 const SETTINGS_KEY: string = 'app_settings';
@@ -138,6 +139,15 @@ export class SettingsStore {
     const useHevTun = SettingsStore.boolValue(raw.useHevTun, base.useHevTun);
     const localSocksEnabled = SettingsStore.boolValue(raw.localSocksEnabled, base.localSocksEnabled) || useHevTun;
     const localDnsEnabled = SettingsStore.boolValue(raw.localDnsEnabled, base.localDnsEnabled);
+    let localSocksPort = SettingsStore.runtimePortValue(raw.localSocksPort, base.localSocksPort);
+    let localDnsPort = SettingsStore.runtimePortValue(raw.localDnsPort, base.localDnsPort);
+    if (localDnsPort === localSocksPort) {
+      if (base.localDnsPort !== localSocksPort) {
+        localDnsPort = base.localDnsPort;
+      } else {
+        localSocksPort = base.localSocksPort;
+      }
+    }
     return {
       language: normalizeLanguage(raw.language),
       uiModeNight: normalizeUiModeNight(raw.uiModeNight, base.uiModeNight),
@@ -156,7 +166,7 @@ export class SettingsStore {
       fakeDnsEnabled: SettingsStore.boolValue(raw.fakeDnsEnabled, base.fakeDnsEnabled) && localDnsEnabled,
       appendHttpProxy: SettingsStore.boolValue(raw.appendHttpProxy, base.appendHttpProxy) && localSocksEnabled,
       localSocksEnabled,
-      localSocksPort: SettingsStore.portValue(raw.localSocksPort, base.localSocksPort),
+      localSocksPort,
       localSocksDynamicPort: SettingsStore.boolValue(raw.localSocksDynamicPort, base.localSocksDynamicPort),
       localSocksUdpEnabled: SettingsStore.boolValue(raw.localSocksUdpEnabled, base.localSocksUdpEnabled),
       localSocksUsername: SettingsStore.stringValue(raw.localSocksUsername, base.localSocksUsername),
@@ -176,7 +186,7 @@ export class SettingsStore {
       preferIpv6: SettingsStore.boolValue(raw.preferIpv6, base.preferIpv6),
       proxySharingEnabled: SettingsStore.boolValue(raw.proxySharingEnabled, base.proxySharingEnabled) && localSocksEnabled,
       allowInsecure: SettingsStore.boolValue(raw.allowInsecure, base.allowInsecure),
-      localDnsPort: SettingsStore.portValue(raw.localDnsPort, base.localDnsPort),
+      localDnsPort,
       vpnInterfaceAddressIndex: normalizeVpnInterfaceAddressIndex(raw.vpnInterfaceAddressIndex, base.vpnInterfaceAddressIndex),
       vpnBypassLan: normalizeVpnBypassLanMode(raw.vpnBypassLan, base.vpnBypassLan),
       vpnMtu: normalizeVpnMtuValue(raw.vpnMtu, base.vpnMtu),
@@ -227,6 +237,11 @@ export class SettingsStore {
       return fallback;
     }
     return port;
+  }
+
+  private static runtimePortValue(value: number | undefined, fallback: number): number {
+    const port = SettingsStore.portValue(value, fallback);
+    return isReservedAppRuntimePort(port) ? fallback : port;
   }
 
   private static trafficModeValue(value: string | undefined, fallback: string): string {

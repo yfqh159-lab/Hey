@@ -2,6 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { AppLanguage, AppRuntimeMode, AppSettings, normalizeAppRuntimeMode, normalizeHevTunLogLevel, normalizeHevTunRwTimeout, normalizeHomeDelayTestInterval, normalizeOutboundDomainResolveMethod, normalizeRealPingConcurrency, normalizeRoutingDomainStrategy, normalizeUiModeNight, normalizeVpnBypassLanMode, normalizeVpnInterfaceAddressIndex, normalizeVpnMtuValue, OutboundDomainResolveMethod, RoutingRule } from '../../core/Profile';
 import { normalizeCoreLogLevel, normalizeFragmentPackets, normalizeMuxXudpQuic } from '../../core/ProtocolOptions';
 import { DEFAULT_APP_SETTINGS, SettingsStore } from '../../storage/SettingsStore';
+import { isReservedAppRuntimePort } from '../../core/XrayConfig';
 
 export interface SettingsDraft {
   language: AppLanguage;
@@ -144,6 +145,15 @@ export class SettingsController {
     const useHevTun = draft.useHevTun;
     const localSocksEnabled = draft.localSocksEnabled || useHevTun;
     const localDnsEnabled = draft.localDnsEnabled;
+    let localSocksPort = this.runtimePortValue(draft.localSocksPort, DEFAULT_APP_SETTINGS.localSocksPort);
+    let localDnsPort = this.runtimePortValue(draft.localDnsPort, DEFAULT_APP_SETTINGS.localDnsPort);
+    if (localDnsPort === localSocksPort) {
+      if (DEFAULT_APP_SETTINGS.localDnsPort !== localSocksPort) {
+        localDnsPort = DEFAULT_APP_SETTINGS.localDnsPort;
+      } else {
+        localSocksPort = DEFAULT_APP_SETTINGS.localSocksPort;
+      }
+    }
     return {
       language: draft.language,
       uiModeNight: normalizeUiModeNight(draft.uiModeNight, DEFAULT_APP_SETTINGS.uiModeNight),
@@ -162,7 +172,7 @@ export class SettingsController {
       fakeDnsEnabled: draft.fakeDnsEnabled && localDnsEnabled,
       appendHttpProxy: draft.appendHttpProxy && localSocksEnabled,
       localSocksEnabled,
-      localSocksPort: this.portValue(draft.localSocksPort, DEFAULT_APP_SETTINGS.localSocksPort),
+      localSocksPort,
       localSocksDynamicPort: draft.localSocksDynamicPort,
       localSocksUdpEnabled: draft.localSocksUdpEnabled,
       localSocksUsername: draft.localSocksUsername.trim(),
@@ -182,7 +192,7 @@ export class SettingsController {
       preferIpv6: draft.preferIpv6,
       proxySharingEnabled: draft.proxySharingEnabled && localSocksEnabled,
       allowInsecure: draft.allowInsecure,
-      localDnsPort: this.portValue(draft.localDnsPort, DEFAULT_APP_SETTINGS.localDnsPort),
+      localDnsPort,
       vpnInterfaceAddressIndex: normalizeVpnInterfaceAddressIndex(draft.vpnInterfaceAddressIndex, DEFAULT_APP_SETTINGS.vpnInterfaceAddressIndex),
       vpnBypassLan: normalizeVpnBypassLanMode(draft.vpnBypassLan, DEFAULT_APP_SETTINGS.vpnBypassLan),
       vpnMtu: this.vpnMtuValue(draft.vpnMtu, DEFAULT_APP_SETTINGS.vpnMtu),
@@ -266,6 +276,11 @@ export class SettingsController {
       return fallback;
     }
     return port;
+  }
+
+  private runtimePortValue(value: string, fallback: number): number {
+    const port = this.portValue(value, fallback);
+    return isReservedAppRuntimePort(port) ? fallback : port;
   }
 
   private muxConcurrencyValue(value: string, fallback: number): number {

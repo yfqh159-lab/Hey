@@ -391,6 +391,18 @@ export const VPN_INTERNAL_HTTP_PROXY_PORT: number = 18083;
 export const METRICS_HOST: string = '127.0.0.1';
 export const METRICS_PORT: number = 18086;
 export const METRICS_SERVER_URL: string = 'http://127.0.0.1:18086/debug/vars';
+export const DELAY_TEST_BATCH_PORT_COUNT: number = 32;
+
+// 用户可配置的本地 SOCKS/DNS 端口不得占用应用固定数据面、内部 HTTP、测速或 metrics 端口。
+// 18080 是默认用户 SOCKS 端口，刻意不在保留集合中。
+export function isReservedAppRuntimePort(port: number): boolean {
+  return port === LOCAL_HTTP_PROXY_PORT ||
+    port === VPN_DATA_SOCKS_PORT ||
+    port === VPN_INTERNAL_HTTP_PROXY_PORT ||
+    port === DELAY_TEST_SOCKS_PORT ||
+    port === METRICS_PORT ||
+    (port >= DELAY_TEST_BATCH_PORT_BASE && port < DELAY_TEST_BATCH_PORT_BASE + DELAY_TEST_BATCH_PORT_COUNT);
+}
 const METRICS_OUT_TAG: string = 'metrics_out';
 const METRICS_IN_TAG: string = 'metrics_in';
 const DNS_OUT_TAG: string = 'dns-out';

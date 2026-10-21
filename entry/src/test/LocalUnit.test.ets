@@ -19,7 +19,7 @@ import { clearVisiblePerAppPackages, exportPerAppProxyList, importPerAppProxyLis
 import { shouldShowProxySharingStartWarning } from '../main/ets/core/ProxySharingWarning';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppSettings, ConnectionStatus, DEFAULT_DELAY_TEST_URL, DEFAULT_HEV_TUN_LOG_LEVEL, DEFAULT_HEV_TUN_RW_TIMEOUT, DEFAULT_IP_API_URL, DEFAULT_VPN_MTU, OUTBOUND_DOMAIN_RESOLVE_DNS_HOSTS, OUTBOUND_DOMAIN_RESOLVE_NONE, OUTBOUND_DOMAIN_RESOLVE_REPLACE, OutboundDomainResolveMethod, normalizeAppRuntimeMode, normalizeHevTunLogLevel, normalizeHevTunRwTimeout, normalizeRealPingConcurrency, normalizeRoutingDomainStrategy, normalizeUiModeNight, ProxyNode, resolveDelayTestUrl, RoutingRule, RuntimeStats, SubscriptionGroup } from '../main/ets/core/Profile';
 import { BUILTIN_GEO_DATA_FILE_NAMES, DEFAULT_GEO_RELEASE_API, DEFAULT_GEO_RELEASE_DOWNLOAD_PREFIX, GEOIP_FILE_NAME, GEOSITE_FILE_NAME, buildAssetDownloadUrl, encodeGeoTransactionState, isAllowedGeoAssetRedirect, isPlausibleGeoData, parseDefaultGeoRelease, parseGeoTransactionState, parseHttpRedirectLocation, parseSha256Checksum, resolveGeoRecoveryAction, resolveStandaloneAssetRecoveryAction } from '../main/ets/core/GeoAssets';
-import { DELAY_TEST_SOCKS_PORT, LOCAL_HTTP_PROXY_LAN_HOST, LOCAL_HTTP_PROXY_PORT, LOCAL_SOCKS_PROXY_PORT, UNIDENTIFIED_PROCESS_PACKAGE, VPN_DATA_SOCKS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT, buildDelayTestConfig, buildRuntimeXrayConfig, buildXrayConfig, buildXrayConfigWithSettings, canUseProcessRouting, collectOutboundDomainPreResolveHosts, normalizeFullConfigRoutingProcesses, normalizeOutboundInput, normalizeRoutingRuleProcesses, validateFullConfigJson, validateOutboundJson, validatePolicyGroupConfigJson, validateProxyChainConfigJson, withOutboundDomainResolvedHosts, injectXrayLogFile } from '../main/ets/core/XrayConfig';
+import { DELAY_TEST_SOCKS_PORT, LOCAL_HTTP_PROXY_LAN_HOST, LOCAL_HTTP_PROXY_PORT, LOCAL_SOCKS_PROXY_PORT, UNIDENTIFIED_PROCESS_PACKAGE, VPN_DATA_SOCKS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT, buildDelayTestConfig, buildRuntimeXrayConfig, buildXrayConfig, buildXrayConfigWithSettings, canUseProcessRouting, collectOutboundDomainPreResolveHosts, normalizeFullConfigRoutingProcesses, normalizeOutboundInput, normalizeRoutingRuleProcesses, validateFullConfigJson, validateOutboundJson, validatePolicyGroupConfigJson, validateProxyChainConfigJson, withOutboundDomainResolvedHosts, injectXrayLogFile, isReservedAppRuntimePort } from '../main/ets/core/XrayConfig';
 import { CONTROL_SHORTCUT_ACTION_PARAM, CONTROL_SHORTCUT_GUID_PARAM, CONTROL_SHORTCUT_NODE_ID_PARAM, CONTROL_SHORTCUT_URI_PARAM, TASKER_EXTRA_BUNDLE_GUID_PARAM, TASKER_EXTRA_BUNDLE_SWITCH_PARAM, controlUriFromShortcutParameters, deepLinkUriFromWant, parseDeepLink } from '../main/ets/core/DeepLink';
 import { HARMONY_SEND_DATA_ACTION, HARMONY_SHARE_ABSTRACT_KEY, HARMONY_SHARE_URL_KEY, HARMONY_TEXT_MIME_TYPE, SharedTextWantLike, extractSharedTextFromWant, isSharedTextWant } from '../main/ets/core/SharedTextImport';
 import { extractOutboundsFromXrayConfig } from '../main/ets/core/XrayOutbounds';
@@ -1597,6 +1597,18 @@ export default function localUnitTest() {
       expect(selectRuntimeLocalSocksPort(settings, [19083])).assertEqual(19083);
     });
 
+    it('reserves fixed app runtime ports from user proxy and dns listeners', 0, () => {
+      expect(isReservedAppRuntimePort(LOCAL_SOCKS_PROXY_PORT)).assertFalse();
+      expect(isReservedAppRuntimePort(LOCAL_HTTP_PROXY_PORT)).assertTrue();
+      expect(isReservedAppRuntimePort(VPN_DATA_SOCKS_PORT)).assertTrue();
+      expect(isReservedAppRuntimePort(VPN_INTERNAL_HTTP_PROXY_PORT)).assertTrue();
+      expect(isReservedAppRuntimePort(DELAY_TEST_SOCKS_PORT)).assertTrue();
+      expect(isReservedAppRuntimePort(18086)).assertTrue();
+      expect(isReservedAppRuntimePort(18100)).assertTrue();
+      expect(isReservedAppRuntimePort(18131)).assertTrue();
+      expect(isReservedAppRuntimePort(18132)).assertFalse();
+    });
+
     it('uses requested socks port for delay test config', 0, () => {
       const customPort = 19081;
       const result = buildDelayTestConfig(VLESS_REALITY_OUTBOUND, customPort);
@@ -2256,6 +2268,18 @@ export default function localUnitTest() {
       expect(SETTINGS_CONTROLLER.buildSettings(draft).localDnsPort).assertEqual(18053);
       draft.localSocksPort = '70000';
       expect(SETTINGS_CONTROLLER.buildSettings(draft).localSocksPort).assertEqual(LOCAL_SOCKS_PROXY_PORT);
+      draft.localSocksPort = VPN_INTERNAL_HTTP_PROXY_PORT.toString();
+      expect(SETTINGS_CONTROLLER.buildSettings(draft).localSocksPort).assertEqual(LOCAL_SOCKS_PROXY_PORT);
+      draft.localSocksPort = '19080';
+      draft.localDnsPort = '19080';
+      const collidedPorts = SETTINGS_CONTROLLER.buildSettings(draft);
+      expect(collidedPorts.localSocksPort).assertEqual(19080);
+      expect(collidedPorts.localDnsPort).assertEqual(DEFAULT_APP_SETTINGS.localDnsPort);
+      draft.localSocksPort = DEFAULT_APP_SETTINGS.localDnsPort.toString();
+      draft.localDnsPort = DEFAULT_APP_SETTINGS.localDnsPort.toString();
+      const defaultDnsCollision = SETTINGS_CONTROLLER.buildSettings(draft);
+      expect(defaultDnsCollision.localSocksPort).assertEqual(DEFAULT_APP_SETTINGS.localSocksPort);
+      expect(defaultDnsCollision.localDnsPort).assertEqual(DEFAULT_APP_SETTINGS.localDnsPort);
       draft.vpnMtu = '1279';
       expect(SETTINGS_CONTROLLER.buildSettings(draft).vpnMtu).assertEqual(1280);
       draft.vpnMtu = 'bad';
