@@ -608,7 +608,29 @@ export class RuntimeController {
       return null;
     }
     this.connectionDelayTesting = true;
-    const delayResult: RuntimeDelayResult = await measureRuntimeProfileDelay(profile, context.filesDir, settings.delayTestUrl);
+    let delayResult: RuntimeDelayResult;
+    try {
+      delayResult = await measureRuntimeProfileDelay(profile, context.filesDir, settings.delayTestUrl);
+    } catch (_error) {
+      // socket/taskpool/native 桥若在标准失败返回之外直接抛异常，也必须结束“测速中”。
+      // 只对仍属本次会话的结果落状态；旧会话迟到异常不能清掉新会话正在进行的测试。
+      if (this.status !== ConnectionStatus.RUNNING || this.startedAt !== startedAt) {
+        return null;
+      }
+      this.connectionDelayTesting = false;
+      this.connectionDelayMs = -1;
+      this.connectionDelayFailed = true;
+      const failure: RuntimeDelayResult = {
+        ok: false,
+        delayMs: -1,
+        status: 'probe-failed',
+        url: '',
+        fallbackUsed: false,
+        attemptedUrls: []
+      };
+      this.appendLog(formatOne(language, 'log.connectionDelayError', 'error', failure.status));
+      return failure;
+    }
     if (this.status !== ConnectionStatus.RUNNING || this.startedAt !== startedAt) {
       return null;
     }
