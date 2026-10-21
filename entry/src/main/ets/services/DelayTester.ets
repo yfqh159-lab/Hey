@@ -43,6 +43,22 @@ function isCoreUnavailable(message: string): boolean {
   return lower.indexOf('unavailable') >= 0 || lower.indexOf('failed to load') >= 0 || lower.indexOf('symbol missing') >= 0;
 }
 
+export function nativeDelayFailureStatus(message: string): string {
+  if (message === 'invalid-config') {
+    return 'invalid-config';
+  }
+  if (isCoreUnavailable(message)) {
+    return 'core-unavailable';
+  }
+  const lower = message.toLowerCase();
+  if (lower.indexOf('timeout') >= 0 || lower.indexOf('deadline exceeded') >= 0) {
+    return 'timeout';
+  }
+  // Native/core errors can contain a private node endpoint or the complete probe URL.
+  // Only return stable categories to UI/log callers.
+  return 'ping-failed';
+}
+
 // 在 TaskPool worker 线程上执行 native 延迟测试。pingNativeOutbound 是同步 cgo
 // （建临时 Xray + ping），放到 worker 跑避免阻塞 UI 线程。cgo 在 worker 线程上由
 // OHOS Go fork 的 TLSDESC 保证安全。必须是顶层 @Concurrent 函数（无闭包捕获）。
@@ -197,25 +213,12 @@ export class DelayTester {
         status: 'ok'
       };
     }
-    if (result.message === 'invalid-config') {
-      return {
-        ok: false,
-        delayMs: -1,
-        status: 'invalid-config'
-      };
-    }
-    if (isCoreUnavailable(result.message)) {
-      const fallback = await DelayTester.measure(url, timeoutMs);
-      return {
-        ok: fallback.ok,
-        delayMs: fallback.delayMs,
-        status: fallback.ok ? 'direct' : fallback.status
-      };
-    }
     return {
       ok: false,
       delayMs: -1,
-      status: result.message.length > 0 ? result.message : 'ping-failed'
+      // Never replace a failed node-through-core probe with a direct HTTP result. That would
+      // present physical-network latency as node latency and could hide an unavailable core.
+      status: nativeDelayFailureStatus(result.message)
     };
   }
 

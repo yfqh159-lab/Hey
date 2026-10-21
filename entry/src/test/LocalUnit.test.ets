@@ -54,6 +54,7 @@ import { BROWSER_DIALER_MODE_OPTIONS, CORE_LOG_LEVEL_OPTIONS, DEFAULT_BROWSER_DI
 import { countLogLevels, filterLogEntries, filterLogItems, formatLogcatText, formatLogEntriesText } from '../main/ets/features/logs/LogOperations';
 import { LogEntry, logLevelLabel, normalizeLogLevel } from '../main/ets/features/logs/LogModel';
 import { parseCoreLog } from '../main/ets/services/CoreLogReader';
+import { nativeDelayFailureStatus } from '../main/ets/services/DelayTester';
 import { isRuntimeHealthPort } from '../main/ets/services/RuntimeHealthProbe';
 import { wasNetSceneStoppedAfter } from '../main/ets/services/NetSceneStopFlag';
 import { PersistedVpnRuntimeState, VPN_RUNTIME_HEARTBEAT_STALE_MS, isPersistedVpnRuntimeHealthy, parsePersistedVpnRuntimeState, selectPersistedVpnRuntimeState } from '../main/ets/services/VpnRuntimeStateStore';
@@ -2528,6 +2529,10 @@ export default function localUnitTest() {
         configType: 'proxy-chain',
         updatedAt: 1
       })).assertTrue();
+      expect(nativeDelayFailureStatus('invalid-config')).assertEqual('invalid-config');
+      expect(nativeDelayFailureStatus('native core unavailable')).assertEqual('core-unavailable');
+      expect(nativeDelayFailureStatus('request deadline exceeded')).assertEqual('timeout');
+      expect(nativeDelayFailureStatus('dial vless://private-node.example/secret failed')).assertEqual('ping-failed');
     });
 
     it('warns on successful start when proxy sharing is enabled', 0, () => {
