@@ -83,6 +83,7 @@ import { buildTextShareWant } from '../main/ets/services/SystemShare';
 import { DEFAULT_APP_SETTINGS } from '../main/ets/storage/SettingsStore';
 import { formatBytes, formatDuration } from '../main/ets/utils/Formatters';
 import { formatOne, localizedProfileSavedText, localizeCoreMessage, localizeDiagnosticHeartbeat } from '../main/ets/utils/LocalizationPresenter';
+import { isScanCancelled } from '../main/ets/utils/QrScan';
 import { BUNDLE_NAME, DEFAULT_VPN_DNS_ADDRESSES, createDefaultVpnConfig, normalizeVpnDnsAddresses } from '../main/ets/vpn/VpnConstants';
 
 const VLESS_REALITY_OUTBOUND: string =
@@ -111,6 +112,21 @@ const WIREGUARD_CONF_WITHOUT_MTU: string =
   '[Interface]\nPrivateKey = private-key\nAddress = 172.16.0.2/32\n\n[Peer]\nPublicKey = peer-key\nEndpoint = wg.example.com:51820\nAllowedIPs = 0.0.0.0/0\n';
 
 export default function localUnitTest() {
+  describe('qrScanErrors', () => {
+    it('treats documented numeric and string cancellation codes as user cancellation', 0, () => {
+      expect(isScanCancelled({ code: 20001 })).assertTrue();
+      expect(isScanCancelled({ code: '20001' })).assertTrue();
+      expect(isScanCancelled({ code: 1000500002 })).assertTrue();
+      expect(isScanCancelled({ code: '1000500002' })).assertTrue();
+    });
+
+    it('keeps permission and decoder failures visible', 0, () => {
+      expect(isScanCancelled({ code: 201 })).assertFalse();
+      expect(isScanCancelled({ message: 'decode failed' })).assertFalse();
+      expect(isScanCancelled({})).assertFalse();
+    });
+  });
+
   describe('diagnosticRedaction', () => {
     it('redacts subscription and share URLs while retaining context', 0, () => {
       const input = 'request https://user:pass@sub.example/api?token=secret failed; node=vless://uuid@example.com:443?security=tls';
