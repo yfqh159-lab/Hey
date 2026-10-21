@@ -191,7 +191,8 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       // Go-on-musl 的 TLS/栈问题），导致扩展进程当场死亡、无法回写启动状态。预检本就是
       // 非阻塞诊断，startNativeXray 才是真相来源，直接走它（与 1.1 行为一致）。
 
-      this.vpnConnection = vpnExtension.createVpnConnection(this.context);
+      const creatingConnection = vpnExtension.createVpnConnection(this.context);
+      this.vpnConnection = creatingConnection;
       this.emitInfo('Creating VPN connection.');
       const settings = await SETTINGS_CONTROLLER.load(this.context);
       this.activeLanguage = settings.language;
@@ -216,7 +217,14 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         settings.trafficMode === 'rules' && settings.routeOnlyEnabled
       );
       const dnsAddresses = vpnConfig.dnsAddresses ?? [];
-      this.tunFd = await this.vpnConnection.create(vpnConfig);
+      this.tunFd = await creatingConnection.create(vpnConfig);
+      if (this.stopRequested && this.vpnConnection === null) {
+        // cleanup 可能已在 create() 返回前成功 destroy 并清空成员引用。若系统随后仍返回
+        // 一个迟到的 TUN fd，重新登记原连接，让启动 catch 的下一轮幂等清理能够再次
+        // destroy；否则只剩 tunFd 数字而没有可释放它的 VpnConnection。
+        this.vpnConnection = creatingConnection;
+        this.cleanupAgainRequested = true;
+      }
       this.ensureStartAllowed('VPN interface creation');
       this.emitInfo('VPN created.', `tunFd=${this.tunFd}, dns=${dnsAddresses.join(',')}, ipv6=${settings.ipv6Enabled}, preferIpv6=${settings.preferIpv6}, mtu=${vpnMtu}, address=${addressConfig.displayName}, bypassLan=${settings.vpnBypassLan}`);
 
@@ -553,6 +561,13 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       } while (this.cleanupAgainRequested);
     } finally {
       this.cleaningUp = false;
+    }
+    // cleanupAgainRequested 可能在 do/while 已判定 false 之后、finally 解除 cleaningUp
+    // 之前由迟到的 create()/停止请求置位。这里没有异步间隙地补接一轮，避免该请求
+    // 落入循环边界而遗留 TUN 或核心；下一轮仍是停止/清理，不会触发重新连接。
+    if (this.cleanupAgainRequested) {
+      await this.cleanup();
+      return;
     }
     // 配置只用于当前内存会话与切网重载；清理结束后立即释放其中可能包含的节点凭据。
     this.activeConfigJson = '';

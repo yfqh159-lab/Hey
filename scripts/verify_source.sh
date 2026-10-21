@@ -303,6 +303,31 @@ printf 'runtime startup continuation isolation verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');
+const vpn = fs.readFileSync('entry/src/main/ets/vpn/HeyVpnAbility.ets', 'utf8');
+const createAt = vpn.indexOf('const creatingConnection = vpnExtension.createVpnConnection(this.context);');
+const createAwait = vpn.indexOf('await creatingConnection.create(vpnConfig);', createAt);
+const reclaimAt = vpn.indexOf('if (this.stopRequested && this.vpnConnection === null)', createAwait);
+const startGuard = vpn.indexOf("this.ensureStartAllowed('VPN interface creation');", createAwait);
+if (createAt < 0 || createAwait < createAt || reclaimAt < createAwait || startGuard < reclaimAt ||
+  !vpn.slice(reclaimAt, startGuard).includes('this.vpnConnection = creatingConnection;') ||
+  !vpn.slice(reclaimAt, startGuard).includes('this.cleanupAgainRequested = true;')) {
+  throw new Error('late VPN create results are not reclaimed after startup cancellation');
+}
+const cleanupAt = vpn.indexOf('  private async cleanup(): Promise<void>');
+const cleanupEnd = vpn.indexOf('\n  private async cancelSpeedNotificationSafely', cleanupAt);
+const cleanup = vpn.slice(cleanupAt, cleanupEnd);
+const unlockAt = cleanup.indexOf('this.cleaningUp = false;');
+const boundaryRetryAt = cleanup.indexOf('if (this.cleanupAgainRequested)', unlockAt);
+const credentialClearAt = cleanup.indexOf("this.activeConfigJson = '';", unlockAt);
+if (cleanupAt < 0 || cleanupEnd < 0 || unlockAt < 0 || boundaryRetryAt < unlockAt ||
+  credentialClearAt < boundaryRetryAt || !cleanup.slice(boundaryRetryAt, credentialClearAt).includes('await this.cleanup();')) {
+  throw new Error('VPN cleanup can lose a reentrant request at its loop/finally boundary');
+}
+NODE
+printf 'late VPN create cleanup verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
 
 const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeController.ets', 'utf8');
 const networkScene = fs.readFileSync('entry/src/main/ets/services/NetworkSceneManager.ets', 'utf8');
