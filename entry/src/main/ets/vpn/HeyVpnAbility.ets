@@ -51,6 +51,10 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   private activeCoreType: string = 'xray';
   private lastRuntimeStateAt: number = 0;
   private cleaningUp: boolean = false;
+  private cleanupAgainRequested: boolean = false;
+  // 一旦系统销毁、用户停止、网络场景断开或健康检查失败，当前启动协程不得再继续
+  // 创建 TUN / 启动核心 / 回写 active。该闩锁在 Ability 实例生命周期内只会 false→true。
+  private stopRequested: boolean = false;
   private unhealthySampleCount: number = 0;
   // 网络场景自动化（后台断开）：VPN 扩展进程内轮询网络，切到可信网络即拆隧道。
   private netScenePollTimerId: number = -1;
@@ -60,6 +64,11 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   onCreate(want: Want): void {
     this.startedAt = Date.now();
     this.sessionId = this.startedAt.toString();
+    this.activeCoreType = isSingboxCore(this.getStringParameter(want, 'coreType', 'xray')) ? 'singbox' : 'xray';
+    // 新会话尚未完成核心 + TUN 启动，先覆盖上次可能残留的 active 心跳。只有完整数据面
+    // 就绪后 startVpn 才会写 active=true，主进程重建时不会把“启动中”误接管为已连接。
+    VpnRuntimeStateStore.write(this.context,
+      VpnRuntimeStateStore.stopped(this.sessionId, this.startedAt, this.activeCoreType));
     this.emitInfo('VPN ability created.', `session=${this.sessionId}`);
     if (this.isStopCommand(want)) {
       this.requestCleanup('VPN stop command received on create.', 'startId=0');
@@ -80,9 +89,9 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
 
   onDestroy(): void {
     this.emitInfo('VPN ability destroying.', `session=${this.sessionId}`);
-    if (this.vpnConnection !== null || this.tunFd >= 0) {
-      this.requestCleanup('VPN destroy cleanup requested.', `session=${this.sessionId}`);
-    }
+    // 即使 createVpnConnection 尚未完成也要置停止闩锁；否则异步启动协程可能在
+    // onDestroy 返回后继续启动核心。cleanup 的同步前半段会先写 inactive 并停原生组件。
+    this.requestCleanup('VPN destroy cleanup requested.', `session=${this.sessionId}`);
   }
 
   private async startVpn(want: Want): Promise<void> {
@@ -100,6 +109,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       this.vpnConnection = vpnExtension.createVpnConnection(this.context);
       this.emitInfo('Creating VPN connection.');
       const settings = await SETTINGS_CONTROLLER.load(this.context);
+      this.ensureStartAllowed('settings load');
       const perAppEnabled = settings.perAppProxyEnabled;
       const bypassMode = settings.perAppProxyBypass ?? false;
       const appList = settings.perAppProxyList ?? [];
@@ -119,6 +129,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       );
       const dnsAddresses = vpnConfig.dnsAddresses ?? [];
       this.tunFd = await this.vpnConnection.create(vpnConfig);
+      this.ensureStartAllowed('VPN interface creation');
       this.emitInfo('VPN created.', `tunFd=${this.tunFd}, dns=${dnsAddresses.join(',')}, ipv6=${settings.ipv6Enabled}, preferIpv6=${settings.preferIpv6}, mtu=${vpnMtu}, address=${addressConfig.displayName}, bypassLan=${settings.vpnBypassLan}`);
 
       // 两个内核统一走 tun2socks 数据面：内核在 127.0.0.1:VPN_DATA_SOCKS_PORT 起本地
@@ -130,6 +141,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       if (!coreResult.ok) {
         throw new Error(coreResult.message);
       }
+      this.ensureStartAllowed('core startup');
       this.emitInfo(`${useSingbox ? 'sing-box' : 'Xray'} started.`, coreResult.message);
 
       // 数据面引擎二选一：useHevTun=true 走 hev-socks5-tunnel（高性能，libhevsocks5tun.so），
@@ -145,6 +157,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       if (!tun2socksResult.ok) {
         throw new Error(tun2socksResult.message);
       }
+      this.ensureStartAllowed('TUN data-plane startup');
       this.emitInfo('tun data plane started.', `engine=${useHevTun ? 'hev' : 'gvisor'}, ${VPN_DATA_SOCKS_HOST}:${VPN_DATA_SOCKS_PORT}, mtu=${vpnMtu}, core=${useSingbox ? 'singbox' : 'xray'}, ${tun2socksResult.message}`);
 
       this.lastRuntimeStateAt = Date.now();
@@ -247,6 +260,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   }
 
   private requestCleanup(message: string, details: string): void {
+    this.stopRequested = true;
     this.emitInfo(message, details);
     this.cleanup().catch((error: Object) => {
       this.emitError('VPN cleanup task failed.', this.errorMessage(error));
@@ -254,39 +268,58 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   }
 
   private async cleanup(): Promise<void> {
+    this.stopRequested = true;
     if (this.cleaningUp) {
+      // cleanup 可能正 await destroy()，而启动协程在此期间刚拿到迟到的 tun fd。
+      // 记录重入请求，让在途清理完成后再扫一遍全部原生资源。
+      this.cleanupAgainRequested = true;
       return;
     }
     this.cleaningUp = true;
-    VpnRuntimeStateStore.write(this.context,
-      VpnRuntimeStateStore.stopped(this.sessionId, this.startedAt > 0 ? this.startedAt : Date.now(), this.activeCoreType));
-    this.stopNetScenePoll();
-    this.stopStatsTimer();
-    this.emitInfo('VPN cleanup started.', `tunFd=${this.tunFd}`);
+    try {
+      do {
+        this.cleanupAgainRequested = false;
+        VpnRuntimeStateStore.write(this.context,
+          VpnRuntimeStateStore.stopped(this.sessionId, this.startedAt > 0 ? this.startedAt : Date.now(), this.activeCoreType));
+        this.stopNetScenePoll();
+        this.stopStatsTimer();
+        this.emitInfo('VPN cleanup started.', `tunFd=${this.tunFd}`);
 
-    // 先停 tun2socks 适配器（停止往 SOCKS 转发），再停内核。各操作幂等（未运行即 no-op），
-    // 无论本会话用哪条数据面都安全。
-    const tun2socksResult = stopNativeTun2Socks();
-    this.emitInfo('tun2socks stop requested.', tun2socksResult.message);
-    const xrayResult = stopNativeXray();
-    this.emitInfo('Xray stop requested.', xrayResult.message);
-    const singboxResult = stopNativeSingbox();
-    this.emitInfo('sing-box stop requested.', singboxResult.message);
+        // 先停 tun2socks 适配器（停止往 SOCKS 转发），再停内核。各操作幂等（未运行即 no-op），
+        // 无论本会话用哪条数据面都安全。
+        const tun2socksResult = stopNativeTun2Socks();
+        this.emitInfo('tun2socks stop requested.', tun2socksResult.message);
+        const xrayResult = stopNativeXray();
+        this.emitInfo('Xray stop requested.', xrayResult.message);
+        const singboxResult = stopNativeSingbox();
+        this.emitInfo('sing-box stop requested.', singboxResult.message);
 
-    if (this.vpnConnection !== null) {
-      try {
-        await this.vpnConnection.destroy();
-        this.emitInfo('VPN destroyed.');
-      } catch (error) {
-        const businessError = error as BusinessError;
-        this.emitError('VPN destroy failed.', businessError.message ?? JSON.stringify(error));
-      }
+        const connection = this.vpnConnection;
+        if (connection !== null) {
+          try {
+            await connection.destroy();
+            this.emitInfo('VPN destroyed.');
+          } catch (error) {
+            const businessError = error as BusinessError;
+            this.emitError('VPN destroy failed.', businessError.message ?? JSON.stringify(error));
+          }
+        }
+
+        if (this.vpnConnection === connection) {
+          this.vpnConnection = null;
+        }
+        this.tunFd = -1;
+      } while (this.cleanupAgainRequested);
+    } finally {
+      this.cleaningUp = false;
     }
-
-    this.vpnConnection = null;
-    this.tunFd = -1;
-    this.cleaningUp = false;
     this.emitInfo('VPN cleanup finished.', `session=${this.sessionId}`);
+  }
+
+  private ensureStartAllowed(stage: string): void {
+    if (this.stopRequested) {
+      throw new Error(`VPN start cancelled after ${stage}: stop was requested.`);
+    }
   }
 
   private startStatsTimer(intervalMs: number): void {
