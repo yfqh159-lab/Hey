@@ -297,10 +297,14 @@ export class ConnectionController {
       this.lastError = redactDiagnosticText(`${action}：${businessError.message ?? JSON.stringify(error)}`);
       hilog.error(LOG_DOMAIN, LOG_TAG, 'connection start failed: %{public}s', this.lastError);
       if (vpnStartRequested) {
+        // 在第一个异步清理边界前即锁住新启动。用户可能同时显式点击停止；
+        // 那条 stop() 路径会在同一会话真正清理完成后清除闩锁。旧启动续体
+        // 不得在 await 返回后再把它写回 true，否则会把已确认的停止伪装成残留。
+        this.cleanupRequired = true;
         await this.stopFailedVpnStart(context, vpnSessionId);
         // 系统 stop 调用成功只代表请求已受理，不等于 Extension 已完成 TUN/核心清理。
-        // 由持久运行状态确认 cleanupComplete 前保持 fail-closed。
-        this.cleanupRequired = true;
+        // 由同一会话的显式 stop() 根据持久运行状态确认 cleanupComplete
+        // 后清除；未发生该确认时始终保持 fail-closed。
       }
     }
     return this.getSnapshot();
@@ -387,8 +391,10 @@ export class ConnectionController {
       this.lastError = redactDiagnosticText(`启动 sing-box 失败：${businessError.message ?? JSON.stringify(error)}`);
       hilog.error(LOG_DOMAIN, LOG_TAG, 'sing-box start failed: %{public}s', this.lastError);
       if (vpnStartRequested) {
-        await this.stopFailedVpnStart(context, vpnSessionId);
+        // 与 Xray VPN 路径保持相同的清理所有权：先锁住，再异步撤销，
+        // 不让旧启动续体在用户已确认停止后重新写入清理闩锁。
         this.cleanupRequired = true;
+        await this.stopFailedVpnStart(context, vpnSessionId);
       }
     }
     return this.getSnapshot();

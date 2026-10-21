@@ -1687,6 +1687,20 @@ if (settingsRestartAt < 0 || settingsRestartEnd < 0 || selectNodeAt < 0 || selec
 NODE
 printf 'connection startup cancellation verification passed\n'
 
+CONNECTION_CONTROLLER_PATH="$ROOT_DIR/entry/src/main/ets/services/ConnectionController.ets" node --input-type=module <<'NODE'
+import fs from 'node:fs';
+
+const source = fs.readFileSync(process.env.CONNECTION_CONTROLLER_PATH, 'utf8');
+const failedCleanupCalls = [...source.matchAll(/this\.cleanupRequired = true;\s*await this\.stopFailedVpnStart\(context, vpnSessionId\);/g)];
+if (failedCleanupCalls.length !== 2) {
+  throw new Error('both VPN cores must latch cleanup before awaiting failed-start cancellation');
+}
+if (/await this\.stopFailedVpnStart\(context, vpnSessionId\);\s*this\.cleanupRequired = true;/.test(source)) {
+  throw new Error('a stale failed-start continuation can re-latch cleanup after an explicit stop');
+}
+NODE
+printf 'failed VPN start cleanup ownership verification passed\n'
+
 node <<'NODE'
 const fs = require('fs');
 const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeController.ets', 'utf8');
