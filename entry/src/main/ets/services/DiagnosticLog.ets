@@ -1,5 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { fileIo as fs } from '@kit.CoreFileKit';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 
 const LOG_FILE_NAME: string = 'hey-vpn-diagnostics.jsonl';
 const MAX_FILE_BYTES: number = 256 * 1024;
@@ -23,7 +24,7 @@ export class DiagnosticLog {
     try {
       DiagnosticLog.rotateIfNeeded(path);
       const file = fs.openSync(path, fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE | fs.OpenMode.APPEND);
-      fs.writeSync(file.fd, `${JSON.stringify(event)}\n`);
+      fs.writeSync(file.fd, `${JSON.stringify(DiagnosticLog.redact(event))}\n`);
       fs.closeSync(file);
     } catch (error) {
       console.error(`Diagnostic append failed: ${JSON.stringify(error)}`);
@@ -69,6 +70,23 @@ export class DiagnosticLog {
     return `${context.filesDir}/${LOG_FILE_NAME}`;
   }
 
+  private static redact(event: DiagnosticEvent): DiagnosticEvent {
+    const sanitized: DiagnosticEvent = {
+      at: event.at,
+      level: event.level,
+      source: event.source,
+      message: redactDiagnosticText(event.message)
+    };
+    if (event.details !== undefined) {
+      sanitized.details = redactDiagnosticText(event.details);
+    }
+    sanitized.uploadBytes = event.uploadBytes;
+    sanitized.downloadBytes = event.downloadBytes;
+    sanitized.xrayRunning = event.xrayRunning;
+    sanitized.tunRunning = event.tunRunning;
+    return sanitized;
+  }
+
   private static rotateIfNeeded(path: string): void {
     try {
       if (!fs.accessSync(path)) {
@@ -94,7 +112,7 @@ export class DiagnosticLog {
     const events: Array<DiagnosticEvent> = [];
     for (let index = lines.length - 1; index >= 0 && events.length < limit; index--) {
       try {
-        events.push(JSON.parse(lines[index]) as DiagnosticEvent);
+        events.push(DiagnosticLog.redact(JSON.parse(lines[index]) as DiagnosticEvent));
       } catch (error) {
         events.push({
           at: Date.now(),

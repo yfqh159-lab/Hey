@@ -2,6 +2,7 @@ import { describe, it, expect } from '@ohos/hypium';
 import { buildPolicyGroupConfigFromNodes, buildPolicyGroupConfigFromSubscription, buildProxyChainConfigFromNodes, isAdvancedOutboundBuildableNode, normalizePolicyGroupBuilderStrategy, parseAdvancedOutboundEditState, resolveDynamicPolicyGroupConfigJson } from '../main/ets/core/AdvancedOutboundBuilder';
 import { CONTROL_CARD_FORM_NAME, CONTROL_CARD_SCAN_URI, CONTROL_CARD_START_URI, CONTROL_CARD_STOP_URI, CONTROL_CARD_TOGGLE_URI, buildControlCardFormData } from '../main/ets/core/ControlCard';
 import { DNS_DIRECT, DNS_PROXY, isCoreDnsAddress, isPureIpAddress, normalizeDnsServers } from '../main/ets/core/DnsAddresses';
+import { redactDiagnosticText } from '../main/ets/core/DiagnosticRedaction';
 import { AssetNameEntry, hasDuplicateAssetName, isEditableCustomAssetUrl, isSafeCustomAssetName, normalizeScannedAssetUrl } from '../main/ets/core/AssetUrls';
 import { decodeBase64ToUtf8 } from '../main/ets/core/Encoding';
 import { isIpv4InCidr, isLoopbackOrPrivateHttpUrl, isLoopbackOrPrivateIpv4Host, PRIVATE_IP_LIST } from '../main/ets/core/PrivateNetwork';
@@ -107,6 +108,33 @@ const WIREGUARD_CONF_WITHOUT_MTU: string =
   '[Interface]\nPrivateKey = private-key\nAddress = 172.16.0.2/32\n\n[Peer]\nPublicKey = peer-key\nEndpoint = wg.example.com:51820\nAllowedIPs = 0.0.0.0/0\n';
 
 export default function localUnitTest() {
+  describe('diagnosticRedaction', () => {
+    it('redacts subscription and share URLs while retaining context', 0, () => {
+      const input = 'request https://user:pass@sub.example/api?token=secret failed; node=vless://uuid@example.com:443?security=tls';
+      const output = redactDiagnosticText(input);
+      expect(output).assertContain('request [redacted-url] failed');
+      expect(output).assertContain('node=[redacted-url]');
+      expect(output.includes('secret')).assertFalse();
+      expect(output.includes('user:pass')).assertFalse();
+    });
+
+    it('redacts UUIDs and common named secrets', 0, () => {
+      const input = 'id=123e4567-e89b-12d3-a456-426614174000 {"password":"hunter2","token":"abc123"} HTTP 401';
+      const output = redactDiagnosticText(input);
+      expect(output).assertContain('id=[redacted]');
+      expect(output).assertContain('"password":"[redacted]"');
+      expect(output).assertContain('"token":"[redacted]"');
+      expect(output).assertContain('HTTP 401');
+      expect(output.includes('hunter2')).assertFalse();
+      expect(output.includes('abc123')).assertFalse();
+    });
+
+    it('leaves ordinary diagnostic status unchanged', 0, () => {
+      const input = 'workId=41; scheduled=true; core=true; tun=true';
+      expect(redactDiagnosticText(input)).assertEqual(input);
+    });
+  });
+
   describe('settingsCatalog', () => {
     const enabledKeys: Array<string> = ['localDns', 'localSocks', 'useHevTun', 'mux', 'fragment'];
     const isEnabled = (k: string): boolean => enabledKeys.indexOf(k) >= 0;
