@@ -19,6 +19,7 @@ import { isScanCancelled, requestCameraPermission, scanQrCode } from '../utils/Q
 import { SubscriptionStore } from '../storage/SubscriptionStore';
 import { convertNativeShareTextToOutbounds } from '../services/NativeShareConverter';
 import { SubscriptionManager } from '../services/SubscriptionManager';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { AppColor } from '../theme/Theme';
 
 @Entry
@@ -333,7 +334,7 @@ struct ScannerPage {
       this.startScanImmediate = settings.startScanImmediate;
       this.tryStartImmediateScan();
     } catch (error) {
-      this.lastError = this.f1('scanner.loadStateFailed', 'error', JSON.stringify(error));
+      this.lastError = this.f1('scanner.loadStateFailed', 'error', redactDiagnosticText(JSON.stringify(error)));
     }
   }
 
@@ -362,7 +363,7 @@ struct ScannerPage {
       }
       await this.importScannedValue(await scanQrCode(context));
     } catch (error) {
-      console.error('Scan barcode failed or cancelled:', JSON.stringify(error));
+      console.error('Scan barcode failed or cancelled:', redactDiagnosticText(JSON.stringify(error)));
       if (!isScanCancelled(error)) {
         this.lastError = this.f1('scanner.scanFailed', 'error', this.errorMessage(error));
       }
@@ -394,7 +395,7 @@ struct ScannerPage {
       const results = await detectBarcode.decode({ uri: result.photoUris[0] }, options);
       await this.importScannedValue(this.firstScanValue(results), this.t('scanner.decodeFailed'));
     } catch (error) {
-      console.error('Decode QR image failed or cancelled:', JSON.stringify(error));
+      console.error('Decode QR image failed or cancelled:', redactDiagnosticText(JSON.stringify(error)));
       if (!isScanCancelled(error)) {
         this.lastError = this.f1('scanner.photoImportFailed', 'error', this.errorMessage(error));
       }
@@ -606,7 +607,7 @@ struct ScannerPage {
       promptAction.showToast({ message: this.t('scanner.nodeImported') });
       router.back();
     } catch (error) {
-      this.lastError = this.f1('error.saveProfile', 'error', JSON.stringify(error));
+      this.lastError = this.f1('error.saveProfile', 'error', redactDiagnosticText(JSON.stringify(error)));
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
     } finally {
       this.isBusy = false;
@@ -681,8 +682,8 @@ struct ScannerPage {
     const record = error as Record<string, Object>;
     const message = record['message'];
     if (typeof message === 'string' && message.length > 0) {
-      return message;
+      return redactDiagnosticText(message);
     }
-    return JSON.stringify(error);
+    return redactDiagnosticText(JSON.stringify(error));
   }
 }

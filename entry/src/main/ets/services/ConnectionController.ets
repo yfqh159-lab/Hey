@@ -9,6 +9,7 @@ import { buildRuntimeXrayConfig, injectXrayLogFile, LOCAL_HTTP_PROXY_PORT, METRI
 import { normalizeCoreLogLevel } from '../core/ProtocolOptions';
 import { CORE_TYPE_SINGBOX, CORE_TYPE_XRAY, CoreSelectionStore, CoreType, isSingboxCore, isSingboxOnlyProtocol } from '../core/CoreSelection';
 import { buildSingboxConfig } from '../core/SingboxConfig';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { SubscriptionStore } from '../storage/SubscriptionStore';
 import { createStopCommandVpnWant, createStopVpnWant, createVpnWant } from '../vpn/VpnConstants';
 import { getNativeFreePorts, getNativeStats, startNativeXray, stopNativeXray, testNativeXrayConfig } from '../native/HeyNative';
@@ -147,7 +148,7 @@ export class ConnectionController {
       const businessError = error as BusinessError;
       this.status = ConnectionStatus.ERROR;
       const action = this.runtimeMode === APP_MODE_PROXY_ONLY ? '启动仅代理模式失败' : '启动 VPN 失败';
-      this.lastError = `${action}：${businessError.message ?? JSON.stringify(error)}`;
+      this.lastError = redactDiagnosticText(`${action}：${businessError.message ?? JSON.stringify(error)}`);
       hilog.error(LOG_DOMAIN, LOG_TAG, 'connection start failed: %{public}s', this.lastError);
       if (vpnStartRequested) {
         await this.stopFailedVpnStart();
@@ -210,7 +211,7 @@ export class ConnectionController {
     } catch (error) {
       const businessError = error as BusinessError;
       this.status = ConnectionStatus.ERROR;
-      this.lastError = `启动 sing-box 失败：${businessError.message ?? JSON.stringify(error)}`;
+      this.lastError = redactDiagnosticText(`启动 sing-box 失败：${businessError.message ?? JSON.stringify(error)}`);
       hilog.error(LOG_DOMAIN, LOG_TAG, 'sing-box start failed: %{public}s', this.lastError);
       if (vpnStartRequested) {
         await this.stopFailedVpnStart();
@@ -324,7 +325,7 @@ export class ConnectionController {
       const businessError = error as BusinessError;
       this.status = ConnectionStatus.ERROR;
       const action = this.runtimeMode === APP_MODE_PROXY_ONLY ? '停止仅代理模式失败' : '停止 VPN 失败';
-      this.lastError = `${action}：${businessError.message ?? JSON.stringify(error)}`;
+      this.lastError = redactDiagnosticText(`${action}：${businessError.message ?? JSON.stringify(error)}`);
       hilog.error(LOG_DOMAIN, LOG_TAG, 'connection stop failed: %{public}s', this.lastError);
     }
     return this.getSnapshot();
@@ -387,7 +388,7 @@ export class ConnectionController {
     } catch (cleanupError) {
       const businessError = cleanupError as BusinessError;
       hilog.error(LOG_DOMAIN, LOG_TAG, 'failed VPN start cleanup failed: %{public}s',
-        businessError.message ?? JSON.stringify(cleanupError));
+        redactDiagnosticText(businessError.message ?? JSON.stringify(cleanupError)));
     }
   }
 

@@ -30,6 +30,7 @@ import { isSingboxCore } from '../core/CoreSelection';
 import { DiagnosticLog } from '../services/DiagnosticLog';
 import { VpnRuntimeStateStore } from '../services/VpnRuntimeStateStore';
 import { isRuntimeHealthPort, probeRuntimeSocksHealth, waitForRuntimeSocksHealth } from '../services/RuntimeHealthProbe';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 
 const LOG_DOMAIN: number = 0x0001;
 const LOG_TAG: string = 'HeyVpnAbility';
@@ -477,7 +478,8 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   }
 
   private emitInfo(message: string, details: string = ''): void {
-    hilog.info(LOG_DOMAIN, LOG_TAG, '%{public}s %{public}s', message, details);
+    hilog.info(LOG_DOMAIN, LOG_TAG, '%{public}s %{public}s',
+      redactDiagnosticText(message), redactDiagnosticText(details));
     DiagnosticLog.append(this.context, {
       at: Date.now(),
       level: 'info',
@@ -488,7 +490,8 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   }
 
   private emitError(message: string, details: string = ''): void {
-    hilog.error(LOG_DOMAIN, LOG_TAG, '%{public}s %{public}s', message, details);
+    hilog.error(LOG_DOMAIN, LOG_TAG, '%{public}s %{public}s',
+      redactDiagnosticText(message), redactDiagnosticText(details));
     DiagnosticLog.append(this.context, {
       at: Date.now(),
       level: 'error',
