@@ -1486,7 +1486,7 @@ if (!controller.includes('const PREPARATION_STORE_TIMEOUT_MS: number = 5000;') |
   throw new Error('connection preparation storage reads can permanently hold STARTING');
 }
 const proxyBranch = startBody.indexOf('if (this.runtimeMode === APP_MODE_PROXY_ONLY) {');
-const proxyStart = startBody.indexOf('await this.startProxyOnly(context);', proxyBranch);
+const proxyStart = startBody.indexOf('await this.startProxyOnly(context, startGeneration);', proxyBranch);
 const proxyReturn = startBody.indexOf('return this.getSnapshot();', proxyStart);
 const vpnStart = startBody.indexOf('vpnExtension.startVpnExtensionAbility(', proxyBranch);
 if (proxyBranch < 0 || proxyStart < 0 || proxyReturn < 0 || vpnStart < 0 ||
@@ -1851,6 +1851,24 @@ if (runningBranch < 0 || connectivity < runningBranch || start.includes('NetScen
 }
 NODE
 printf 'runtime startup continuation isolation verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
+const source = fs.readFileSync('entry/src/main/ets/services/ConnectionController.ets', 'utf8');
+const helperAt = source.indexOf('  private async startProxyOnly(context: common.Context, startGeneration: number)');
+const helperEnd = source.indexOf('\n  /**', helperAt);
+const helper = source.slice(helperAt, helperEnd);
+const readyAt = helper.indexOf('const ready = await waitForRuntimeSocksHealth(healthPort);');
+const generationAt = helper.indexOf('if (!this.isCurrentStart(startGeneration))', readyAt);
+const rollbackAt = helper.indexOf('const stopResult = stopNativeXray();', readyAt);
+const successAt = helper.indexOf("message: 'Proxy-only mode started.'", readyAt);
+if (!source.includes('await this.startProxyOnly(context, startGeneration);') ||
+  helperAt < 0 || helperEnd < 0 || readyAt < 0 || generationAt < readyAt ||
+  rollbackAt < generationAt || successAt < generationAt) {
+  throw new Error('a stale proxy-only readiness probe can stop or report a newer Xray session');
+}
+NODE
+printf 'proxy-only readiness generation verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');

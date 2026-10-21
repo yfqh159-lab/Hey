@@ -244,7 +244,7 @@ export class ConnectionController {
     try {
       if (this.runtimeMode === APP_MODE_PROXY_ONLY) {
         this.vpnSessionId = '';
-        await this.startProxyOnly(context);
+        await this.startProxyOnly(context, startGeneration);
         if (!this.isCurrentStart(startGeneration)) {
           return this.getSnapshot();
         }
@@ -400,7 +400,7 @@ export class ConnectionController {
     return this.getSnapshot();
   }
 
-  private async startProxyOnly(context: common.Context): Promise<void> {
+  private async startProxyOnly(context: common.Context, startGeneration: number): Promise<void> {
     if (this.generatedConfig === null) {
       throw new Error('仅代理模式缺少运行配置。');
     }
@@ -435,6 +435,11 @@ export class ConnectionController {
     const healthPort = this.generatedConfig.runtimeHealthPort;
     if (healthPort !== undefined) {
       const ready = await waitForRuntimeSocksHealth(healthPort);
+      // 等待期间用户可能已经停止旧会话并启动新核心。旧续体既不能宣告成功，也不能
+      // 用下面的回滚 stopNativeXray() 杀掉新会话；新/旧核心的资源清理由各自代际负责。
+      if (!this.isCurrentStart(startGeneration)) {
+        return;
+      }
       if (!ready.ok) {
         const stopResult = stopNativeXray();
         if (!stopResult.ok) {
