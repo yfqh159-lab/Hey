@@ -90,6 +90,18 @@ if grep -Fq '${intent.payload}' entry/src/main/ets/pages/Index.ets ||
 fi
 printf 'external import confirmation redaction verification passed\n'
 
+# libXray conversion failures are shown by scanner, link import, and system-share
+# paths. The native message may echo the original share link, so sanitize it once
+# at the shared service boundary before any caller can render or log it.
+if ! grep -Fq 'redactDiagnosticText(converted.message)' \
+  entry/src/main/ets/services/NativeShareConverter.ets ||
+  ! grep -Fq 'message: redactDiagnosticText(`Native share conversion failed:' \
+  entry/src/main/ets/services/NativeShareConverter.ets; then
+  printf 'native share conversion errors are not consistently redacted\n' >&2
+  exit 1
+fi
+printf 'native share conversion error redaction verification passed\n'
+
 if ! command -v node >/dev/null 2>&1; then
   printf 'node is required for the translation-key consistency check.\n' >&2
   exit 1

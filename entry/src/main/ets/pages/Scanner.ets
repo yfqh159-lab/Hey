@@ -444,7 +444,9 @@ struct ScannerPage {
     }
     this.importBuffer = value.trim();
     this.lastError = '';
-    this.updateImportPreview(this.importBuffer);
+    // A completed camera/photo result is stable input, so it is safe to run the
+    // native compatibility fallback once. Do not do that for every keystroke.
+    this.updateImportPreview(this.importBuffer, true);
     // 扫码/相册只负责识别并展示原文。必须由用户检查内容后再次点击导入，
     // 才允许保存节点或订阅来源；订阅内容仍需在订阅页由用户主动更新。
     promptAction.showToast({ message: this.t('scanner.reviewBeforeImport') });
@@ -464,7 +466,7 @@ struct ScannerPage {
         if (text && text.trim().length > 0) {
           this.importBuffer = text.trim();
           this.lastError = '';
-          this.updateImportPreview(this.importBuffer);
+          this.updateImportPreview(this.importBuffer, true);
           promptAction.showToast({ message: this.t('prompt.pastedConfig') });
         } else {
           promptAction.showToast({ message: this.t('prompt.clipboardTextEmpty') });
@@ -655,7 +657,7 @@ struct ScannerPage {
     }
   }
 
-  private updateImportPreview(value: string): void {
+  private updateImportPreview(value: string, allowNativeFallback: boolean = false): void {
     const input = value.trim();
     if (input.length === 0) {
       this.previewTitle = '';
@@ -696,6 +698,19 @@ struct ScannerPage {
       this.previewDetail = this.t('scanner.previewNodesDetail');
       this.previewValid = true;
       return;
+    }
+    // libXray accepts a few compatibility formats beyond the ArkTS parser. A
+    // completed scan/photo/clipboard result must not be labelled invalid when
+    // the confirmation action can actually import it. This path is deliberately
+    // skipped while the user is typing to avoid synchronous N-API work per key.
+    if (allowNativeFallback) {
+      const nativeResult = convertNativeShareTextToOutbounds(input);
+      if (nativeResult.ok && nativeResult.outbounds.length > 0) {
+        this.previewTitle = this.f1('scanner.previewNodes', 'count', nativeResult.outbounds.length.toString());
+        this.previewDetail = this.t('scanner.previewNodesDetail');
+        this.previewValid = true;
+        return;
+      }
     }
     this.previewTitle = this.t('scanner.previewInvalid');
     this.previewDetail = validation.message;

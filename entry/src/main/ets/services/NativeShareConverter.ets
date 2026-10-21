@@ -1,5 +1,6 @@
 import { extractOutboundsFromXrayConfig } from '../core/XrayOutbounds';
 import { normalizeConfigInput } from '../core/XrayConfig';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { convertNativeShareLinksToXrayJson } from '../native/HeyNative';
 
 export interface NativeShareOutbound {
@@ -15,12 +16,14 @@ export interface NativeShareConversionResult {
 }
 
 export function convertNativeShareTextToOutbounds(text: string): NativeShareConversionResult {
-  const converted = convertNativeShareLinksToXrayJson(text);
-  if (!converted.ok) {
-    return { ok: false, outbounds: [], message: converted.message };
-  }
-
   try {
+    // Native conversion errors may contain the original share link. Keep every
+    // caller safe (UI, logs, and previews) by redacting at this service boundary.
+    const converted = convertNativeShareLinksToXrayJson(text);
+    if (!converted.ok) {
+      return { ok: false, outbounds: [], message: redactDiagnosticText(converted.message) };
+    }
+
     const extracted = extractOutboundsFromXrayConfig(converted.configJson);
     const outbounds = new Array<NativeShareOutbound>();
     extracted.forEach(item => {
@@ -39,6 +42,10 @@ export function convertNativeShareTextToOutbounds(text: string): NativeShareConv
     }
     return { ok: true, outbounds, message: '' };
   } catch (error) {
-    return { ok: false, outbounds: [], message: `Native share conversion failed: ${JSON.stringify(error)}` };
+    return {
+      ok: false,
+      outbounds: [],
+      message: redactDiagnosticText(`Native share conversion failed: ${JSON.stringify(error)}`)
+    };
   }
 }

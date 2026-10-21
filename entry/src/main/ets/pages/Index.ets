@@ -497,6 +497,10 @@ struct Index {
     if (parsedNodes.length > 0) {
       return `${this.f1('scanner.previewNodes', 'count', parsedNodes.length.toString())}\n${this.t('scanner.previewNodesDetail')}`;
     }
+    const nativeResult = convertNativeShareTextToOutbounds(payload);
+    if (nativeResult.ok && nativeResult.outbounds.length > 0) {
+      return `${this.f1('scanner.previewNodes', 'count', nativeResult.outbounds.length.toString())}\n${this.t('scanner.previewNodesDetail')}`;
+    }
     return this.t('scanner.previewInvalid');
   }
 
