@@ -151,7 +151,9 @@ traffic stats.
 - Data files and diagnostics: one-tap, user-initiated `geoip.dat` and
   `geosite.dat` checks from the maintained default release, published SHA-256
   verification, safe replacement/rollback, advanced user-supplied URLs with
-  companion checksum files, and local file import. Runtime logs, core logs,
+  companion checksum files, and local file import. While TUN is running, these
+  app-owned requests use a loopback-only internal HTTP entry through the active
+  node without enabling the user-facing HTTP proxy. Runtime logs, core logs,
   optional speed display, persistent traffic totals, and an exit-IP check shown
   on the connection page (the built-in HTTPS endpoint reports the address only).
   English/Chinese plus additional language resources are included.
