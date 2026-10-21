@@ -40,10 +40,8 @@ struct ImportPage {
           this.ManualGridSection()
 
           // 项目默认只创建单节点、单跳配置。代理链/策略组的底层兼容与既有节点编辑保留，
-          // 但不再在日常“添加节点”路径提供新建入口。
-
-          // 模块三：自定义 JSON 配置
-          this.JsonImportSection()
+          // 完整 JSON 配置的底层兼容与既有节点编辑同样保留，但不再在日常“添加节点”
+          // 路径提供新建入口，避免引导普通用户创建多入站/多出站配置。
 
           if (this.lastError.length > 0) {
             Text(this.lastError)
