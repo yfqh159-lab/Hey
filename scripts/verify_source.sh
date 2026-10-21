@@ -234,6 +234,20 @@ if ! grep -q 'maxLimit: MAX_GEO_TEXT_BYTES' "${geo_controller}" ||
 fi
 printf 'bounded Geo HTTP response verification passed\n'
 
+geo_page="entry/src/main/ets/pages/Assets.ets"
+geo_urls="entry/src/main/ets/core/AssetUrls.ets"
+if ! grep -q 'const normalizedUrl = normalizeGeoAssetDownloadUrl(url)' "${geo_controller}" ||
+  ! grep -q 'const checksumUrl = buildGeoChecksumUrl(normalizedUrl)' "${geo_controller}" ||
+  ! grep -q 'normalizeGeoAssetDownloadUrl(this.geoUrlInput)' "${geo_page}" ||
+  ! grep -q 'normalizeGeoAssetDownloadUrl(trimmedUrl)' "${geo_page}" ||
+  ! grep -q 'normalizeGeoAssetDownloadUrl(value)' "${geo_urls}" ||
+  grep -q "startsWith('http://')" "${geo_page}" ||
+  grep -q "startsWith('http://')" "${geo_controller}"; then
+  echo 'Geo remote sources are not consistently restricted to normalized HTTPS URLs' >&2
+  exit 1
+fi
+printf 'HTTPS-only Geo source verification passed\n'
+
 # These legacy resources described removed automatic-connect/fastest-node features.
 # Their return would contradict the single-node, user-controlled runtime model even if
 # no current page referenced them, so keep their identifiers out of the translation map.

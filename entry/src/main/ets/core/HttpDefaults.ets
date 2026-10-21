@@ -27,5 +27,7 @@ export function normalizeHttpsUrl(value: string): string {
   if (authority.length === 0 || authority === ':' || authority.startsWith(':') || authority.includes('@')) {
     return '';
   }
-  return target;
+  // Canonicalize the scheme so downstream prefix checks cannot misclassify an uppercase
+  // HTTPS URL and accidentally apply a weaker redirect policy.
+  return `${prefix}${remainder}`;
 }

@@ -1,3 +1,5 @@
+import { normalizeGeoAssetDownloadUrl } from './GeoAssets';
+
 export interface ScannedAssetUrl {
   valid: boolean;
   name: string;
@@ -10,8 +12,8 @@ export interface AssetNameEntry {
 }
 
 export function normalizeScannedAssetUrl(value: string): ScannedAssetUrl {
-  const url = value.trim();
-  if (!isHttpAssetUrl(url)) {
+  const url = normalizeGeoAssetDownloadUrl(value);
+  if (url.length === 0) {
     return { valid: false, name: '', url: '' };
   }
   return { valid: true, name: deriveAssetNameFromUrl(url), url };
@@ -87,11 +89,6 @@ export function isSafeCustomAssetName(name: string): boolean {
     }
   }
   return true;
-}
-
-function isHttpAssetUrl(url: string): boolean {
-  const lower = url.toLowerCase();
-  return lower.startsWith('http://') || lower.startsWith('https://');
 }
 
 function sanitizeAssetName(name: string): string {

@@ -4,7 +4,7 @@ import { picker } from '@kit.CoreFileKit';
 import fs from '@ohos.file.fs';
 import { hasDuplicateAssetName, isEditableCustomAssetUrl, isSafeCustomAssetName, normalizeScannedAssetUrl } from '../core/AssetUrls';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
-import { GEOIP_FILE_NAME, GEOSITE_FILE_NAME, resolveGeoUpdateNotice } from '../core/GeoAssets';
+import { GEOIP_FILE_NAME, GEOSITE_FILE_NAME, normalizeGeoAssetDownloadUrl, resolveGeoUpdateNotice } from '../core/GeoAssets';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { AppLanguage } from '../core/Profile';
 import { SETTINGS_CONTROLLER } from '../features/settings/SettingsController';
@@ -671,9 +671,9 @@ struct AssetsPage {
   }
 
   private async downloadGeoFromUrl(): Promise<void> {
-    const url = this.geoUrlInput.trim();
+    const url = normalizeGeoAssetDownloadUrl(this.geoUrlInput);
     const fileName = this.geoMoreFile;
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    if (url.length === 0) {
       this.toast(this.t('assets.scanInvalidUrl'));
       return;
     }
@@ -1077,7 +1077,8 @@ struct AssetsPage {
       return;
     }
     const isLocalImport = trimmedUrl.startsWith('local://');
-    if (!isLocalImport && !trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
+    const normalizedRemoteUrl = isLocalImport ? '' : normalizeGeoAssetDownloadUrl(trimmedUrl);
+    if (!isLocalImport && normalizedRemoteUrl.length === 0) {
       this.toast(this.t('assets.urlAddressInvalid'));
       return;
     }
@@ -1104,12 +1105,13 @@ struct AssetsPage {
     if (this.editId.length > 0) {
       nextAssets = this.customAssets.map(item => {
         if (item.id === this.editId) {
-          return { id: item.id, name: trimmedName, url: trimmedUrl } as CustomAssetUrl;
+          return { id: item.id, name: trimmedName, url: isLocalImport ? trimmedUrl : normalizedRemoteUrl } as CustomAssetUrl;
         }
         return item;
       });
     } else {
-      nextAssets.push({ id: Date.now().toString(), name: trimmedName, url: trimmedUrl });
+      nextAssets.push({ id: Date.now().toString(), name: trimmedName,
+        url: isLocalImport ? trimmedUrl : normalizedRemoteUrl });
     }
 
     try {

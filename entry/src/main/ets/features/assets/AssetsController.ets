@@ -12,6 +12,7 @@ import {
   MAX_GEO_DATA_BYTES,
   MAX_GEO_HTTP_DATA_BYTES,
   MAX_GEO_TEXT_BYTES,
+  buildGeoChecksumUrl,
   encodeGeoTransactionState,
   isAllowedGeoAssetRedirect,
   isPlausibleGeoData,
@@ -20,6 +21,7 @@ import {
   parseHttpRedirectLocation,
   parseDefaultGeoRelease,
   parseSha256Checksum,
+  normalizeGeoAssetDownloadUrl,
   resolveGeoRecoveryAction,
   resolveStandaloneAssetRecoveryAction
 } from '../../core/GeoAssets';
@@ -413,8 +415,7 @@ export class AssetsController {
   }
 
   private isRemoteAssetUrl(url: string): boolean {
-    const lower = url.trim().toLowerCase();
-    return lower.startsWith('http://') || lower.startsWith('https://');
+    return normalizeGeoAssetDownloadUrl(url).length > 0;
   }
 
   private async performDownload(
@@ -454,12 +455,17 @@ export class AssetsController {
     targetPath: string,
     proxyPlan: AssetDownloadProxyPlan
   ): Promise<void> {
-    const checksumText = await this.requestText(`${url}.sha256sum`, proxyPlan);
+    const normalizedUrl = normalizeGeoAssetDownloadUrl(url);
+    const checksumUrl = buildGeoChecksumUrl(normalizedUrl);
+    if (normalizedUrl.length === 0 || checksumUrl.length === 0) {
+      throw new Error(`${fileName}: Geo download URL must use HTTPS`);
+    }
+    const checksumText = await this.requestText(checksumUrl, proxyPlan);
     const expectedSha256 = parseSha256Checksum(checksumText);
     if (expectedSha256.length !== 64) {
       throw new Error(`${fileName}: invalid SHA-256 checksum`);
     }
-    const data = await this.requestData(url, proxyPlan);
+    const data = await this.requestData(normalizedUrl, proxyPlan);
     if (!isPlausibleGeoData(data)) {
       throw new Error(`${fileName}: downloaded data failed size or format validation`);
     }

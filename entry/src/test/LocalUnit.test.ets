@@ -20,7 +20,7 @@ import { shouldShowProxySharingStartWarning } from '../main/ets/core/ProxySharin
 import { canCancelStartingConnection, shouldDeferBusyControlAction, shouldOfferConnectionStop } from '../main/ets/core/ConnectionInteraction';
 import { shouldStartScannerImmediately } from '../main/ets/core/ScannerLaunch';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppSettings, ConnectionStatus, DEFAULT_DELAY_TEST_URL, DEFAULT_HEV_TUN_LOG_LEVEL, DEFAULT_HEV_TUN_RW_TIMEOUT, DEFAULT_IP_API_URL, DEFAULT_VPN_MTU, DELAY_STATUS_UDP_ONLY, OUTBOUND_DOMAIN_RESOLVE_DNS_HOSTS, OUTBOUND_DOMAIN_RESOLVE_NONE, OUTBOUND_DOMAIN_RESOLVE_REPLACE, OutboundDomainResolveMethod, normalizeAppRuntimeMode, normalizeHevTunLogLevel, normalizeHevTunRwTimeout, normalizeRealPingConcurrency, normalizeRoutingDomainStrategy, normalizeUiModeNight, ProxyNode, resolveDelayTestUrl, RoutingRule, RuntimeStats, SubscriptionGroup } from '../main/ets/core/Profile';
-import { BUILTIN_GEO_DATA_FILE_NAMES, DEFAULT_GEO_RELEASE_API, DEFAULT_GEO_RELEASE_DOWNLOAD_PREFIX, GEOIP_FILE_NAME, GEOSITE_FILE_NAME, buildAssetDownloadUrl, encodeGeoTransactionState, isAllowedGeoAssetRedirect, isPlausibleGeoData, isValidGeoCommitMarker, parseDefaultGeoRelease, parseGeoTransactionState, parseHttpRedirectLocation, parseSha256Checksum, resolveGeoRecoveryAction, resolveGeoUpdateNotice, resolveStandaloneAssetRecoveryAction } from '../main/ets/core/GeoAssets';
+import { BUILTIN_GEO_DATA_FILE_NAMES, DEFAULT_GEO_RELEASE_API, DEFAULT_GEO_RELEASE_DOWNLOAD_PREFIX, GEOIP_FILE_NAME, GEOSITE_FILE_NAME, buildAssetDownloadUrl, buildGeoChecksumUrl, encodeGeoTransactionState, isAllowedGeoAssetRedirect, isPlausibleGeoData, isValidGeoCommitMarker, normalizeGeoAssetDownloadUrl, parseDefaultGeoRelease, parseGeoTransactionState, parseHttpRedirectLocation, parseSha256Checksum, resolveGeoRecoveryAction, resolveGeoUpdateNotice, resolveStandaloneAssetRecoveryAction } from '../main/ets/core/GeoAssets';
 import { DELAY_TEST_SOCKS_PORT, LOCAL_HTTP_PROXY_LAN_HOST, LOCAL_HTTP_PROXY_PORT, LOCAL_SOCKS_PROXY_PORT, UNIDENTIFIED_PROCESS_PACKAGE, VPN_DATA_SOCKS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT, appReservedRuntimePorts, buildDelayTestConfig, buildRuntimeXrayConfig, buildXrayConfig, buildXrayConfigWithSettings, canUseProcessRouting, collectOutboundDomainPreResolveHosts, normalizeFullConfigRoutingProcesses, normalizeOutboundInput, normalizeRoutingRuleProcesses, validateFullConfigJson, validateOutboundJson, validatePolicyGroupConfigJson, validateProxyChainConfigJson, withOutboundDomainResolvedHosts, injectXrayLogFile, isReservedAppRuntimePort } from '../main/ets/core/XrayConfig';
 import { CONTROL_SHORTCUT_ACTION_PARAM, CONTROL_SHORTCUT_GUID_PARAM, CONTROL_SHORTCUT_NODE_ID_PARAM, CONTROL_SHORTCUT_URI_PARAM, TASKER_EXTRA_BUNDLE_GUID_PARAM, TASKER_EXTRA_BUNDLE_SWITCH_PARAM, controlUriFromShortcutParameters, deepLinkUriFromWant, parseDeepLink, subscriptionNameFromDeepLink } from '../main/ets/core/DeepLink';
 import { HARMONY_SEND_DATA_ACTION, HARMONY_SHARE_ABSTRACT_KEY, HARMONY_SHARE_URL_KEY, HARMONY_TEXT_MIME_TYPE, SharedTextWantLike, extractSharedTextFromWant, isSharedTextWant } from '../main/ets/core/SharedTextImport';
@@ -2310,6 +2310,11 @@ export default function localUnitTest() {
       expect(BUILTIN_GEO_DATA_FILE_NAMES[1]).assertEqual(GEOIP_FILE_NAME);
       expect(buildAssetDownloadUrl('https://example.com/release/', 'geosite.dat')).assertEqual('https://example.com/release/geosite.dat');
       expect(buildAssetDownloadUrl('https://example.com/release', 'geoip.dat')).assertEqual('https://example.com/release/geoip.dat');
+      expect(normalizeGeoAssetDownloadUrl(' https://example.com/geoip.dat ')).assertEqual('https://example.com/geoip.dat');
+      expect(normalizeGeoAssetDownloadUrl('HTTPS://example.com/geoip.dat')).assertEqual('https://example.com/geoip.dat');
+      expect(normalizeGeoAssetDownloadUrl('http://example.com/geoip.dat')).assertEqual('');
+      expect(buildGeoChecksumUrl('https://example.com/geoip.dat?token=secret#download'))
+        .assertEqual('https://example.com/geoip.dat.sha256sum?token=secret#download');
     });
 
     it('preserves geo update outcome and reconnect notice when metadata persistence fails', 0, () => {
@@ -2466,6 +2471,7 @@ export default function localUnitTest() {
       expect(unsafeName.name).assertEqual('custom_rules');
 
       expect(normalizeScannedAssetUrl('ftp://example.com/geosite.dat').valid).assertFalse();
+      expect(normalizeScannedAssetUrl('http://example.com/geosite.dat').valid).assertFalse();
     });
 
     it('detects duplicate custom asset names asset remarks', 0, () => {

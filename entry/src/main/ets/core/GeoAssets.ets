@@ -1,3 +1,5 @@
+import { normalizeHttpsUrl } from './HttpDefaults';
+
 // Xray 核心的规则数据文件名。文件名是上游核心的既定约定，与任何地区策略无关。
 export const GEOSITE_FILE_NAME: string = 'geosite.dat';
 export const GEOIP_FILE_NAME: string = 'geoip.dat';
@@ -117,6 +119,29 @@ export function resolveStandaloneAssetRecoveryAction(
 export function buildAssetDownloadUrl(sourceUrl: string, fileName: string): string {
   const normalizedSource = sourceUrl.endsWith('/') ? sourceUrl : `${sourceUrl}/`;
   return `${normalizedSource}${fileName}`;
+}
+
+/** 远端 Geo 与其校验记录必须经过认证传输；本地文件导入不经过这个入口。 */
+export function normalizeGeoAssetDownloadUrl(value: string): string {
+  return normalizeHttpsUrl(value);
+}
+
+/** 在 URL 路径后追加校验文件后缀，同时保留签名查询参数或 fragment。 */
+export function buildGeoChecksumUrl(value: string): string {
+  const normalized = normalizeGeoAssetDownloadUrl(value);
+  if (normalized.length === 0) {
+    return '';
+  }
+  let suffixIndex = normalized.length;
+  const queryIndex = normalized.indexOf('?');
+  const fragmentIndex = normalized.indexOf('#');
+  if (queryIndex >= 0 && queryIndex < suffixIndex) {
+    suffixIndex = queryIndex;
+  }
+  if (fragmentIndex >= 0 && fragmentIndex < suffixIndex) {
+    suffixIndex = fragmentIndex;
+  }
+  return `${normalized.substring(0, suffixIndex)}.sha256sum${normalized.substring(suffixIndex)}`;
 }
 
 interface ReleaseAssetPayload {
