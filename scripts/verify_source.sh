@@ -932,6 +932,19 @@ printf 'scanner successful import cleanup verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');
+const source = fs.readFileSync('entry/src/main/ets/utils/QrScan.ets', 'utf8');
+const permissionAt = source.indexOf('export async function requestCameraPermission(');
+const scanAt = source.indexOf('\nexport async function scanQrCode(', permissionAt);
+const permission = source.slice(permissionAt, scanAt);
+if (permissionAt < 0 || scanAt < 0 ||
+  !permission.includes('await atManager.requestPermissionsFromUser(') || permission.includes('catch (')) {
+  throw new Error('camera permission service failures can still be misreported as user denial');
+}
+NODE
+printf 'scanner camera permission error classification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
 const source = fs.readFileSync('entry/src/main/cpp/napi_init.cpp', 'utf8');
 
 function functionBody(name) {

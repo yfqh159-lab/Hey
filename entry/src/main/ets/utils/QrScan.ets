@@ -7,13 +7,11 @@ const CAMERA_PERMISSION: Permissions = 'ohos.permission.CAMERA';
  * 在用户明确点击扫码入口后申请相机权限。不要在页面加载或应用启动时调用。
  */
 export async function requestCameraPermission(context: common.UIAbilityContext): Promise<boolean> {
-  try {
-    const atManager = abilityAccessCtrl.createAtManager();
-    const result = await atManager.requestPermissionsFromUser(context, [CAMERA_PERMISSION]);
-    return result.authResults.length === 1 && result.authResults[0] === 0;
-  } catch (error) {
-    return false;
-  }
+  // 用户明确拒绝返回 false；权限管理器或系统能力自身异常则交给页面现有 catch，显示
+  // “扫码失败”及脱敏原因。不能把设备/服务故障伪装成用户拒绝权限。
+  const atManager = abilityAccessCtrl.createAtManager();
+  const result = await atManager.requestPermissionsFromUser(context, [CAMERA_PERMISSION]);
+  return result.authResults.length === 1 && result.authResults[0] === 0;
 }
 
 /**
