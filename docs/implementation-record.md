@@ -63,6 +63,8 @@
 - DevEco/hvigor 工程编译与 ArkTS LocalUnit；当前环境没有 Harmony SDK/hvigor/ohpm。
 - HAP 签名、安装与 `hdc` 诊断；当前环境没有用户签名和目标设备。
 - VPN 出口、DNS/IPv6、锁屏、后台、网络切换、ChatGPT 网页及应用流量等真机矩阵。
+- 普通手机系统是否授予 Hey 开机自启动。代码只处理系统实际提供的 `AUTO_STARTUP` 启动原因；
+  不调用仅限企业设备管理/特定设备类型的自启动特权接口，也不保证所有设备都会触发。
 
 ## 构建与验收入口
 
