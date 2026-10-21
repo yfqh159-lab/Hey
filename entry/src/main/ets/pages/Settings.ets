@@ -25,7 +25,7 @@ import {
   VPN_INTERFACE_ADDRESS_CONFIGS
 } from '../core/Profile';
 import { applyColorMode } from '../core/ColorMode';
-import { markRuntimeSettingsRestartNeeded } from '../core/SettingsChange';
+import { markRuntimeSettingsRestartNeeded, shouldRestartRuntimeForSettingsChange } from '../core/SettingsChange';
 import { FRAGMENT_PACKET_OPTIONS, normalizeCoreLogLevel, normalizeFragmentPackets, normalizeMuxXudpQuic } from '../core/ProtocolOptions';
 import { SETTINGS_CONTROLLER, SettingsDraft } from '../features/settings/SettingsController';
 import { filterSettings, SETTINGS_CATALOG, SettingGroup, SettingInputKind, SettingItem } from '../features/settings/SettingsCatalog';
@@ -674,10 +674,13 @@ struct SettingsPage {
   private async persistSettings(showMessage: boolean): Promise<void> {
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
+      const previous = await SETTINGS_CONTROLLER.load(context);
       const saved = await SETTINGS_CONTROLLER.save(context, this.buildDraft());
       applyColorMode(context, saved.uiModeNight);
       this.applyDraft(SETTINGS_CONTROLLER.toDraft(saved));
-      markRuntimeSettingsRestartNeeded();
+      if (shouldRestartRuntimeForSettingsChange(previous, saved)) {
+        markRuntimeSettingsRestartNeeded();
+      }
       // 观察底层网络的监听始终保留；开关只控制可信网络是否自动断开。强制补判让设置
       // 立即生效，同时允许关闭自动化时继续刷新出口状态。
       NETWORK_SCENE_MANAGER.ensureStarted(context);

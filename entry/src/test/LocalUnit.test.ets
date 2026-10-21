@@ -30,7 +30,7 @@ import { exportRoutingRulesJson, importRoutingRulesJson } from '../main/ets/core
 import { buildConfigBackup, parseConfigBackup, serializeConfigBackup, CONFIG_BACKUP_APP_TAG, CONFIG_BACKUP_VERSION } from '../main/ets/core/ConfigBackup';
 import { CustomAssetUrl } from '../main/ets/storage/AssetStore';
 import { ProxyProfile, SubscriptionProfile } from '../main/ets/core/Profile';
-import { decideRuntimeSettingsRestart } from '../main/ets/core/SettingsChange';
+import { decideRuntimeSettingsRestart, shouldRestartRuntimeForSettingsChange } from '../main/ets/core/SettingsChange';
 import { decideActiveNodeRemovalAction, decideConfigChangeAction, decideNodeSwitchAction } from '../main/ets/core/RuntimeReconnect';
 import {
   isMissingVpnRuntimeStateUnhealthy,
@@ -267,6 +267,30 @@ export default function localUnitTest() {
       const running = decideRuntimeSettingsRestart(true, true, false);
       expect(running.shouldRestart).assertTrue();
       expect(running.keepPending).assertFalse();
+    });
+
+    it('restarts only for settings that affect the runtime data plane', 0, () => {
+      const previous = buildSettingsFixture();
+      const uiOnly = buildSettingsFixture();
+      uiOnly.language = 'en';
+      uiOnly.uiModeNight = '2';
+      uiOnly.startScanImmediate = !uiOnly.startScanImmediate;
+      uiOnly.homeDelayTestInterval = 15;
+      uiOnly.netAutomationEnabled = !uiOnly.netAutomationEnabled;
+      uiOnly.netAutomationTrustedSsids = ['home'];
+      expect(shouldRestartRuntimeForSettingsChange(previous, uiOnly)).assertFalse();
+
+      const modeChanged = buildSettingsFixture();
+      modeChanged.mode = APP_MODE_PROXY_ONLY;
+      expect(shouldRestartRuntimeForSettingsChange(previous, modeChanged)).assertTrue();
+
+      const dnsChanged = buildSettingsFixture();
+      dnsChanged.remoteDns = 'https://dns.example/dns-query';
+      expect(shouldRestartRuntimeForSettingsChange(previous, dnsChanged)).assertTrue();
+
+      const localPortChanged = buildSettingsFixture();
+      localPortChanged.localSocksPort++;
+      expect(shouldRestartRuntimeForSettingsChange(previous, localPortChanged)).assertTrue();
     });
   });
 
