@@ -1117,6 +1117,24 @@ if (foregroundAt < 0 || foregroundEnd < 0 ||
     foreground.indexOf('if (!await this.recoverForegroundAuthority())')) {
   throw new Error('foreground resume actions can run after failed authoritative reads');
 }
+const autoStartAt = index.indexOf('  private async handlePendingAutoStartupLaunch(): Promise<void>');
+const autoStartEnd = index.indexOf('\n  // Imports a stashed deep link', autoStartAt);
+const autoStart = index.slice(autoStartAt, autoStartEnd);
+const controlAt = index.indexOf('  private async handleControlDeepLink(');
+const controlEnd = index.indexOf('\n  private async selectControlTargetNode(', controlAt);
+const control = index.slice(controlAt, controlEnd);
+const stopAt = index.indexOf('  private async stopConnection(): Promise<void>');
+const stopEnd = index.indexOf('\n  private async stopConnectionInternal()', stopAt);
+const stop = index.slice(stopAt, stopEnd);
+if (autoStartAt < 0 || autoStartEnd < 0 || controlAt < 0 || controlEnd < 0 || stopAt < 0 || stopEnd < 0 ||
+  !index.includes('private explicitStopGeneration: number = 0;') ||
+  !autoStart.includes('const expectedStopGeneration = this.explicitStopGeneration;') ||
+  !autoStart.includes("await this.handleControlDeepLink('start', '', expectedStopGeneration);") ||
+  control.split('expectedStopGeneration !== this.explicitStopGeneration').length - 1 < 2 ||
+  !stop.includes('this.explicitStopGeneration++;') ||
+  stop.split("AppStorage.setOrCreate('pendingAutoStartupLaunch', false);").length - 1 < 2) {
+  throw new Error('an in-flight AUTO_STARTUP continuation can reconnect after an explicit stop');
+}
 NODE
 printf 'warm AUTO_STARTUP delivery verification passed\n'
 

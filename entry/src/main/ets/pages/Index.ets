@@ -148,6 +148,9 @@ struct Index {
   @State private initialStateLoading: boolean = false;
   @State private initialStateReady: boolean = false;
   @State private initialStateFailed: boolean = false;
+  // 系统 AUTO_STARTUP 待办可能正在等待权威状态/节点存储。用户明确停止会递增代际，
+  // 使已经取走 boolean 待办但尚未真正 start 的续体失效，禁止停止完成后又连回去。
+  private explicitStopGeneration: number = 0;
 
   aboutToAppear(): void {
     if (!this.initialStateLoading && !this.initialStateReady) {
@@ -293,8 +296,13 @@ struct Index {
       SHARED_RUNTIME_CONTROLLER.appendLog(this.t('log.autoStartupDisabled'));
       return;
     }
+    const expectedStopGeneration = this.explicitStopGeneration;
     const cleanupRequired = SHARED_RUNTIME_CONTROLLER.requiresCleanup();
-    await this.handleControlDeepLink('start');
+    await this.handleControlDeepLink('start', '', expectedStopGeneration);
+    if (expectedStopGeneration !== this.explicitStopGeneration) {
+      SHARED_RUNTIME_CONTROLLER.appendLog(this.t('log.autoStartupSuppressedByStop'));
+      return;
+    }
     SHARED_RUNTIME_CONTROLLER.appendLog(this.t(
       cleanupRequired ? 'log.autoStartupCleanupRequired' : 'log.autoStartupStartRequested'
     ));
@@ -760,7 +768,11 @@ struct Index {
     return lower.startsWith('http://') || lower.startsWith('https://');
   }
 
-  private async handleControlDeepLink(action: DeepLinkControlAction, targetNodeId: string = ''): Promise<void> {
+  private async handleControlDeepLink(
+    action: DeepLinkControlAction,
+    targetNodeId: string = '',
+    expectedStopGeneration?: number
+  ): Promise<void> {
     if (action === 'scan') {
       this.openScannerImmediately();
       SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('log.deepLinkControl', 'action', action));
@@ -781,8 +793,14 @@ struct Index {
     }
 
     if (action === 'start') {
+      if (expectedStopGeneration !== undefined && expectedStopGeneration !== this.explicitStopGeneration) {
+        return;
+      }
       const target = await this.selectControlTargetNode(targetNodeId);
       if (!target.ok) {
+        return;
+      }
+      if (expectedStopGeneration !== undefined && expectedStopGeneration !== this.explicitStopGeneration) {
         return;
       }
       if (target.runningSwitch) {
@@ -2134,10 +2152,15 @@ struct Index {
       return;
     }
 
+    this.explicitStopGeneration++;
+    AppStorage.setOrCreate('pendingAutoStartupLaunch', false);
     this.connectionOperationRunning = true;
     try {
       await this.stopConnectionInternal();
     } finally {
+      // 丢弃停止期间才投递、但仍属于当前 Ability 生命周期的旧开机待办。设置重启、
+      // 节点切换等显式流程使用 stopConnectionInternal()，不会被这里阻止自行 start。
+      AppStorage.setOrCreate('pendingAutoStartupLaunch', false);
       this.connectionOperationRunning = false;
     }
   }
