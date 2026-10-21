@@ -387,6 +387,30 @@ if (!store.slice(saveIdsAt, operationAt).includes('return ControlCardStore.enque
 NODE
 printf 'control-card storage transaction verification passed\n'
 
+# Foreground settings changes and a WorkScheduler callback can both reconcile subscription
+# jobs. Serialize the complete stop/start/index-write operation and avoid recursive queue entry
+# when sync discovers that every group is disabled.
+node <<'NODE'
+const fs = require('fs');
+const source = fs.readFileSync('entry/src/main/ets/services/SubscriptionBackgroundScheduler.ets', 'utf8');
+const syncAt = source.indexOf('  static sync(context: common.Context)');
+const syncNowAt = source.indexOf('  private static async syncNow(', syncAt);
+const cancelAt = source.indexOf('  static cancel(', syncNowAt);
+const cancelNowAt = source.indexOf('  private static async cancelNow(', cancelAt);
+const enqueueAt = source.indexOf('  private static enqueueScheduleOperation', cancelNowAt);
+if (syncAt < 0 || syncNowAt < 0 || cancelAt < 0 || cancelNowAt < 0 || enqueueAt < 0 ||
+  !source.slice(syncAt, syncNowAt).includes('SubscriptionBackgroundScheduler.enqueueScheduleOperation(') ||
+  !source.slice(syncNowAt, cancelAt).includes('return SubscriptionBackgroundScheduler.cancelNow(') ||
+  source.slice(syncNowAt, cancelAt).includes('return SubscriptionBackgroundScheduler.cancel(') ||
+  !source.slice(cancelAt, cancelNowAt).includes('const workIdsSnapshot = knownWorkIds.slice();') ||
+  !source.slice(cancelAt, cancelNowAt).includes('SubscriptionBackgroundScheduler.enqueueScheduleOperation(') ||
+  !source.includes('private static scheduleTail: Promise<void> = Promise.resolve();') ||
+  !source.includes('SubscriptionBackgroundScheduler.scheduleTail = task.then(')) {
+  throw new Error('subscription schedule reconciliation is not serialized safely');
+}
+NODE
+printf 'subscription schedule serialization verification passed\n'
+
 # Manual link entry is a separate daily add path from camera/photo scanning. It must
 # parse into a redacted summary on the first action and require a second action for the
 # exact unchanged input before any node-store write.

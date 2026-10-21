@@ -36,11 +36,18 @@ export interface StoredSubscriptionScheduledWorksSelection {
 }
 
 export class SubscriptionBackgroundScheduler {
-  static async sync(context: common.Context): Promise<SubscriptionBackgroundScheduleResult> {
+  private static scheduleTail: Promise<void> = Promise.resolve();
+
+  static sync(context: common.Context): Promise<SubscriptionBackgroundScheduleResult> {
+    return SubscriptionBackgroundScheduler.enqueueScheduleOperation(
+      (): Promise<SubscriptionBackgroundScheduleResult> => SubscriptionBackgroundScheduler.syncNow(context));
+  }
+
+  private static async syncNow(context: common.Context): Promise<SubscriptionBackgroundScheduleResult> {
     const profile = await SubscriptionStore.load(context);
     const plan = buildSubscriptionAutoUpdateSchedulePlan(profile.groups);
     if (!plan.enabled) {
-      return SubscriptionBackgroundScheduler.cancel(
+      return SubscriptionBackgroundScheduler.cancelNow(
         context,
         'No enabled subscription auto-update groups.',
         SubscriptionBackgroundScheduler.workIdsForGroups(profile.groups)
@@ -75,10 +82,21 @@ export class SubscriptionBackgroundScheduler {
     }
   }
 
-  static async cancel(
+  static cancel(
     context: common.Context,
     reason: string = 'Subscription background auto-update disabled.',
     knownWorkIds: Array<number> = []
+  ): Promise<SubscriptionBackgroundScheduleResult> {
+    const workIdsSnapshot = knownWorkIds.slice();
+    return SubscriptionBackgroundScheduler.enqueueScheduleOperation(
+      (): Promise<SubscriptionBackgroundScheduleResult> =>
+        SubscriptionBackgroundScheduler.cancelNow(context, reason, workIdsSnapshot));
+  }
+
+  private static async cancelNow(
+    context: common.Context,
+    reason: string,
+    knownWorkIds: Array<number>
   ): Promise<SubscriptionBackgroundScheduleResult> {
     // Even if the persisted task index is damaged, the legacy task and every task
     // derivable from the current subscription database must still be stopped.
@@ -105,6 +123,18 @@ export class SubscriptionBackgroundScheduler {
       repeatCycleTimeMs: 0,
       message: reason
     };
+  }
+
+  private static enqueueScheduleOperation<T>(operation: () => Promise<T>): Promise<T> {
+    const task = SubscriptionBackgroundScheduler.scheduleTail.then(
+      (): Promise<T> => operation(),
+      (): Promise<T> => operation()
+    );
+    SubscriptionBackgroundScheduler.scheduleTail = task.then(
+      (): void => {},
+      (_error: Object): void => {}
+    );
+    return task;
   }
 
   private static stopExistingWork(previous: Array<SubscriptionScheduledWorkRecord>): void {
