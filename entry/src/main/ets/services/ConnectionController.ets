@@ -132,6 +132,18 @@ export class ConnectionController {
     const fallbackLogLevel = normalizeCoreLogLevel(resolvedRuntimeSettings?.logLevel ?? '');
     this.generatedConfig.configJson = injectXrayLogFile(this.generatedConfig.configJson, coreLogPath, fallbackLogLevel);
     this.runtimeMode = normalizeAppRuntimeMode(resolvedRuntimeSettings?.mode ?? settings?.mode, APP_MODE_VPN);
+    let handoverConfigJson = '';
+    if (this.runtimeMode === APP_MODE_VPN) {
+      // 初次启动可使用当前承载的域名预解析结果；切网重载必须保留原始域名和用户自己
+      // 配置的静态 hosts，避免把旧网络解析出的临时地址永久带到新承载。配置完全相同
+      // 时不重复塞进 Want，减少大体积完整配置的跨进程参数开销。
+      const handoverConfig = buildRuntimeXrayConfig(runtimeConfigJson, runtimeSettings, validation.configType);
+      const handoverLogLevel = normalizeCoreLogLevel(runtimeSettings?.logLevel ?? '');
+      handoverConfig.configJson = injectXrayLogFile(handoverConfig.configJson, coreLogPath, handoverLogLevel);
+      if (handoverConfig.configJson !== this.generatedConfig.configJson) {
+        handoverConfigJson = handoverConfig.configJson;
+      }
+    }
     if (this.runtimeMode === APP_MODE_PROXY_ONLY) {
       this.proxyReloadConfigJson = runtimeConfigJson;
       this.proxyReloadSettings = runtimeSettings;
@@ -158,7 +170,8 @@ export class ConnectionController {
         CORE_TYPE_XRAY,
         this.generatedConfig.runtimeHealthPort ?? VPN_DATA_SOCKS_PORT,
         profile.updatedAt,
-        vpnSessionId
+        vpnSessionId,
+        handoverConfigJson
       )), START_VPN_TIMEOUT_MS, '启动 VPN 超时：系统 VPN 授权服务没有响应。若 hilog 中出现 com.huawei.hmos.vpndialog bundle not exist，说明当前系统镜像缺少 VPN 授权组件，请改用真机测试。');
       hilog.info(LOG_DOMAIN, LOG_TAG, 'startVpnExtensionAbility returned.');
       const startEvent = await this.waitForVpnStartEvent(context, requestedAt, vpnSessionId, (event: DiagnosticEvent) => {

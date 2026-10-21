@@ -18,6 +18,7 @@ import {
   normalizeVpnMtu,
   VPN_COMMAND_KEY,
   VPN_COMMAND_STOP,
+  VPN_HANDOVER_CONFIG_KEY,
   VPN_HEALTH_PORT_KEY,
   VPN_PROFILE_UPDATED_AT_KEY,
   VPN_SESSION_ID_KEY,
@@ -106,6 +107,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   private healthProbeInFlight: boolean = false;
   private runtimeHealthProbePort: number = 0;
   private activeConfigJson: string = '';
+  private activeHandoverConfigJson: string = '';
   private coreReloading: boolean = false;
   // 网络场景自动化（后台断开）：VPN 扩展进程内轮询网络，切到可信网络即拆隧道。
   private netScenePollTimerId: number = -1;
@@ -172,6 +174,8 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   private async startVpn(want: Want): Promise<void> {
     const configJson = this.getStringParameter(want, 'xrayConfigJson', '');
     this.activeConfigJson = configJson;
+    const handoverConfigJson = this.getStringParameter(want, VPN_HANDOVER_CONFIG_KEY, '');
+    this.activeHandoverConfigJson = handoverConfigJson.length > 0 ? handoverConfigJson : configJson;
     const useSingbox = isSingboxCore(this.getStringParameter(want, 'coreType', 'xray'));
     this.activeCoreType = useSingbox ? 'singbox' : 'xray';
     // TUN 数据面固定把流量交给主进程传入的回环 SOCKS 入口；完整配置若没有
@@ -394,8 +398,8 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       }
       this.ensureStartAllowed('network handover core stop');
       const startResult = this.activeCoreType === 'singbox'
-        ? startNativeSingbox(this.activeConfigJson, this.context.filesDir)
-        : startNativeXray(this.activeConfigJson, this.context.filesDir);
+        ? startNativeSingbox(this.activeHandoverConfigJson, this.context.filesDir)
+        : startNativeXray(this.activeHandoverConfigJson, this.context.filesDir);
       if (!startResult.ok) {
         throw new Error(startResult.message);
       }
@@ -521,6 +525,9 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     } finally {
       this.cleaningUp = false;
     }
+    // 配置只用于当前内存会话与切网重载；清理结束后立即释放其中可能包含的节点凭据。
+    this.activeConfigJson = '';
+    this.activeHandoverConfigJson = '';
     if (cleanupCompleted) {
       this.emitInfo('VPN cleanup finished.', `session=${this.sessionId}`);
     } else {

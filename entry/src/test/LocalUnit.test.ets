@@ -95,7 +95,7 @@ import { DEFAULT_APP_SETTINGS, SettingsStore } from '../main/ets/storage/Setting
 import { formatBytes, formatDuration } from '../main/ets/utils/Formatters';
 import { formatOne, localizedProfileSavedText, localizeCoreMessage, localizeDiagnosticHeartbeat } from '../main/ets/utils/LocalizationPresenter';
 import { isScanCancelled } from '../main/ets/utils/QrScan';
-import { BUNDLE_NAME, DEFAULT_VPN_DNS_ADDRESSES, createDefaultVpnConfig, isMatchingVpnSessionDetails, isValidVpnSessionId, normalizeVpnDnsAddresses } from '../main/ets/vpn/VpnConstants';
+import { BUNDLE_NAME, DEFAULT_VPN_DNS_ADDRESSES, createDefaultVpnConfig, createVpnWant, isMatchingVpnSessionDetails, isValidVpnSessionId, normalizeVpnDnsAddresses } from '../main/ets/vpn/VpnConstants';
 
 const VLESS_REALITY_OUTBOUND: string =
   '{"protocol":"vless","tag":"proxy","settings":{"vnext":[{"address":"example.com","port":443,"users":[{"id":"00000000-0000-0000-0000-000000000000","encryption":"none","flow":"xtls-rprx-vision"}]}]},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"serverName":"www.example.com","publicKey":"test-public-key","shortId":"abcd","fingerprint":"chrome"}}}';
@@ -2926,6 +2926,13 @@ export default function localUnitTest() {
       expect(isMatchingVpnSessionDetails('session=old', '1000-42')).assertFalse();
       expect(isMatchingVpnSessionDetails(undefined, '1000-42')).assertFalse();
       expect(isMatchingVpnSessionDetails(undefined, '')).assertTrue();
+    });
+
+    it('carries an in-memory handover config to the VPN extension', 0, () => {
+      const want = createVpnWant('initial-config', 'xray', 18082, 123, 'session-1', 'handover-config');
+      expect(want.parameters?.['xrayConfigJson']?.toString()).assertEqual('initial-config');
+      expect(want.parameters?.['handoverConfigJson']?.toString()).assertEqual('handover-config');
+      expect(want.parameters?.['sessionId']?.toString()).assertEqual('session-1');
     });
 
     it('only applies current VPN session diagnostic errors to runtime state', 0, () => {

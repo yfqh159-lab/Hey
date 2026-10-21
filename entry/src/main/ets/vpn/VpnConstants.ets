@@ -61,6 +61,7 @@ const ADDRESS_FAMILY_IPV6: number = 2;
 export const VPN_CORE_TYPE_KEY: string = 'coreType';
 export const VPN_HEALTH_PORT_KEY: string = 'healthPort';
 export const VPN_PROFILE_UPDATED_AT_KEY: string = 'profileUpdatedAt';
+export const VPN_HANDOVER_CONFIG_KEY: string = 'handoverConfigJson';
 
 export function isValidVpnSessionId(value: string): boolean {
   return value.length > 0 && value.length <= 96 && /^[A-Za-z0-9_-]+$/.test(value);
@@ -85,7 +86,8 @@ export function createVpnWant(
   coreType?: string,
   healthPort?: number,
   profileUpdatedAt?: number,
-  sessionId?: string
+  sessionId?: string,
+  handoverConfigJson?: string
 ): Want {
   return {
     deviceId: '',
@@ -96,7 +98,8 @@ export function createVpnWant(
       coreType: (coreType ?? 'xray') as Object,
       healthPort: (healthPort ?? 0) as Object,
       profileUpdatedAt: (profileUpdatedAt ?? 0) as Object,
-      sessionId: (sessionId ?? '') as Object
+      sessionId: (sessionId ?? '') as Object,
+      handoverConfigJson: (handoverConfigJson ?? '') as Object
     }
   };
 }
