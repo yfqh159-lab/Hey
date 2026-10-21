@@ -1553,8 +1553,23 @@ const reconnect = index.slice(reconnectAt, reconnectEnd);
 const cleanupGuard = reconnect.indexOf('if (SHARED_RUNTIME_CONTROLLER.requiresCleanup())');
 const firstDirectStart = reconnect.indexOf('await this.startConnectionInternal();');
 if (reconnectAt < 0 || reconnectEnd < 0 || cleanupGuard < 0 || firstDirectStart < 0 ||
-  cleanupGuard > firstDirectStart || !reconnect.slice(cleanupGuard, firstDirectStart).includes('await this.stopConnection();')) {
+  cleanupGuard > firstDirectStart || !reconnect.slice(cleanupGuard, firstDirectStart).includes('await this.stopConnection();') ||
+  !reconnect.includes('const expectedStopGeneration = this.explicitStopGeneration;') ||
+  reconnect.split('expectedStopGeneration === this.explicitStopGeneration').length - 1 < 2) {
   throw new Error('service restart can bypass incomplete-cleanup isolation');
+}
+const settingsRestartAt = index.indexOf('  private async handlePendingRuntimeSettingsRestart(): Promise<void>');
+const settingsRestartEnd = index.indexOf('\n  private async handlePendingAutoStartupLaunch()', settingsRestartAt);
+const settingsRestart = index.slice(settingsRestartAt, settingsRestartEnd);
+const selectNodeAt = index.indexOf('  private async selectNode(node: ProxyNode): Promise<void>');
+const selectNodeEnd = index.indexOf('\n  private shareNode(', selectNodeAt);
+const selectNode = index.slice(selectNodeAt, selectNodeEnd);
+if (settingsRestartAt < 0 || settingsRestartEnd < 0 || selectNodeAt < 0 || selectNodeEnd < 0 ||
+  !settingsRestart.includes('const expectedStopGeneration = this.explicitStopGeneration;') ||
+  !settingsRestart.includes('stopped && expectedStopGeneration === this.explicitStopGeneration') ||
+  !selectNode.includes('const expectedStopGeneration = this.explicitStopGeneration;') ||
+  !selectNode.includes('stopped && expectedStopGeneration === this.explicitStopGeneration')) {
+  throw new Error('stop-then-start continuations are not isolated from an explicit user stop');
 }
 NODE
 printf 'connection startup cancellation verification passed\n'
@@ -1578,6 +1593,14 @@ if (!runtime.includes('private runtimeStartGeneration: number = 0;') ||
   controllerAwait < 0 || generationGuard < controllerAwait || applySnapshot < generationGuard ||
   !stop.includes('this.runtimeStartGeneration++;')) {
   throw new Error('runtime start continuations are not generation-isolated from cancellation');
+}
+const reconnectAt = runtime.indexOf('  async reconnectWithProfile(', stopAt);
+const reconnectEnd = runtime.indexOf('\n  // Proxy-only', reconnectAt);
+const reconnect = runtime.slice(reconnectAt, reconnectEnd);
+if (reconnectAt < 0 || reconnectEnd < 0 ||
+  !reconnect.includes('const restartGeneration = this.runtimeStartGeneration + 1;') ||
+  !reconnect.includes('this.runtimeStartGeneration !== restartGeneration')) {
+  throw new Error('shared profile reconnect can resume after a concurrent explicit stop');
 }
 const runningBranch = start.indexOf('if (this.status === ConnectionStatus.RUNNING)', applySnapshot);
 const connectivity = start.indexOf('this.scheduleRuntimeConnectivityInfo(', runningBranch);

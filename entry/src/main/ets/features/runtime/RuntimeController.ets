@@ -223,8 +223,11 @@ export class RuntimeController {
     if (this.status !== ConnectionStatus.RUNNING) {
       return this.snapshot();
     }
+    const restartGeneration = this.runtimeStartGeneration + 1;
     const stopped = await this.stop(context, language);
-    if (stopped.status !== ConnectionStatus.IDLE) {
+    // stop() advances the generation once. Any concurrent explicit stop advances it again,
+    // so an older reconnect continuation must not recreate a session after the user stopped it.
+    if (stopped.status !== ConnectionStatus.IDLE || this.runtimeStartGeneration !== restartGeneration) {
       return stopped;
     }
     return this.start(context, profile, settings, language);

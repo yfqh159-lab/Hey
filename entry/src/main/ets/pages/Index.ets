@@ -338,11 +338,12 @@ struct Index {
       return;
     }
 
+    const expectedStopGeneration = this.explicitStopGeneration;
     this.connectionOperationRunning = true;
     try {
       SHARED_RUNTIME_CONTROLLER.appendLog(this.t('log.settingsRestartRequested'));
       const stopped = await this.stopConnectionInternal();
-      if (stopped) {
+      if (stopped && expectedStopGeneration === this.explicitStopGeneration) {
         await this.startConnectionInternal();
       }
     } finally {
@@ -2461,6 +2462,7 @@ struct Index {
       return;
     }
     const context = this.getUIContext().getHostContext() as common.Context;
+    const expectedStopGeneration = this.explicitStopGeneration;
     const shouldSwitchConnection = this.isRunning() && node.id !== this.selectedNodeId;
     this.selectedNodeId = node.id;
     this.outboundJson = node.outboundJson;
@@ -2478,7 +2480,7 @@ struct Index {
       if (shouldSwitchConnection && state.lastError.length === 0) {
         SHARED_RUNTIME_CONTROLLER.appendLog(this.t('log.switchNodeReconnect'));
         const stopped = await this.stopConnectionInternal();
-        if (stopped) {
+        if (stopped && expectedStopGeneration === this.explicitStopGeneration) {
           await this.startConnectionInternal();
         }
       }
@@ -3413,16 +3415,19 @@ struct Index {
       return;
     }
 
+    const expectedStopGeneration = this.explicitStopGeneration;
     this.connectionOperationRunning = true;
     try {
       if (this.isRunning()) {
         SHARED_RUNTIME_CONTROLLER.appendLog(this.t('log.restartingService'));
         const stopped = await this.stopConnectionInternal();
-        if (stopped) {
+        if (stopped && expectedStopGeneration === this.explicitStopGeneration) {
           await this.startConnectionInternal();
         }
       } else {
-        await this.startConnectionInternal();
+        if (expectedStopGeneration === this.explicitStopGeneration) {
+          await this.startConnectionInternal();
+        }
       }
     } finally {
       this.connectionOperationRunning = false;
