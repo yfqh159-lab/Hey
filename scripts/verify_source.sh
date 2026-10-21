@@ -2102,6 +2102,33 @@ if (!networkScene.includes('const MAX_REGISTER_RETRIES: number = 3;') ||
 NODE
 printf 'egress handover and listener lifecycle verification passed\n'
 
+node <<'NODE'
+const fs = require('fs');
+const ui = fs.readFileSync('entry/src/main/ets/services/NetworkSceneManager.ets', 'utf8');
+const vpn = fs.readFileSync('entry/src/main/ets/vpn/HeyVpnAbility.ets', 'utf8');
+
+const uiDecisionAt = ui.indexOf('if (action === NET_ACTION_DISCONNECT) {');
+const uiDisconnectAt = ui.indexOf('await this.applyDisconnect(context);', uiDecisionAt);
+const uiConfirmAt = ui.indexOf('await this.confirmDisconnectStillConfigured(', uiDecisionAt);
+if (uiDecisionAt < 0 || uiConfirmAt < uiDecisionAt || uiDisconnectAt < uiConfirmAt ||
+  !ui.includes('SHARED_RUNTIME_CONTROLLER.runtimeStartedAt() !== evaluatedVpnStartedAt') ||
+  !ui.includes("'Network auto-disconnect confirmation timed out.'") ||
+  !ui.includes('effectiveAction = NET_ACTION_NOOP;')) {
+  throw new Error('UI network observer can apply a stale trusted-network disconnect decision');
+}
+
+const vpnDecisionAt = vpn.indexOf('if (action === NET_ACTION_DISCONNECT) {');
+const vpnConfirmAt = vpn.indexOf('await this.confirmNetSceneDisconnect(ctx, sessionGeneration);', vpnDecisionAt);
+const vpnCleanupAt = vpn.indexOf("this.requestCleanup('Network scene auto-disconnect.'", vpnDecisionAt);
+if (vpnDecisionAt < 0 || vpnConfirmAt < vpnDecisionAt || vpnCleanupAt < vpnConfirmAt ||
+  !vpn.includes("'Network auto-disconnect confirmation timed out.'") ||
+  !vpn.includes('sessionGeneration !== this.sessionGeneration || this.cleaningUp || this.stopRequested') ||
+  !vpn.includes('shouldReloadActiveCoreAfterNetworkChange(ctx, effectiveAction)')) {
+  throw new Error('VPN Extension can apply a stale trusted-network disconnect decision');
+}
+NODE
+printf 'fresh trusted-network disconnect decision verification passed\n'
+
 vpn_ability="entry/src/main/ets/vpn/HeyVpnAbility.ets"
 net_scene_manager="entry/src/main/ets/services/NetworkSceneManager.ets"
 if ! grep -q 'NET_SCENE_POLL_STEP_TIMEOUT_MS' "${vpn_ability}" ||

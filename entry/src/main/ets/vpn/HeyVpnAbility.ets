@@ -5,7 +5,9 @@ import Want from '@ohos.app.ability.Want';
 import { NetworkProbe } from '../services/NetworkProbe';
 import {
   NetAutomationConfig,
+  NetContext,
   NET_ACTION_DISCONNECT,
+  NET_ACTION_NOOP,
   decideNetAutomationAction,
   networkContextSignature,
   networkTransportSignature,
@@ -542,24 +544,34 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         cellularTrusted: settings.netAutomationCellularTrusted
       };
       const action = decideNetAutomationAction(ctx, cfg, true);
+      let effectiveAction = action;
       this.emitInfo('Net scene decision.', `kind=${ctx.kind}; action=${action}`);
       if (action === NET_ACTION_DISCONNECT) {
-        this.emitInfo('Net scene: trusted network, auto-disconnecting.', `kind=${ctx.kind}`);
-        const stoppedAt = Date.now();
-        // 实际数据面清理优先于辅助 UI 标志。cleanup() 在首个系统 destroy await 前已
-        // 同步置停止闩锁、写 inactive 并停止核心/tun2socks；即使文件系统写标志卡顿，
-        // 也不能继续让代理承载流量。时间戳取触发时刻，迟到落盘不会命中新会话。
-        this.requestCleanup('Network scene auto-disconnect.', `session=${this.sessionId}`);
-        // 写跨进程标志，供主进程回前台校正「运行中」滞留状态。
-        try {
-          await NetSceneStopFlag.markStopped(this.context, stoppedAt);
-        } catch (error) {
-          // 标志只辅助 UI 跨进程校正；落盘失败不能阻止实际 VPN 清理。
-          this.emitInfo('Net scene stop flag write failed.', this.errorMessage(error));
+        // 初次设置读取与网络探测之间可能恰逢用户关闭自动化或修改可信网络。拆除数据面
+        // 属于破坏性动作，必须用同一会话内第二次持久设置读取确认；读取失败时保留 VPN，
+        // 仍允许下面按普通承载切换重载核心。
+        const disconnectConfirmed = await this.confirmNetSceneDisconnect(ctx, sessionGeneration);
+        if (disconnectConfirmed) {
+          this.emitInfo('Net scene: trusted network, auto-disconnecting.', `kind=${ctx.kind}`);
+          const stoppedAt = Date.now();
+          // 实际数据面清理优先于辅助 UI 标志。cleanup() 在首个系统 destroy await 前已
+          // 同步置停止闩锁、写 inactive 并停止核心/tun2socks；即使文件系统写标志卡顿，
+          // 也不能继续让代理承载流量。时间戳取触发时刻，迟到落盘不会命中新会话。
+          this.requestCleanup('Network scene auto-disconnect.', `session=${this.sessionId}`);
+          // 写跨进程标志，供主进程回前台校正「运行中」滞留状态。
+          try {
+            await NetSceneStopFlag.markStopped(this.context, stoppedAt);
+          } catch (error) {
+            // 标志只辅助 UI 跨进程校正；落盘失败不能阻止实际 VPN 清理。
+            this.emitInfo('Net scene stop flag write failed.', this.errorMessage(error));
+          }
+          return;
         }
-        return;
+        this.emitInfo('Net scene auto-disconnect skipped after settings confirmation.',
+          `kind=${ctx.kind}; session=${this.sessionId}`);
+        effectiveAction = NET_ACTION_NOOP;
       }
-      if (transportChanged && shouldReloadActiveCoreAfterNetworkChange(ctx, action)) {
+      if (transportChanged && shouldReloadActiveCoreAfterNetworkChange(ctx, effectiveAction)) {
         // 蜂窝→Wi-Fi 常是 make-before-break：旧核心连接可能仍挂在即将消失的承载上。
         // 只重载当前核心并保留 VPN/TUN，迫使域名解析和新出站使用当前默认网络；一次网络
         // 签名变化最多执行一次。失败时清理整个会话，等待用户手动重连。
@@ -643,6 +655,31 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       (_error: Object): void => this.releaseSettingsLoad(promise)
     );
     return promise;
+  }
+
+  private async confirmNetSceneDisconnect(ctx: NetContext, sessionGeneration: number): Promise<boolean> {
+    try {
+      const settings = await withTimeout(
+        this.loadSettingsForNetScene(),
+        NET_SCENE_POLL_STEP_TIMEOUT_MS,
+        'Network auto-disconnect confirmation timed out.'
+      );
+      if (sessionGeneration !== this.sessionGeneration || this.cleaningUp || this.stopRequested) {
+        return false;
+      }
+      const cfg: NetAutomationConfig = {
+        enabled: settings.netAutomationEnabled,
+        trustedSsids: settings.netAutomationTrustedSsids,
+        cellularTrusted: settings.netAutomationCellularTrusted
+      };
+      return decideNetAutomationAction(ctx, cfg, true) === NET_ACTION_DISCONNECT;
+    } catch (error) {
+      if (sessionGeneration === this.sessionGeneration && !this.cleaningUp && !this.stopRequested) {
+        this.emitInfo('Net scene auto-disconnect confirmation failed; keeping VPN active.',
+          this.errorMessage(error));
+      }
+      return false;
+    }
   }
 
   private releaseSettingsLoad(promise: Promise<AppSettings>): void {

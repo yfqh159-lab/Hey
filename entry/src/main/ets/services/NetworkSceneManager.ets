@@ -10,7 +10,9 @@ import { APP_LANGUAGE_STORAGE_KEY, normalizeLanguage, translate } from '../core/
 import { AppLanguage, AppSettings } from '../core/Profile';
 import {
   NetAutomationConfig,
+  NetContext,
   NET_ACTION_DISCONNECT,
+  NET_ACTION_NOOP,
   decideNetAutomationAction,
   networkContextSignature,
   networkTransportSignature,
@@ -340,6 +342,7 @@ export class NetworkSceneManager {
       // 此自动化只管理系统 VPN/TUN。仅代理模式没有系统隧道，切换可信网络
       // 不应悄悄停止用户正在使用的本地 SOCKS/HTTP 监听器。
       const running = SHARED_RUNTIME_CONTROLLER.isVpnRunning();
+      const evaluatedVpnStartedAt = running ? SHARED_RUNTIME_CONTROLLER.runtimeStartedAt() : 0;
       const action = decideNetAutomationAction(ctx, cfg, running);
       const runtimeRunning = SHARED_RUNTIME_CONTROLLER.isRunning();
       this.lastHandledSignature = signature;
@@ -354,12 +357,30 @@ export class NetworkSceneManager {
       if (!this.isCurrentEvaluation(context, generation)) {
         return;
       }
+      let effectiveAction = action;
       if (action === NET_ACTION_DISCONNECT) {
-        await this.applyDisconnect(context);
-      } else if (runtimeRunning) {
+        // 设置页保存、网络探测和跨进程停止标志读取都是异步的。真正拆隧道前重新读取
+        // 已落盘配置，并绑定最初参与决策的 VPN 会话；旧评估不得依据已关闭的自动化
+        // 设置停止当前会话，也不得在用户停掉旧会话并手动启动新会话后误停新会话。
+        const disconnectConfirmed = await this.confirmDisconnectStillConfigured(context, generation, ctx);
+        if (!this.isCurrentEvaluation(context, generation)) {
+          return;
+        }
+        if (!SHARED_RUNTIME_CONTROLLER.isVpnRunning() ||
+          SHARED_RUNTIME_CONTROLLER.runtimeStartedAt() !== evaluatedVpnStartedAt) {
+          return;
+        }
+        if (disconnectConfirmed) {
+          await this.applyDisconnect(context);
+          return;
+        }
+        effectiveAction = NET_ACTION_NOOP;
+        SHARED_RUNTIME_CONTROLLER.appendLog('[netscene] stale auto-disconnect decision skipped.');
+      }
+      if (SHARED_RUNTIME_CONTROLLER.isRunning()) {
         const language = this.currentLanguage();
         const usableChangedTransport = transportChanged &&
-          shouldReloadActiveCoreAfterNetworkChange(ctx, action);
+          shouldReloadActiveCoreAfterNetworkChange(ctx, effectiveAction);
         if (transportChanged) {
           // 先撤销上一承载的在途出口请求；否则旧 Wi-Fi/蜂窝响应可能在新请求前后
           // 迟到写回，继续冒充当前出口。瞬时无网络只清空，等待下一可用承载事件。
@@ -403,6 +424,33 @@ export class NetworkSceneManager {
       (_error: Object): void => this.releaseSettingsLoad(promise)
     );
     return promise;
+  }
+
+  private async confirmDisconnectStillConfigured(
+    context: common.Context,
+    generation: number,
+    ctx: NetContext
+  ): Promise<boolean> {
+    try {
+      const settings = await withTimeout(
+        this.loadSettingsSingleFlight(context),
+        EVALUATION_STEP_TIMEOUT_MS,
+        'Network auto-disconnect confirmation timed out.'
+      );
+      if (!this.isCurrentEvaluation(context, generation)) {
+        return false;
+      }
+      const cfg: NetAutomationConfig = {
+        enabled: settings.netAutomationEnabled,
+        trustedSsids: settings.netAutomationTrustedSsids,
+        cellularTrusted: settings.netAutomationCellularTrusted
+      };
+      return decideNetAutomationAction(ctx, cfg, true) === NET_ACTION_DISCONNECT;
+    } catch (error) {
+      hilog.warn(DOMAIN, TAG, 'auto-disconnect confirmation failed: %{public}s',
+        redactDiagnosticText(JSON.stringify(error)));
+      return false;
+    }
   }
 
   private releaseSettingsLoad(promise: Promise<AppSettings>): void {
