@@ -22,6 +22,22 @@ export interface PersistedVpnRuntimeState {
   cleanupAttempted?: boolean;
 }
 
+export interface PersistedVpnRuntimeStateReadResult {
+  state: PersistedVpnRuntimeState | null;
+  authoritativeArtifactInvalid: boolean;
+}
+
+interface VpnRuntimeArtifactSnapshot {
+  exists: boolean;
+  content: string | null;
+}
+
+interface VpnRuntimeArtifactSet {
+  primary: VpnRuntimeArtifactSnapshot;
+  backup: VpnRuntimeArtifactSnapshot;
+  temp: VpnRuntimeArtifactSnapshot;
+}
+
 export function parsePersistedVpnRuntimeState(content: string): PersistedVpnRuntimeState | null {
   try {
     const value = JSON.parse(content) as PersistedVpnRuntimeState;
@@ -118,6 +134,34 @@ export function hasInvalidPersistedVpnRuntimeArtifacts(
   return backupContent !== null && parsePersistedVpnRuntimeState(backupContent) === null;
 }
 
+export function inspectPersistedVpnRuntimeArtifacts(
+  primaryContent: string | null,
+  backupContent: string | null,
+  tempContent: string | null = null
+): PersistedVpnRuntimeStateReadResult {
+  return inspectVpnRuntimeArtifactSnapshots(
+    { exists: primaryContent !== null, content: primaryContent },
+    { exists: backupContent !== null, content: backupContent },
+    { exists: tempContent !== null, content: tempContent }
+  );
+}
+
+function inspectVpnRuntimeArtifactSnapshots(
+  primary: VpnRuntimeArtifactSnapshot,
+  backup: VpnRuntimeArtifactSnapshot,
+  temp: VpnRuntimeArtifactSnapshot
+): PersistedVpnRuntimeStateReadResult {
+  const authoritative = temp.exists ? temp : (primary.exists ? primary : backup);
+  const authoritativeContent = authoritative.content;
+  return {
+    // 读取失败的已存在工件以 null 参与选择，使调用方仍可看到低优先级恢复候选；
+    // authoritativeArtifactInvalid 同时阻止它被当成可信的空闲/运行结论。
+    state: selectPersistedVpnRuntimeState(primary.content, backup.content, temp.content),
+    authoritativeArtifactInvalid: authoritative.exists &&
+      (authoritativeContent === null || parsePersistedVpnRuntimeState(authoritativeContent) === null)
+  };
+}
+
 export class VpnRuntimeStateStore {
   static write(context: common.Context, state: PersistedVpnRuntimeState): boolean {
     const targetPath = VpnRuntimeStateStore.path(context, VPN_RUNTIME_STATE_FILE);
@@ -172,39 +216,29 @@ export class VpnRuntimeStateStore {
   }
 
   static read(context: common.Context): PersistedVpnRuntimeState | null {
-    try {
-      const primary = VpnRuntimeStateStore.readTextIfExists(
-        VpnRuntimeStateStore.path(context, VPN_RUNTIME_STATE_FILE)
-      );
-      const backup = VpnRuntimeStateStore.readTextIfExists(
-        VpnRuntimeStateStore.path(context, VPN_RUNTIME_STATE_BACKUP_FILE)
-      );
-      const temp = VpnRuntimeStateStore.readTextIfExists(
-        VpnRuntimeStateStore.path(context, VPN_RUNTIME_STATE_TEMP_FILE)
-      );
-      return selectPersistedVpnRuntimeState(primary, backup, temp);
-    } catch (error) {
-      return null;
+    return VpnRuntimeStateStore.readWithEvidence(context).state;
+  }
+
+  // 一次 API 调用复读并确认同一组 temp/主文件/备份，同时返回候选状态和可信度。调用方若先 read()
+  // 再单独检查损坏标记，VPN Extension 恰好在两次读取间提交状态时可能形成自相矛盾的
+  // “旧 inactive + 新文件有效”结论，后台订阅因而误走物理网络直连。
+  static readWithEvidence(context: common.Context): PersistedVpnRuntimeStateReadResult {
+    const first = VpnRuntimeStateStore.readArtifactSet(context);
+    const confirmed = VpnRuntimeStateStore.readArtifactSet(context);
+    const result = inspectVpnRuntimeArtifactSnapshots(
+      confirmed.primary, confirmed.backup, confirmed.temp);
+    if (!VpnRuntimeStateStore.sameArtifactSet(first, confirmed)) {
+      // 状态事务恰好跨过本次读取，不能把不同提交代际拼成可用于直连或“已连接”的证据。
+      return { state: result.state, authoritativeArtifactInvalid: true };
     }
+    return result;
   }
 
   // 与 selectPersistedVpnRuntimeState 使用同一权威顺序：完整 temp > 主文件 > 备份。
   // 只有当前最高优先级的已存在工件损坏/不可读才算不可信；有效 temp 或主文件已经
   // 完整表达当前意图时，低优先级的旧损坏备份不能永久阻断空闲态网络请求。
   static hasInvalidStateArtifacts(context: common.Context): boolean {
-    const tempResult = VpnRuntimeStateStore.artifactValidity(
-      VpnRuntimeStateStore.path(context, VPN_RUNTIME_STATE_TEMP_FILE));
-    if (tempResult !== 'missing') {
-      return tempResult === 'invalid';
-    }
-    const primaryResult = VpnRuntimeStateStore.artifactValidity(
-      VpnRuntimeStateStore.path(context, VPN_RUNTIME_STATE_FILE));
-    if (primaryResult !== 'missing') {
-      return primaryResult === 'invalid';
-    }
-    const backupResult = VpnRuntimeStateStore.artifactValidity(
-      VpnRuntimeStateStore.path(context, VPN_RUNTIME_STATE_BACKUP_FILE));
-    return backupResult === 'invalid';
+    return VpnRuntimeStateStore.readWithEvidence(context).authoritativeArtifactInvalid;
   }
 
   static stopped(
@@ -247,27 +281,38 @@ export class VpnRuntimeStateStore {
     }
   }
 
-  private static readTextIfExists(path: string): string | null {
+  private static readArtifactSnapshot(path: string): VpnRuntimeArtifactSnapshot {
     try {
       if (!fs.accessSync(path)) {
-        return null;
+        return { exists: false, content: null };
       }
-      return fs.readTextSync(path);
+      return { exists: true, content: fs.readTextSync(path) };
     } catch (error) {
-      return null;
+      // 无法确认是瞬时访问错误还是损坏，涉及订阅凭据时必须保守处理。
+      return { exists: true, content: null };
     }
   }
 
-  private static artifactValidity(path: string): 'missing' | 'valid' | 'invalid' {
-    try {
-      if (!fs.accessSync(path)) {
-        return 'missing';
-      }
-      return parsePersistedVpnRuntimeState(fs.readTextSync(path)) === null ? 'invalid' : 'valid';
-    } catch (error) {
-      // 无法确认是瞬时访问错误还是损坏，涉及订阅凭据时必须保守处理。
-      return 'invalid';
-    }
+  private static readArtifactSet(context: common.Context): VpnRuntimeArtifactSet {
+    return {
+      // temp 是写事务中最新意图；其后仍复读整组并要求完全一致，避免 rename 跨越读取。
+      temp: VpnRuntimeStateStore.readArtifactSnapshot(
+        VpnRuntimeStateStore.path(context, VPN_RUNTIME_STATE_TEMP_FILE)),
+      primary: VpnRuntimeStateStore.readArtifactSnapshot(
+        VpnRuntimeStateStore.path(context, VPN_RUNTIME_STATE_FILE)),
+      backup: VpnRuntimeStateStore.readArtifactSnapshot(
+        VpnRuntimeStateStore.path(context, VPN_RUNTIME_STATE_BACKUP_FILE))
+    };
+  }
+
+  private static sameArtifactSet(left: VpnRuntimeArtifactSet, right: VpnRuntimeArtifactSet): boolean {
+    return VpnRuntimeStateStore.sameArtifact(left.temp, right.temp) &&
+      VpnRuntimeStateStore.sameArtifact(left.primary, right.primary) &&
+      VpnRuntimeStateStore.sameArtifact(left.backup, right.backup);
+  }
+
+  private static sameArtifact(left: VpnRuntimeArtifactSnapshot, right: VpnRuntimeArtifactSnapshot): boolean {
+    return left.exists === right.exists && left.content === right.content;
   }
 
   private static removeIfExists(path: string): void {

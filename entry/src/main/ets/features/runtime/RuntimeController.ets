@@ -340,8 +340,9 @@ export class RuntimeController {
       this.status === ConnectionStatus.STOPPING) {
       return;
     }
-    const persisted = VpnRuntimeStateStore.read(context);
-    const stateArtifactsInvalid = VpnRuntimeStateStore.hasInvalidStateArtifacts(context);
+    const persistedRead = VpnRuntimeStateStore.readWithEvidence(context);
+    const persisted = persistedRead.state;
+    const stateArtifactsInvalid = persistedRead.authoritativeArtifactInvalid;
     if (persisted === null) {
       if (this.status === ConnectionStatus.RUNNING) {
         this.missingVpnStateSampleCount++;

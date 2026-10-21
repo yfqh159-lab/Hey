@@ -32,11 +32,11 @@ export default class SubscriptionUpdateWorkAbility extends WorkSchedulerExtensio
       // WorkScheduler 不能依赖 UI 单例。VPN 状态即使心跳稍旧也按“可能仍持有 VPN”
       // 处理；控制卡片状态补足本地代理模式。崩溃留下的运行态宁可令回环请求失败，
       // 也不把包含 Token/Basic Auth 的订阅 URL 降级到物理网络直连。
-      const vpnState = VpnRuntimeStateStore.read(context);
-      const vpnStateArtifactsInvalid = VpnRuntimeStateStore.hasInvalidStateArtifacts(context);
+      const vpnStateRead = VpnRuntimeStateStore.readWithEvidence(context);
       const controlCardState = await ControlCardStore.loadState(context);
       const proxyPort = SubscriptionManager.resolvePersistedSubscriptionProxyPort(
-        vpnStateArtifactsInvalid || (vpnState !== null && vpnState.active),
+        vpnStateRead.authoritativeArtifactInvalid ||
+          (vpnStateRead.state !== null && vpnStateRead.state.active),
         controlCardState.runtimeMode,
         controlCardState.runtimeStatus !== ConnectionStatus.IDLE
       );

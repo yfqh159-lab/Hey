@@ -64,7 +64,7 @@ import { parseCoreLog } from '../main/ets/services/CoreLogReader';
 import { nativeDelayFailureStatus } from '../main/ets/services/DelayTester';
 import { isRuntimeHealthPort } from '../main/ets/services/RuntimeHealthProbe';
 import { parseNetSceneStopTimestamp, selectNetSceneStopTimestamp, wasNetSceneStoppedAfter } from '../main/ets/services/NetSceneStopFlag';
-import { PersistedVpnRuntimeState, VPN_RUNTIME_HEARTBEAT_STALE_MS, hasInvalidPersistedVpnRuntimeArtifacts, isPersistedVpnCleanupIncomplete, isPersistedVpnRuntimeHealthy, isPersistedVpnRuntimeSessionReady, isPersistedVpnRuntimeSessionStopped, parsePersistedVpnRuntimeState, selectPersistedVpnRuntimeState, shouldCleanupAfterVpnRuntimeStateWriteFailures } from '../main/ets/services/VpnRuntimeStateStore';
+import { PersistedVpnRuntimeState, VPN_RUNTIME_HEARTBEAT_STALE_MS, hasInvalidPersistedVpnRuntimeArtifacts, inspectPersistedVpnRuntimeArtifacts, isPersistedVpnCleanupIncomplete, isPersistedVpnRuntimeHealthy, isPersistedVpnRuntimeSessionReady, isPersistedVpnRuntimeSessionStopped, parsePersistedVpnRuntimeState, selectPersistedVpnRuntimeState, shouldCleanupAfterVpnRuntimeStateWriteFailures } from '../main/ets/services/VpnRuntimeStateStore';
 import { buildAssetDownloadProxyPorts, resolveAssetDownloadProxyPlan } from '../main/ets/features/assets/AssetsController';
 import {
   applyDelayTestPostActionsToGroups,
@@ -3457,6 +3457,39 @@ export default function localUnitTest() {
       expect(hasInvalidPersistedVpnRuntimeArtifacts(null, active)).assertFalse();
       expect(hasInvalidPersistedVpnRuntimeArtifacts(null, '{')).assertTrue();
       expect(hasInvalidPersistedVpnRuntimeArtifacts(null, null)).assertFalse();
+    });
+
+    it('returns VPN state and artifact trust from one coherent snapshot', 0, () => {
+      const active = JSON.stringify({
+        sessionId: 'active-session',
+        active: true,
+        startedAt: 100,
+        heartbeatAt: 200,
+        coreType: 'xray',
+        xrayRunning: true,
+        tunRunning: true
+      });
+      const stopped = JSON.stringify({
+        sessionId: 'stopped-session',
+        active: false,
+        startedAt: 300,
+        heartbeatAt: 400,
+        coreType: 'xray',
+        xrayRunning: false,
+        tunRunning: false
+      });
+      const committed = inspectPersistedVpnRuntimeArtifacts(stopped, active);
+      expect(committed.authoritativeArtifactInvalid).assertFalse();
+      expect(committed.state?.sessionId ?? '').assertEqual('stopped-session');
+
+      const pending = inspectPersistedVpnRuntimeArtifacts(stopped, active, active);
+      expect(pending.authoritativeArtifactInvalid).assertFalse();
+      expect(pending.state?.sessionId ?? '').assertEqual('active-session');
+
+      const corruptPending = inspectPersistedVpnRuntimeArtifacts(stopped, active, '{');
+      expect(corruptPending.authoritativeArtifactInvalid).assertTrue();
+      // 保留已提交状态只用于诊断/清理候选；invalid 标记禁止把它当成可信结论。
+      expect(corruptPending.state?.sessionId ?? '').assertEqual('stopped-session');
     });
 
     it('filters nodes by regex or literal fallback', 0, () => {

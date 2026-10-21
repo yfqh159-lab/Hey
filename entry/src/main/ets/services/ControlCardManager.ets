@@ -106,8 +106,9 @@ export class ControlCardManager {
     if (!state.vpnBacked || state.primaryActionUri !== CONTROL_CARD_STOP_URI) {
       return state;
     }
-    let persisted = VpnRuntimeStateStore.read(context);
-    if (VpnRuntimeStateStore.hasInvalidStateArtifacts(context)) {
+    const persistedRead = VpnRuntimeStateStore.readWithEvidence(context);
+    let persisted = persistedRead.state;
+    if (persistedRead.authoritativeArtifactInvalid) {
       // 可能已回退到旧 inactive/active 备份，不能据此宣称空闲或运行。该结果不落盘，
       // Extension 下一次成功心跳修复文件后，卡片仍可自行恢复。
       return buildControlCardFormData(
@@ -124,9 +125,11 @@ export class ControlCardManager {
       const expectedSessionId = persisted.sessionId;
       const expectedStartedAt = persisted.startedAt;
       const probe = await probeRuntimeTcpHealth(VPN_DATA_SOCKS_PORT);
-      const confirmed = VpnRuntimeStateStore.read(context);
+      const confirmedRead = VpnRuntimeStateStore.readWithEvidence(context);
+      const confirmed = confirmedRead.state;
       if (confirmed !== null && confirmed.sessionId === expectedSessionId &&
-        confirmed.startedAt === expectedStartedAt && isPersistedVpnRuntimeHealthy(confirmed, Date.now())) {
+        confirmed.startedAt === expectedStartedAt && !confirmedRead.authoritativeArtifactInvalid &&
+        isPersistedVpnRuntimeHealthy(confirmed, Date.now())) {
         if (probe.ok) {
           return state;
         }
