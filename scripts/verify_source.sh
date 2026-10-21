@@ -1401,6 +1401,29 @@ if ! grep -Fq "const localProxyAvailable = localSocksEnabled || runtimeMode === 
 fi
 printf 'local proxy sharing consistency verification passed\n'
 
+node <<'NODE'
+const fs = require('fs');
+const config = fs.readFileSync('entry/src/main/ets/core/XrayConfig.ets', 'utf8');
+const assets = fs.readFileSync('entry/src/main/ets/features/assets/AssetsController.ets', 'utf8');
+const subscriptions = fs.readFileSync('entry/src/main/ets/services/SubscriptionManager.ets', 'utf8');
+const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeController.ets', 'utf8');
+const inboundAt = config.indexOf("const proxyOnlyHttpInboundTag = 'proxy-app-http-in';");
+const inboundEnd = config.indexOf('\n  if (appendHttpProxy)', inboundAt);
+const inbound = config.slice(inboundAt, inboundEnd);
+if (!config.includes('export const PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT: number = 18084;') ||
+  inboundAt < 0 || inboundEnd < 0 ||
+  !inbound.includes('listen: LOCAL_HTTP_PROXY_HOST') ||
+  !inbound.includes('port: PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT') ||
+  !inbound.includes('settings: new HttpInboundSettings()') ||
+  inbound.includes('localSocksUsername') || inbound.includes('localSocksPassword') ||
+  !assets.includes('isProxyOnlyRuntimeMode(mode) ? PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT') ||
+  !subscriptions.includes('isProxyOnlyRuntimeMode(mode) ? PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT') ||
+  !runtime.includes('return PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT;')) {
+  throw new Error('app-owned proxy-only HTTP traffic is not isolated from the authenticated user listener');
+}
+NODE
+printf 'proxy-only internal HTTP isolation verification passed\n'
+
 # The core config, VpnConfig and TUN engine form one launch transaction. The UI process
 # must pass the exact normalized settings snapshot used to build the core config; loading
 # mutable Preferences later in the Extension could mix IPv6/DNS/app-routing/MTU settings
@@ -1757,7 +1780,8 @@ const secondCandidateCheckAt = persistedReconcile.indexOf(
 const recoveredApplyAt = persistedReconcile.indexOf(
   'this.controller.reconcileRunning(\n        recoveredStartedAt, persisted.coreType, recoveredSessionId)', stopFlagAt);
 if (persistedReconcileAt < 0 || persistedReconcileEnd < 0 ||
-  !runtime.includes("import { LOCAL_HTTP_PROXY_PORT, VPN_DATA_SOCKS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT }") ||
+  !runtime.includes('VPN_DATA_SOCKS_PORT') ||
+  !runtime.includes('VPN_INTERNAL_HTTP_PROXY_PORT') ||
   recoveredProbeAt < 0 || firstCandidateCheckAt < recoveredProbeAt ||
   stopFlagAt < firstCandidateCheckAt || secondCandidateCheckAt < stopFlagAt ||
   recoveredApplyAt < secondCandidateCheckAt ||

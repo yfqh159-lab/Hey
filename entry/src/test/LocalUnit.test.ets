@@ -21,7 +21,7 @@ import { canCancelStartingConnection, shouldDeferBusyControlAction, shouldOfferC
 import { shouldStartScannerImmediately } from '../main/ets/core/ScannerLaunch';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppSettings, ConnectionStatus, DEFAULT_DELAY_TEST_URL, DEFAULT_HEV_TUN_LOG_LEVEL, DEFAULT_HEV_TUN_RW_TIMEOUT, DEFAULT_IP_API_URL, DEFAULT_VPN_MTU, DELAY_STATUS_CORE_UNAVAILABLE, DELAY_STATUS_UDP_ONLY, DELAY_STATUS_UNAVAILABLE, OUTBOUND_DOMAIN_RESOLVE_DNS_HOSTS, OUTBOUND_DOMAIN_RESOLVE_NONE, OUTBOUND_DOMAIN_RESOLVE_REPLACE, OutboundDomainResolveMethod, normalizeAppRuntimeMode, normalizeHevTunLogLevel, normalizeHevTunRwTimeout, normalizeRealPingConcurrency, normalizeRoutingDomainStrategy, normalizeUiModeNight, ProxyNode, resolveDelayTestUrl, RoutingRule, RuntimeStats, SubscriptionGroup } from '../main/ets/core/Profile';
 import { BUILTIN_GEO_DATA_FILE_NAMES, DEFAULT_GEO_RELEASE_API, DEFAULT_GEO_RELEASE_DOWNLOAD_PREFIX, GEOIP_FILE_NAME, GEOSITE_FILE_NAME, areAllowedGeoAssetRedirects, buildAssetDownloadUrl, buildGeoChecksumUrl, encodeGeoTransactionState, hasPendingGeoReplacementArtifacts, isAllowedGeoAssetRedirect, isPlausibleGeoData, isValidGeoCommitMarker, normalizeGeoAssetDownloadUrl, parseDefaultGeoRelease, parseGeoTransactionState, parseHttpRedirectLocation, parseSha256Checksum, resolveGeoRecoveryAction, resolveGeoUpdateNotice, resolveStandaloneAssetRecoveryAction } from '../main/ets/core/GeoAssets';
-import { DELAY_TEST_SOCKS_PORT, LOCAL_HTTP_PROXY_LAN_HOST, LOCAL_HTTP_PROXY_PORT, LOCAL_SOCKS_PROXY_PORT, UNIDENTIFIED_PROCESS_PACKAGE, VPN_DATA_SOCKS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT, appReservedRuntimePorts, buildDelayTestConfig, buildRuntimeXrayConfig, buildXrayConfig, buildXrayConfigWithSettings, canUseProcessRouting, collectOutboundDomainPreResolveHosts, normalizeFullConfigRoutingProcesses, normalizeOutboundInput, normalizeRoutingRuleProcesses, validateFullConfigJson, validateOutboundJson, validatePolicyGroupConfigJson, validateProxyChainConfigJson, withOutboundDomainResolvedHosts, injectXrayLogFile, isReservedAppRuntimePort } from '../main/ets/core/XrayConfig';
+import { DELAY_TEST_SOCKS_PORT, LOCAL_HTTP_PROXY_LAN_HOST, LOCAL_HTTP_PROXY_PORT, LOCAL_SOCKS_PROXY_PORT, PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT, UNIDENTIFIED_PROCESS_PACKAGE, VPN_DATA_SOCKS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT, appReservedRuntimePorts, buildDelayTestConfig, buildRuntimeXrayConfig, buildXrayConfig, buildXrayConfigWithSettings, canUseProcessRouting, collectOutboundDomainPreResolveHosts, normalizeFullConfigRoutingProcesses, normalizeOutboundInput, normalizeRoutingRuleProcesses, validateFullConfigJson, validateOutboundJson, validatePolicyGroupConfigJson, validateProxyChainConfigJson, withOutboundDomainResolvedHosts, injectXrayLogFile, isReservedAppRuntimePort } from '../main/ets/core/XrayConfig';
 import { CONTROL_SHORTCUT_ACTION_PARAM, CONTROL_SHORTCUT_GUID_PARAM, CONTROL_SHORTCUT_NODE_ID_PARAM, CONTROL_SHORTCUT_URI_PARAM, TASKER_EXTRA_BUNDLE_GUID_PARAM, TASKER_EXTRA_BUNDLE_SWITCH_PARAM, controlUriFromShortcutParameters, deepLinkUriFromWant, parseDeepLink, subscriptionNameFromDeepLink } from '../main/ets/core/DeepLink';
 import { HARMONY_SEND_DATA_ACTION, HARMONY_SHARE_ABSTRACT_KEY, HARMONY_SHARE_URL_KEY, HARMONY_TEXT_MIME_TYPE, SharedTextWantLike, extractSharedTextFromWant, isSharedTextWant } from '../main/ets/core/SharedTextImport';
 import { extractOutboundsFromXrayConfig } from '../main/ets/core/XrayOutbounds';
@@ -1758,6 +1758,10 @@ export default function localUnitTest() {
       result = buildXrayConfigWithSettings(VLESS_REALITY_OUTBOUND, settings);
       expect(result.configJson).assertContain('"tag": "http-in"');
       expect(result.httpProxyPort).assertEqual(LOCAL_HTTP_PROXY_PORT);
+      expect(PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT).assertEqual(18084);
+      expect(result.configJson).assertContain('"tag": "proxy-app-http-in"');
+      expect(result.configJson).assertContain(`"port": ${PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT}`);
+      expect(result.configJson).assertContain('"listen": "127.0.0.1"');
     });
 
     it('appends local socks proxy inbound with auth settings', 0, () => {
@@ -1918,11 +1922,12 @@ export default function localUnitTest() {
 
     it('reserves fixed app runtime ports from user proxy and dns listeners', 0, () => {
       const reservedPorts = appReservedRuntimePorts();
-      expect(reservedPorts.length).assertEqual(37);
+      expect(reservedPorts.length).assertEqual(38);
       expect(isReservedAppRuntimePort(LOCAL_SOCKS_PROXY_PORT)).assertFalse();
       expect(isReservedAppRuntimePort(LOCAL_HTTP_PROXY_PORT)).assertTrue();
       expect(isReservedAppRuntimePort(VPN_DATA_SOCKS_PORT)).assertTrue();
       expect(isReservedAppRuntimePort(VPN_INTERNAL_HTTP_PROXY_PORT)).assertTrue();
+      expect(isReservedAppRuntimePort(PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT)).assertTrue();
       expect(isReservedAppRuntimePort(DELAY_TEST_SOCKS_PORT)).assertTrue();
       expect(isReservedAppRuntimePort(18086)).assertTrue();
       expect(isReservedAppRuntimePort(18100)).assertTrue();
@@ -2469,7 +2474,7 @@ export default function localUnitTest() {
       expect(vpnPorts[0]).assertEqual(VPN_INTERNAL_HTTP_PROXY_PORT);
 
       const localPlan = resolveAssetDownloadProxyPlan(APP_MODE_PROXY_ONLY, true);
-      expect(localPlan.proxyPort).assertEqual(LOCAL_HTTP_PROXY_PORT);
+      expect(localPlan.proxyPort).assertEqual(PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT);
       expect(buildAssetDownloadProxyPorts(localPlan.proxyPort).length).assertEqual(1);
 
       const stoppedPlan = resolveAssetDownloadProxyPlan(APP_MODE_VPN, false);
@@ -4807,7 +4812,7 @@ export default function localUnitTest() {
       expect(SubscriptionManager.resolveSubscriptionProxyPort(APP_MODE_VPN, true))
         .assertEqual(VPN_INTERNAL_HTTP_PROXY_PORT);
       expect(SubscriptionManager.resolveSubscriptionProxyPort(APP_MODE_PROXY_ONLY, true))
-        .assertEqual(LOCAL_HTTP_PROXY_PORT);
+        .assertEqual(PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT);
       expect(SubscriptionManager.resolveSubscriptionProxyPort(APP_MODE_VPN, false)).assertEqual(0);
       expect(SubscriptionManager.resolveSubscriptionProxyPort(APP_MODE_PROXY_ONLY, false)).assertEqual(0);
 
@@ -4816,7 +4821,7 @@ export default function localUnitTest() {
       expect(SubscriptionManager.resolvePersistedSubscriptionProxyPort(false, APP_MODE_VPN, true))
         .assertEqual(VPN_INTERNAL_HTTP_PROXY_PORT);
       expect(SubscriptionManager.resolvePersistedSubscriptionProxyPort(false, APP_MODE_PROXY_ONLY, true))
-        .assertEqual(LOCAL_HTTP_PROXY_PORT);
+        .assertEqual(PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT);
       expect(SubscriptionManager.resolvePersistedSubscriptionProxyPort(false, APP_MODE_VPN, false)).assertEqual(0);
     });
 

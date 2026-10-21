@@ -12,7 +12,7 @@ import {
 } from '../core/ShareLinkParser';
 import {
   LOCAL_HTTP_PROXY_HOST,
-  LOCAL_HTTP_PROXY_PORT,
+  PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT,
   VPN_INTERNAL_HTTP_PROXY_PORT,
   normalizeOutboundInput
 } from '../core/XrayConfig';
@@ -365,7 +365,7 @@ export class SubscriptionManager {
     if (!runtimeMayOwnNetwork) {
       return 0;
     }
-    return isProxyOnlyRuntimeMode(mode) ? LOCAL_HTTP_PROXY_PORT : VPN_INTERNAL_HTTP_PROXY_PORT;
+    return isProxyOnlyRuntimeMode(mode) ? PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT : VPN_INTERNAL_HTTP_PROXY_PORT;
   }
 
   static resolvePersistedSubscriptionProxyPort(

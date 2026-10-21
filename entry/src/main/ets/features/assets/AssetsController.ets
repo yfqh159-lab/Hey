@@ -34,7 +34,11 @@ import {
 import { redactDiagnosticText } from '../../core/DiagnosticRedaction';
 import { APP_HTTP_USER_AGENT } from '../../core/HttpDefaults';
 import { AppLanguage, isProxyOnlyRuntimeMode } from '../../core/Profile';
-import { LOCAL_HTTP_PROXY_HOST, LOCAL_HTTP_PROXY_PORT, VPN_INTERNAL_HTTP_PROXY_PORT } from '../../core/XrayConfig';
+import {
+  LOCAL_HTTP_PROXY_HOST,
+  PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT,
+  VPN_INTERNAL_HTTP_PROXY_PORT
+} from '../../core/XrayConfig';
 import { translate } from '../../core/I18n';
 import { formatTwo } from '../../utils/LocalizationPresenter';
 import { AssetStore, CustomAssetUrl, GeoAssetMetadata, GeoUpdateMetadata } from '../../storage/AssetStore';
@@ -59,7 +63,7 @@ export function resolveAssetDownloadProxyPlan(
     return { proxyPort: 0 };
   }
   return {
-    proxyPort: isProxyOnlyRuntimeMode(mode) ? LOCAL_HTTP_PROXY_PORT : VPN_INTERNAL_HTTP_PROXY_PORT
+    proxyPort: isProxyOnlyRuntimeMode(mode) ? PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT : VPN_INTERNAL_HTTP_PROXY_PORT
   };
 }
 

@@ -397,6 +397,10 @@ export const VPN_DATA_SOCKS_PORT: number = 18082;
 // VPN 模式下供 Hey 自身请求使用的内部 HTTP 入口。Hey bundle 被排除在系统 TUN 外以防
 // 回环，因此 Geo 更新/出口验证需显式经过核心；该端口固定只监听回环，不受“代理共享”影响。
 export const VPN_INTERNAL_HTTP_PROXY_PORT: number = 18083;
+// 本地代理模式下供 Hey 自身请求使用的内部 HTTP 入口。用户可见的 18081 可能启用
+// Basic Auth 或监听局域网；Geo/订阅/出口检查固定走这个仅回环、无认证的入口，既不
+// 暴露凭据，也不会因用户修改认证设置而误判运行中的旧会话。
+export const PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT: number = 18084;
 // Local Xray metrics (expvar) endpoint. The generated VPN config exposes a
 // dokodemo inbound on this port routed to the metrics handler so that
 // CGoQueryStats can read real per-tag traffic counters from /debug/vars.
@@ -410,6 +414,7 @@ export function appReservedRuntimePorts(): Array<number> {
     LOCAL_HTTP_PROXY_PORT,
     VPN_DATA_SOCKS_PORT,
     VPN_INTERNAL_HTTP_PROXY_PORT,
+    PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT,
     DELAY_TEST_SOCKS_PORT,
     METRICS_PORT
   ];
@@ -1866,6 +1871,27 @@ function buildXrayConfigFromOutbounds(
     };
     applyRoutingTarget(vpnHttpProxyRule, proxyTarget);
     routingRules.unshift(vpnHttpProxyRule);
+  }
+
+  if (proxyOnlyMode) {
+    const proxyOnlyHttpInboundTag = 'proxy-app-http-in';
+    const proxyOnlyHttpInbound: XrayInboundConfig = {
+      tag: proxyOnlyHttpInboundTag,
+      listen: LOCAL_HTTP_PROXY_HOST,
+      port: PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT,
+      protocol: 'http',
+      settings: new HttpInboundSettings()
+    };
+    if (sniffing !== undefined) {
+      proxyOnlyHttpInbound.sniffing = sniffing;
+    }
+    const proxyOnlyHttpRule: XrayRoutingRule = {
+      type: 'field',
+      inboundTag: [proxyOnlyHttpInboundTag]
+    };
+    applyRoutingTarget(proxyOnlyHttpRule, proxyTarget);
+    inbounds.push(proxyOnlyHttpInbound);
+    routingRules.unshift(proxyOnlyHttpRule);
   }
 
   if (appendHttpProxy) {

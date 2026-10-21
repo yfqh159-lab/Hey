@@ -1,6 +1,5 @@
 import { common } from '@kit.AbilityKit';
 import { DEFAULT_LANGUAGE, translate } from '../../core/I18n';
-import { shouldExposeLocalHttpProxy } from '../../core/LocalProxy';
 import {
   isMissingVpnRuntimeStateUnhealthy,
   isProxyOnlyRuntimeUnhealthy,
@@ -9,7 +8,11 @@ import {
   shouldCleanupUnhealthyVpnRuntimeState
 } from '../../core/RuntimeHealth';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppLanguage, AppRuntimeMode, AppSettings, ConnectionStatus, normalizeAppRuntimeMode, ProxyProfile, RuntimeStats } from '../../core/Profile';
-import { LOCAL_HTTP_PROXY_PORT, VPN_DATA_SOCKS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT } from '../../core/XrayConfig';
+import {
+  PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT,
+  VPN_DATA_SOCKS_PORT,
+  VPN_INTERNAL_HTTP_PROXY_PORT
+} from '../../core/XrayConfig';
 import { CoreSelectionStore, CoreType, isSingboxCore } from '../../core/CoreSelection';
 import { ConnectionController, ConnectionSnapshot } from '../../services/ConnectionController';
 import { NetSceneStopFlag } from '../../services/NetSceneStopFlag';
@@ -894,7 +897,9 @@ export class RuntimeController {
     if (normalizeAppRuntimeMode(settings.mode, APP_MODE_VPN) === APP_MODE_VPN) {
       return VPN_INTERNAL_HTTP_PROXY_PORT;
     }
-    return shouldExposeLocalHttpProxy(settings) ? LOCAL_HTTP_PROXY_PORT : 0;
+    // 本地代理模式始终生成仅回环的应用内部 HTTP 入站。不要借用用户可见的 18081：
+    // 后者可能要求认证或监听局域网，且保存后的新凭据未必属于当前仍运行的旧会话。
+    return PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT;
   }
 
   private async refreshDiagnostics(context: common.Context, language: AppLanguage): Promise<void> {
