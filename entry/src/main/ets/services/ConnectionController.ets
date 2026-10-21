@@ -601,10 +601,27 @@ export class ConnectionController {
         throw new Error('停止 VPN 未确认完成：VPN 扩展尚未回写清理完成状态。');
       }
       systemStopAttempted = true;
-      await this.withTimeout(vpnExtension.stopVpnExtensionAbility(createStopVpnWant()),
-        START_VPN_TIMEOUT_MS, 'Stopping VPN Extension timed out.');
       if (cleanupEvent.message === VPN_CLEANUP_INCOMPLETE_MESSAGE) {
+        // 即使数据面自报清理不完整，也要求系统销毁 Ability 触发 onDestroy 再扫一轮；
+        // 该系统调用的结果不能覆盖前面明确的不完整结论。
+        try {
+          await this.withTimeout(vpnExtension.stopVpnExtensionAbility(createStopVpnWant()),
+            START_VPN_TIMEOUT_MS, 'Stopping VPN Extension timed out.');
+        } catch (stopError) {
+          hilog.error(LOG_DOMAIN, LOG_TAG, 'VPN extension stop after incomplete cleanup failed: %{public}s',
+            redactDiagnosticText(JSON.stringify(stopError)));
+        }
         throw new Error(this.formatDiagnosticEvent(cleanupEvent));
+      }
+      // cleanup finished 已由同一会话的持久状态/诊断确认核心、tun2socks 与 VpnConnection
+      // 全部释放。此后的系统 Ability 销毁只回收空闲实例；失败或超时不应重新声称 VPN
+      // 仍连接、也不应把下次用户明确启动锁死在 cleanupRequired。
+      try {
+        await this.withTimeout(vpnExtension.stopVpnExtensionAbility(createStopVpnWant()),
+          START_VPN_TIMEOUT_MS, 'Stopping VPN Extension timed out.');
+      } catch (stopError) {
+        hilog.info(LOG_DOMAIN, LOG_TAG, 'idle VPN extension stop did not complete: %{public}s',
+          redactDiagnosticText(JSON.stringify(stopError)));
       }
       this.status = ConnectionStatus.IDLE;
       this.startedAt = 0;

@@ -1202,6 +1202,19 @@ if (startWaitAt < 0 || cleanupWaitAt < 0 || diagnosticFindAt < 0 ||
   cleanupWait.includes('VpnRuntimeStateStore.read(context)')) {
   throw new Error('VPN start/stop confirmation can trust a fallback state behind an untrusted artifact');
 }
+const stopMethodAt = connection.indexOf('\n  async stop(context: common.Context');
+const reconcileStoppedAt = connection.indexOf('\n  // 隧道已被 VPN 扩展在后台自动断开', stopMethodAt);
+const stopMethod = connection.slice(stopMethodAt, reconcileStoppedAt);
+const cleanupIncompleteAt = stopMethod.indexOf('if (cleanupEvent.message === VPN_CLEANUP_INCOMPLETE_MESSAGE)');
+const cleanupIncompleteThrowAt = stopMethod.indexOf('throw new Error(this.formatDiagnosticEvent(cleanupEvent));', cleanupIncompleteAt);
+const idleStopWarningAt = stopMethod.indexOf("hilog.info(LOG_DOMAIN, LOG_TAG, 'idle VPN extension stop did not complete", cleanupIncompleteThrowAt);
+const idleStatusAt = stopMethod.indexOf('this.status = ConnectionStatus.IDLE;', idleStopWarningAt);
+if (stopMethodAt < 0 || reconcileStoppedAt < 0 || cleanupIncompleteAt < 0 ||
+  cleanupIncompleteThrowAt < cleanupIncompleteAt || idleStopWarningAt < cleanupIncompleteThrowAt ||
+  idleStatusAt < idleStopWarningAt ||
+  !stopMethod.includes('// cleanup finished 已由同一会话的持久状态/诊断确认核心、tun2socks 与 VpnConnection')) {
+  throw new Error('an idle VPN Extension stop failure can still override confirmed data-plane cleanup');
+}
 const cardReconcileAt = controlCardManager.indexOf('  private async loadReconciledState(');
 const cardReconcileEnd = controlCardManager.indexOf('\n  private async updateOne(', cardReconcileAt);
 const cardReconcile = controlCardManager.slice(cardReconcileAt, cardReconcileEnd);
