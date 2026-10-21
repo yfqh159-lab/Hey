@@ -3447,6 +3447,15 @@ export default function localUnitTest() {
       expect(parsePersistedVpnRuntimeState(JSON.stringify(healthy))).assertEqual(null);
       healthy.profileUpdatedAt = 123456;
       expect(parsePersistedVpnRuntimeState('{"active":true}')).assertEqual(null);
+      expect(parsePersistedVpnRuntimeState('{"sessionId":"../invalid","active":true,"startedAt":1,' +
+        '"heartbeatAt":2,"coreType":"xray","xrayRunning":true,"tunRunning":true}')).assertEqual(null);
+      expect(parsePersistedVpnRuntimeState('{"sessionId":"session-1","active":true,"startedAt":1.5,' +
+        '"heartbeatAt":2,"coreType":"xray","xrayRunning":true,"tunRunning":true}')).assertEqual(null);
+      expect(parsePersistedVpnRuntimeState('{"sessionId":"session-1","active":true,"startedAt":1,' +
+        '"heartbeatAt":1e309,"coreType":"xray","xrayRunning":true,"tunRunning":true}')).assertEqual(null);
+      expect(parsePersistedVpnRuntimeState('{"sessionId":"session-1","active":true,"startedAt":1,' +
+        '"heartbeatAt":2,"coreType":"xray","profileUpdatedAt":1e309,' +
+        '"xrayRunning":true,"tunRunning":true}')).assertEqual(null);
     });
 
     it('keeps active VPN heartbeats valid after the wall clock moves backwards', 0, () => {

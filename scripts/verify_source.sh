@@ -1958,6 +1958,14 @@ if (!health.includes('export function shouldApplyVpnDiagnosticStats(') ||
 if (!runtimeStateStore.includes('(!value.active && (value.xrayRunning || value.tunRunning))')) {
   throw new Error('an inactive VPN state can still claim running core/TUN resources');
 }
+if (!runtimeStateStore.includes("import { isValidVpnSessionId } from '../vpn/VpnConstants';") ||
+  !runtimeStateStore.includes('!isValidVpnSessionId(value.sessionId)') ||
+  !runtimeStateStore.includes('Number.isFinite(value)') ||
+  !runtimeStateStore.includes('Math.floor(value) === value') ||
+  !runtimeStateStore.includes('!isValidPersistedTimestamp(value.startedAt, false)') ||
+  !runtimeStateStore.includes('!isValidPersistedTimestamp(value.heartbeatAt, true)')) {
+  throw new Error('persisted VPN state accepts an invalid session identity or non-finite/fractional timestamp');
+}
 if (!runtimeStateStore.includes('static readWithEvidence(context: common.Context): PersistedVpnRuntimeStateReadResult') ||
   !runtimeStateStore.includes('export function inspectPersistedVpnRuntimeArtifacts(') ||
   !runtimeStateStore.includes('const authoritative = temp.exists ? temp : (primary.exists ? primary : backup);') ||

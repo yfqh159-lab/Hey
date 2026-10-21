@@ -2,6 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { util } from '@kit.ArkTS';
 import { fileIo as fs } from '@kit.CoreFileKit';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
+import { isValidVpnSessionId } from '../vpn/VpnConstants';
 
 const VPN_RUNTIME_STATE_FILE: string = 'hey-vpn-runtime-state.json';
 const VPN_RUNTIME_STATE_TEMP_FILE: string = 'hey-vpn-runtime-state.tmp';
@@ -38,10 +39,14 @@ interface VpnRuntimeArtifactSet {
   temp: VpnRuntimeArtifactSnapshot;
 }
 
+function isValidPersistedTimestamp(value: number, allowZero: boolean): boolean {
+  return Number.isFinite(value) && Math.floor(value) === value && (allowZero ? value >= 0 : value > 0);
+}
+
 export function parsePersistedVpnRuntimeState(content: string): PersistedVpnRuntimeState | null {
   try {
     const value = JSON.parse(content) as PersistedVpnRuntimeState;
-    if (typeof value.sessionId !== 'string' || value.sessionId.length === 0 ||
+    if (typeof value.sessionId !== 'string' || !isValidVpnSessionId(value.sessionId) ||
       typeof value.active !== 'boolean' || typeof value.startedAt !== 'number' ||
       typeof value.heartbeatAt !== 'number' || typeof value.coreType !== 'string' ||
       typeof value.xrayRunning !== 'boolean' || typeof value.tunRunning !== 'boolean' ||
@@ -50,10 +55,11 @@ export function parsePersistedVpnRuntimeState(content: string): PersistedVpnRunt
       (!value.active && (value.xrayRunning || value.tunRunning)) ||
       (value.cleanupComplete === true && (value.active || value.xrayRunning || value.tunRunning)) ||
       (value.cleanupAttempted === true && (value.active || value.xrayRunning || value.tunRunning)) ||
-      value.startedAt <= 0 || value.heartbeatAt < 0 ||
+      !isValidPersistedTimestamp(value.startedAt, false) ||
+      !isValidPersistedTimestamp(value.heartbeatAt, true) ||
       (value.profileUpdatedAt !== undefined &&
-        (typeof value.profileUpdatedAt !== 'number' || Number.isNaN(value.profileUpdatedAt) ||
-          value.profileUpdatedAt < 0 || Math.floor(value.profileUpdatedAt) !== value.profileUpdatedAt)) ||
+        (typeof value.profileUpdatedAt !== 'number' ||
+          !isValidPersistedTimestamp(value.profileUpdatedAt, true))) ||
       (value.coreType !== 'xray' && value.coreType !== 'singbox')) {
       return null;
     }
