@@ -69,6 +69,9 @@ export interface RuntimeViewState {
   connectionDelayFailed: boolean;
   egressIp: string;
   egressIpChecking: boolean;
+  // 由本次已生成的核心配置提供，因此动态 SOCKS 端口也能准确展示。
+  localProxySocksPort: number;
+  localProxyHttpPort: number;
 }
 
 export function settingsForRecoveredVpn(settings: AppSettings): AppSettings {
@@ -608,6 +611,7 @@ export class RuntimeController {
   }
 
   snapshot(): RuntimeViewState {
+    const generated = this.controller.getSnapshot().generatedConfig;
     return {
       status: this.status,
       runtimeMode: this.runtimeMode,
@@ -620,7 +624,9 @@ export class RuntimeController {
       connectionDelayTesting: this.connectionDelayTesting,
       connectionDelayFailed: this.connectionDelayFailed,
       egressIp: this.egressIp,
-      egressIpChecking: this.egressIpChecking
+      egressIpChecking: this.egressIpChecking,
+      localProxySocksPort: generated?.socksPort ?? 0,
+      localProxyHttpPort: generated?.httpProxyPort ?? 0
     };
   }
 

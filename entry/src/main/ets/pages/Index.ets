@@ -146,6 +146,8 @@ struct Index {
   @State private connectionDelayFailed: boolean = false;
   @State private egressIp: string = '';
   @State private egressIpChecking: boolean = false;
+  @State private localProxySocksPort: number = 0;
+  @State private localProxyHttpPort: number = 0;
   // 首页自动测速调度：当前连接会话起始时间（用于识别新会话）与上次自动触发时刻。
   private connectionStartedAt: number = 0;
   private autoDelayTestSessionAt: number = 0;
@@ -1057,6 +1059,17 @@ struct Index {
           Text(this.connectionSubtitle())
             .fontSize(FontSz.footnote)
             .fontColor(AppColor.textSecondary)
+          if (this.shouldShowLocalProxyEndpoints()) {
+            Text(this.f2(
+              'home.localProxyEndpoints',
+              'socks', this.localProxySocksPort.toString(),
+              'http', this.localProxyHttpPort.toString()
+            ))
+              .fontSize(FontSz.caption)
+              .fontColor(AppColor.textTertiary)
+              .textAlign(TextAlign.Center)
+              .maxLines(2)
+          }
         }
         .alignItems(HorizontalAlign.Center)
 
@@ -3069,6 +3082,8 @@ struct Index {
     this.connectionDelayFailed = state.connectionDelayFailed;
     this.egressIp = state.egressIp;
     this.egressIpChecking = state.egressIpChecking;
+    this.localProxySocksPort = state.localProxySocksPort;
+    this.localProxyHttpPort = state.localProxyHttpPort;
     this.stats = state.stats;
     this.updateRealtimeSpeed();
     this.accumulateTraffic();
@@ -3360,6 +3375,11 @@ struct Index {
     const mode = this.t(isProxyOnlyRuntimeMode(this.currentSettings.mode) ?
       'settings.mode.proxyOnly' : 'settings.mode.vpn');
     return `${this.t('home.ready')} · ${mode}`;
+  }
+
+  private shouldShowLocalProxyEndpoints(): boolean {
+    return this.isRunning() && isProxyOnlyRuntimeMode(this.runtimeMode) &&
+      this.localProxySocksPort > 0 && this.localProxyHttpPort > 0;
   }
 
   private t(key: string): string {

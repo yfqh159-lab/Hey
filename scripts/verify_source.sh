@@ -1549,6 +1549,23 @@ printf 'local proxy endpoint guidance verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');
+const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeController.ets', 'utf8');
+const index = fs.readFileSync('entry/src/main/ets/pages/Index.ets', 'utf8');
+const i18n = fs.readFileSync('entry/src/main/ets/core/I18n.ets', 'utf8');
+if (!runtime.includes('localProxySocksPort: generated?.socksPort ?? 0') ||
+  !runtime.includes('localProxyHttpPort: generated?.httpProxyPort ?? 0') ||
+  !index.includes('this.localProxySocksPort = state.localProxySocksPort;') ||
+  !index.includes('this.localProxyHttpPort = state.localProxyHttpPort;') ||
+  !index.includes('this.shouldShowLocalProxyEndpoints()') ||
+  !index.includes("'home.localProxyEndpoints'") ||
+  !i18n.includes("'home.localProxyEndpoints': 'SOCKS 127.0.0.1:{socks}  ·  HTTP 127.0.0.1:{http}'")) {
+  throw new Error('the home page does not expose the actual local proxy runtime endpoints');
+}
+NODE
+printf 'local proxy runtime endpoint verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
 const store = fs.readFileSync('entry/src/main/ets/storage/SettingsStore.ets', 'utf8');
 const defaultsAt = store.indexOf('export const DEFAULT_APP_SETTINGS');
 const defaultsEnd = store.indexOf('\n};', defaultsAt);
