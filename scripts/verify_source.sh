@@ -138,6 +138,55 @@ printf 'core/TUN lifecycle separation verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');
+
+const catalog = fs.readFileSync('entry/src/main/ets/features/settings/SettingsCatalog.ets', 'utf8');
+const options = fs.readFileSync('entry/src/main/ets/features/settings/SettingsOptions.ets', 'utf8');
+const controller = fs.readFileSync('entry/src/main/ets/services/ConnectionController.ets', 'utf8');
+const config = fs.readFileSync('entry/src/main/ets/core/XrayConfig.ets', 'utf8');
+
+if (!catalog.includes("{ key: 'mode', titleKey: 'settings.mode', type: 'option' }")) {
+  throw new Error('runtime mode selector is missing from settings');
+}
+if (!options.includes('{ value: APP_MODE_VPN,') ||
+  !options.includes('{ value: APP_MODE_PROXY_ONLY,')) {
+  throw new Error('runtime mode selector must offer both VPN/TUN and local proxy modes');
+}
+
+const xrayStartMarker = '  async start(context: common.Context, profile: ProxyProfile, settings?: AppSettings)';
+const xrayStart = controller.indexOf(xrayStartMarker);
+const singboxStart = controller.indexOf('\n  // sing-box 内核启动路径', xrayStart);
+if (xrayStart < 0 || singboxStart < 0) {
+  throw new Error('ConnectionController Xray start method could not be inspected');
+}
+const startBody = controller.slice(xrayStart, singboxStart);
+const proxyBranch = startBody.indexOf('if (this.runtimeMode === APP_MODE_PROXY_ONLY) {');
+const proxyStart = startBody.indexOf('await this.startProxyOnly(context);', proxyBranch);
+const proxyReturn = startBody.indexOf('return this.getSnapshot();', proxyStart);
+const vpnStart = startBody.indexOf('vpnExtension.startVpnExtensionAbility(', proxyBranch);
+if (proxyBranch < 0 || proxyStart < 0 || proxyReturn < 0 || vpnStart < 0 ||
+  !(proxyBranch < proxyStart && proxyStart < proxyReturn && proxyReturn < vpnStart)) {
+  throw new Error('local proxy startup must return before the VPN Extension/TUN startup path');
+}
+
+const proxyMethodStart = controller.indexOf('  private async startProxyOnly(');
+const proxyMethodEnd = controller.indexOf('\n  private ', proxyMethodStart + 1);
+if (proxyMethodStart < 0 || proxyMethodEnd < 0) {
+  throw new Error('startProxyOnly method could not be inspected');
+}
+const proxyMethod = controller.slice(proxyMethodStart, proxyMethodEnd);
+if (proxyMethod.includes('vpnExtension.') || proxyMethod.includes('createVpnWant(')) {
+  throw new Error('local proxy startup must not create or control a system VPN');
+}
+
+if (!config.includes('if (vpnMode) {\n    inbounds.push(tunInbound);') ||
+  !config.includes('settings.localSocksEnabled || proxyOnlyMode')) {
+  throw new Error('Xray runtime config no longer keeps TUN and local proxy inbounds mode-scoped');
+}
+NODE
+printf 'optional TUN/runtime mode separation verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
 const path = require('path');
 
 function etsFiles(dir) {
