@@ -141,6 +141,9 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   // 外层轮询超时不能取消 ArkData Promise。永久 pending 时后续 5 秒轮询复用同一
   // 底层读取，避免后台会话不断向 SettingsStore 串行队列追加任务。
   private settingsLoadInFlight: Promise<AppSettings> | null = null;
+  // NetworkKit Promise 同样无法由 withTimeout 取消。启动基线与后续轮询共用一个
+  // 底层探针，避免物理网络查询永久 pending 时每 5 秒继续堆积系统调用。
+  private networkProbeInFlight: Promise<NetContext> | null = null;
 
   onCreate(want: Want): void {
     this.destroying = false;
@@ -463,7 +466,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   private async seedNetSceneBaseline(automationEnabled: boolean, sessionGeneration: number): Promise<void> {
     try {
       const ctx = await withTimeout(
-        NetworkProbe.readCurrentNetContext(),
+        this.loadNetworkContextForNetScene(),
         NET_SCENE_BASELINE_TIMEOUT_MS,
         'Underlying network baseline timed out.'
       );
@@ -511,7 +514,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         return;
       }
       const ctx = await withTimeout(
-        NetworkProbe.readCurrentNetContext(),
+        this.loadNetworkContextForNetScene(),
         NET_SCENE_POLL_STEP_TIMEOUT_MS,
         'Underlying network poll timed out.'
       );
@@ -657,6 +660,19 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     return promise;
   }
 
+  private loadNetworkContextForNetScene(): Promise<NetContext> {
+    if (this.networkProbeInFlight !== null) {
+      return this.networkProbeInFlight;
+    }
+    const promise = NetworkProbe.readCurrentNetContext();
+    this.networkProbeInFlight = promise;
+    promise.then(
+      (_ctx: NetContext): void => this.releaseNetworkProbe(promise),
+      (_error: Object): void => this.releaseNetworkProbe(promise)
+    );
+    return promise;
+  }
+
   private async confirmNetSceneDisconnect(ctx: NetContext, sessionGeneration: number): Promise<boolean> {
     try {
       const settings = await withTimeout(
@@ -685,6 +701,12 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   private releaseSettingsLoad(promise: Promise<AppSettings>): void {
     if (this.settingsLoadInFlight === promise) {
       this.settingsLoadInFlight = null;
+    }
+  }
+
+  private releaseNetworkProbe(promise: Promise<NetContext>): void {
+    if (this.networkProbeInFlight === promise) {
+      this.networkProbeInFlight = null;
     }
   }
 

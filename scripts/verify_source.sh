@@ -2229,6 +2229,9 @@ if ! grep -q 'NET_SCENE_POLL_STEP_TIMEOUT_MS' "${vpn_ability}" ||
   ! grep -Fq 'private settingsLoadInFlight: Promise<AppSettings> | null = null;' "${vpn_ability}" ||
   ! grep -Fq 'this.loadSettingsForNetScene(),' "${vpn_ability}" ||
   ! grep -Fq 'this.releaseSettingsLoad(promise)' "${vpn_ability}" ||
+  ! grep -Fq 'private networkProbeInFlight: Promise<NetContext> | null = null;' "${vpn_ability}" ||
+  ! grep -Fq 'this.loadNetworkContextForNetScene(),' "${vpn_ability}" ||
+  ! grep -Fq 'this.releaseNetworkProbe(promise)' "${vpn_ability}" ||
   ! grep -q 'EVALUATION_STEP_TIMEOUT_MS' "${net_scene_manager}" ||
   ! grep -q 'Network evaluation settings load timed out' "${net_scene_manager}" ||
   ! grep -Fq 'private settingsLoadInFlight: Promise<AppSettings> | null = null;' "${net_scene_manager}" ||
