@@ -39,26 +39,41 @@ function normalize(raw: TrafficTotals): TrafficTotals {
 }
 
 export class TrafficTotalsStore {
-  static async load(context: common.Context): Promise<TrafficTotals> {
-    try {
-      const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-      const raw = (await store.get(TOTALS_KEY, '')).toString();
-      if (raw.length === 0) {
+  private static operationTail: Promise<void> = Promise.resolve();
+
+  static load(context: common.Context): Promise<TrafficTotals> {
+    return TrafficTotalsStore.enqueueOperation(async (): Promise<TrafficTotals> => {
+      try {
+        const store = await preferences.getPreferences(context, PREFERENCES_NAME);
+        const raw = (await store.get(TOTALS_KEY, '')).toString();
+        if (raw.length === 0) {
+          return normalize(EMPTY_TRAFFIC_TOTALS);
+        }
+        return normalize(JSON.parse(raw) as TrafficTotals);
+      } catch (error) {
         return normalize(EMPTY_TRAFFIC_TOTALS);
       }
-      return normalize(JSON.parse(raw) as TrafficTotals);
-    } catch (error) {
-      return normalize(EMPTY_TRAFFIC_TOTALS);
-    }
+    });
   }
 
-  static async save(context: common.Context, totals: TrafficTotals): Promise<void> {
-    try {
+  static save(context: common.Context, totals: TrafficTotals): Promise<void> {
+    const totalsSnapshot = normalize(totals);
+    return TrafficTotalsStore.enqueueOperation(async (): Promise<void> => {
       const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-      await store.put(TOTALS_KEY, JSON.stringify(normalize(totals)));
+      await store.put(TOTALS_KEY, JSON.stringify(totalsSnapshot));
       await store.flush();
-    } catch (error) {
-      // ignore
-    }
+    });
+  }
+
+  private static enqueueOperation<T>(operation: () => Promise<T>): Promise<T> {
+    const task = TrafficTotalsStore.operationTail.then(
+      (): Promise<T> => operation(),
+      (): Promise<T> => operation()
+    );
+    TrafficTotalsStore.operationTail = task.then(
+      (): void => {},
+      (_error: Object): void => {}
+    );
+    return task;
   }
 }

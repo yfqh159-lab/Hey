@@ -411,6 +411,27 @@ if (syncAt < 0 || syncNowAt < 0 || cancelAt < 0 || cancelNowAt < 0 || enqueueAt 
 NODE
 printf 'subscription schedule serialization verification passed\n'
 
+# Throttled and forced traffic-total saves are fire-and-forget and may overlap. Preserve call
+# order, snapshot each sample before queueing, and let write failures reach the existing caller log.
+node <<'NODE'
+const fs = require('fs');
+const source = fs.readFileSync('entry/src/main/ets/storage/TrafficTotalsStore.ets', 'utf8');
+const loadAt = source.indexOf('  static load(context: common.Context)');
+const saveAt = source.indexOf('  static save(context: common.Context', loadAt);
+const enqueueAt = source.indexOf('  private static enqueueOperation', saveAt);
+const saveBody = source.slice(saveAt, enqueueAt);
+if (loadAt < 0 || saveAt < 0 || enqueueAt < 0 ||
+  !source.slice(loadAt, saveAt).includes('return TrafficTotalsStore.enqueueOperation(') ||
+  !saveBody.includes('const totalsSnapshot = normalize(totals);') ||
+  !saveBody.includes('return TrafficTotalsStore.enqueueOperation(') ||
+  saveBody.includes('catch (') ||
+  !source.includes('private static operationTail: Promise<void> = Promise.resolve();') ||
+  !source.includes('TrafficTotalsStore.operationTail = task.then(')) {
+  throw new Error('traffic-total writes are not ordered or still hide persistence failures');
+}
+NODE
+printf 'traffic-total storage ordering verification passed\n'
+
 # Manual link entry is a separate daily add path from camera/photo scanning. It must
 # parse into a redacted summary on the first action and require a second action for the
 # exact unchanged input before any node-store write.
