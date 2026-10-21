@@ -104,6 +104,20 @@ export function selectPersistedVpnRuntimeState(
   return primary !== null ? primary : backup;
 }
 
+export function hasInvalidPersistedVpnRuntimeArtifacts(
+  primaryContent: string | null,
+  backupContent: string | null,
+  tempContent: string | null = null
+): boolean {
+  if (tempContent !== null) {
+    return parsePersistedVpnRuntimeState(tempContent) === null;
+  }
+  if (primaryContent !== null) {
+    return parsePersistedVpnRuntimeState(primaryContent) === null;
+  }
+  return backupContent !== null && parsePersistedVpnRuntimeState(backupContent) === null;
+}
+
 export class VpnRuntimeStateStore {
   static write(context: common.Context, state: PersistedVpnRuntimeState): boolean {
     const targetPath = VpnRuntimeStateStore.path(context, VPN_RUNTIME_STATE_FILE);
@@ -174,27 +188,23 @@ export class VpnRuntimeStateStore {
     }
   }
 
-  // read() 会为可恢复性回退到备份；需要决定是否允许物理网络直连的调用方还必须知道
-  // 是否存在损坏/不可读工件。只要任一已存在文件无法读取或解析，就按“可能仍持有 VPN”
-  // fail-closed，等待 Extension 后续心跳用新的原子写入修复。
+  // 与 selectPersistedVpnRuntimeState 使用同一权威顺序：完整 temp > 主文件 > 备份。
+  // 只有当前最高优先级的已存在工件损坏/不可读才算不可信；有效 temp 或主文件已经
+  // 完整表达当前意图时，低优先级的旧损坏备份不能永久阻断空闲态网络请求。
   static hasInvalidStateArtifacts(context: common.Context): boolean {
-    const fileNames = [
-      VPN_RUNTIME_STATE_FILE,
-      VPN_RUNTIME_STATE_TEMP_FILE,
-      VPN_RUNTIME_STATE_BACKUP_FILE
-    ];
-    for (let index = 0; index < fileNames.length; index++) {
-      const path = VpnRuntimeStateStore.path(context, fileNames[index]);
-      try {
-        if (fs.accessSync(path) && parsePersistedVpnRuntimeState(fs.readTextSync(path)) === null) {
-          return true;
-        }
-      } catch (error) {
-        // 无法确认是瞬时访问错误还是损坏，涉及订阅凭据时必须保守处理。
-        return true;
-      }
+    const tempResult = VpnRuntimeStateStore.artifactValidity(
+      VpnRuntimeStateStore.path(context, VPN_RUNTIME_STATE_TEMP_FILE));
+    if (tempResult !== 'missing') {
+      return tempResult === 'invalid';
     }
-    return false;
+    const primaryResult = VpnRuntimeStateStore.artifactValidity(
+      VpnRuntimeStateStore.path(context, VPN_RUNTIME_STATE_FILE));
+    if (primaryResult !== 'missing') {
+      return primaryResult === 'invalid';
+    }
+    const backupResult = VpnRuntimeStateStore.artifactValidity(
+      VpnRuntimeStateStore.path(context, VPN_RUNTIME_STATE_BACKUP_FILE));
+    return backupResult === 'invalid';
   }
 
   static stopped(
@@ -245,6 +255,18 @@ export class VpnRuntimeStateStore {
       return fs.readTextSync(path);
     } catch (error) {
       return null;
+    }
+  }
+
+  private static artifactValidity(path: string): 'missing' | 'valid' | 'invalid' {
+    try {
+      if (!fs.accessSync(path)) {
+        return 'missing';
+      }
+      return parsePersistedVpnRuntimeState(fs.readTextSync(path)) === null ? 'invalid' : 'valid';
+    } catch (error) {
+      // 无法确认是瞬时访问错误还是损坏，涉及订阅凭据时必须保守处理。
+      return 'invalid';
     }
   }
 

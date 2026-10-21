@@ -1169,9 +1169,15 @@ if (!runtimeStateStore.includes('(!value.active && (value.xrayRunning || value.t
   throw new Error('an inactive VPN state can still claim running core/TUN resources');
 }
 if (!runtimeStateStore.includes('static hasInvalidStateArtifacts(context: common.Context): boolean') ||
+  !runtimeStateStore.includes('export function hasInvalidPersistedVpnRuntimeArtifacts(') ||
+  !runtimeStateStore.includes("private static artifactValidity(path: string): 'missing' | 'valid' | 'invalid'") ||
+  !runtimeStateStore.includes("if (tempResult !== 'missing')") ||
+  !runtimeStateStore.includes("if (primaryResult !== 'missing')") ||
+  runtimeStateStore.indexOf('const tempResult =') > runtimeStateStore.indexOf('const primaryResult =') ||
+  runtimeStateStore.indexOf('const primaryResult =') > runtimeStateStore.indexOf('const backupResult =') ||
   !runtimeStateStore.includes('parsePersistedVpnRuntimeState(fs.readTextSync(path)) === null') ||
   !runtimeStateStore.includes('// 无法确认是瞬时访问错误还是损坏，涉及订阅凭据时必须保守处理。')) {
-  throw new Error('callers cannot distinguish absent VPN state from corrupt/unreadable state artifacts');
+  throw new Error('VPN state artifact validity does not follow temp/primary/backup authority order');
 }
 if (!subscriptionWorker.includes(
   'const vpnStateArtifactsInvalid = VpnRuntimeStateStore.hasInvalidStateArtifacts(context);') ||

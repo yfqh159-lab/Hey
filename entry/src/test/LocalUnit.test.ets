@@ -64,7 +64,7 @@ import { parseCoreLog } from '../main/ets/services/CoreLogReader';
 import { nativeDelayFailureStatus } from '../main/ets/services/DelayTester';
 import { isRuntimeHealthPort } from '../main/ets/services/RuntimeHealthProbe';
 import { parseNetSceneStopTimestamp, selectNetSceneStopTimestamp, wasNetSceneStoppedAfter } from '../main/ets/services/NetSceneStopFlag';
-import { PersistedVpnRuntimeState, VPN_RUNTIME_HEARTBEAT_STALE_MS, isPersistedVpnCleanupIncomplete, isPersistedVpnRuntimeHealthy, isPersistedVpnRuntimeSessionReady, isPersistedVpnRuntimeSessionStopped, parsePersistedVpnRuntimeState, selectPersistedVpnRuntimeState, shouldCleanupAfterVpnRuntimeStateWriteFailures } from '../main/ets/services/VpnRuntimeStateStore';
+import { PersistedVpnRuntimeState, VPN_RUNTIME_HEARTBEAT_STALE_MS, hasInvalidPersistedVpnRuntimeArtifacts, isPersistedVpnCleanupIncomplete, isPersistedVpnRuntimeHealthy, isPersistedVpnRuntimeSessionReady, isPersistedVpnRuntimeSessionStopped, parsePersistedVpnRuntimeState, selectPersistedVpnRuntimeState, shouldCleanupAfterVpnRuntimeStateWriteFailures } from '../main/ets/services/VpnRuntimeStateStore';
 import { buildAssetDownloadProxyPorts, resolveAssetDownloadProxyPlan } from '../main/ets/features/assets/AssetsController';
 import {
   applyDelayTestPostActionsToGroups,
@@ -3438,6 +3438,25 @@ export default function localUnitTest() {
       expect(selectPersistedVpnRuntimeState(active, stopped, '{')?.active).assertTrue();
       expect(selectPersistedVpnRuntimeState(null, active, '{')?.active).assertTrue();
       expect(selectPersistedVpnRuntimeState(null, null)).assertEqual(null);
+    });
+
+    it('only treats the authoritative VPN state artifact as invalid', 0, () => {
+      const active = JSON.stringify({
+        sessionId: 'active-session',
+        active: true,
+        startedAt: 100,
+        heartbeatAt: 200,
+        coreType: 'xray',
+        xrayRunning: true,
+        tunRunning: true
+      });
+      expect(hasInvalidPersistedVpnRuntimeArtifacts(active, '{')).assertFalse();
+      expect(hasInvalidPersistedVpnRuntimeArtifacts('{', active)).assertTrue();
+      expect(hasInvalidPersistedVpnRuntimeArtifacts('{', active, active)).assertFalse();
+      expect(hasInvalidPersistedVpnRuntimeArtifacts(active, active, '{')).assertTrue();
+      expect(hasInvalidPersistedVpnRuntimeArtifacts(null, active)).assertFalse();
+      expect(hasInvalidPersistedVpnRuntimeArtifacts(null, '{')).assertTrue();
+      expect(hasInvalidPersistedVpnRuntimeArtifacts(null, null)).assertFalse();
     });
 
     it('filters nodes by regex or literal fallback', 0, () => {
