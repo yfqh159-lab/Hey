@@ -660,6 +660,27 @@ if (!store.slice(saveIdsAt, operationAt).includes('return ControlCardStore.enque
 NODE
 printf 'control-card storage transaction verification passed\n'
 
+node <<'NODE'
+const fs = require('fs');
+const source = fs.readFileSync('entry/src/main/ets/services/ControlCardManager.ets', 'utf8');
+const loadAt = source.indexOf('  private async loadReconciledState(');
+const updateAt = source.indexOf('\n  private async updateOne(', loadAt);
+const body = source.slice(loadAt, updateAt);
+const persistedReadAt = body.indexOf('VpnRuntimeStateStore.readWithEvidence(context)');
+const staleCardReturnAt = body.indexOf("if (!state.vpnBacked || state.primaryActionUri !== CONTROL_CARD_STOP_URI)");
+const vpnProbeAt = body.indexOf('probeRuntimeTcpHealth(VPN_DATA_SOCKS_PORT)');
+if (loadAt < 0 || updateAt < 0 || persistedReadAt < 0 || vpnProbeAt < persistedReadAt ||
+  staleCardReturnAt < 0 || staleCardReturnAt < vpnProbeAt ||
+  !body.includes('confirmed.sessionId === expectedSessionId') ||
+  !body.includes('confirmed.startedAt === expectedStartedAt') ||
+  !body.includes('authoritativeArtifactInvalid = confirmedRead.authoritativeArtifactInvalid;') ||
+  !body.includes('ConnectionStatus.RUNNING') ||
+  !body.includes('true,\n            APP_MODE_VPN')) {
+  throw new Error('control card can trust a stale cached idle state before proving live VPN data plane');
+}
+NODE
+printf 'authoritative control-card VPN reconciliation verification passed\n'
+
 # Foreground settings changes and a WorkScheduler callback can both reconcile subscription
 # jobs. Serialize the complete stop/start/index-write operation and avoid recursive queue entry
 # when sync discovers that every group is disabled.
@@ -1458,7 +1479,7 @@ const cardReconcileEnd = controlCardManager.indexOf('\n  private async updateOne
 const cardReconcile = controlCardManager.slice(cardReconcileAt, cardReconcileEnd);
 const cardProbeAt = cardReconcile.indexOf('await probeRuntimeTcpHealth(VPN_DATA_SOCKS_PORT)');
 const cardRereadAt = cardReconcile.indexOf('VpnRuntimeStateStore.readWithEvidence(context)', cardProbeAt);
-const cardHealthyReturnAt = cardReconcile.indexOf('return state;', cardRereadAt);
+const cardHealthyReturnAt = cardReconcile.indexOf('return buildControlCardFormData(', cardRereadAt);
 if (cardReconcileAt < 0 || cardReconcileEnd < 0 || cardProbeAt < 0 ||
   cardRereadAt < cardProbeAt || cardHealthyReturnAt < cardRereadAt ||
   !cardReconcile.includes('confirmed.sessionId === expectedSessionId') ||
@@ -1470,7 +1491,8 @@ if (cardReconcileAt < 0 || cardReconcileEnd < 0 || cardProbeAt < 0 ||
   throw new Error('control card can trust a stale VPN heartbeat without a session-bound data-plane probe');
 }
 if (!cardReconcile.includes('const persistedRead = VpnRuntimeStateStore.readWithEvidence(context);') ||
-  !cardReconcile.includes('if (persistedRead.authoritativeArtifactInvalid)') ||
+  !cardReconcile.includes('if (authoritativeArtifactInvalid)') ||
+  !cardReconcile.includes('authoritativeArtifactInvalid = confirmedRead.authoritativeArtifactInvalid;') ||
   !cardReconcile.includes('!confirmedRead.authoritativeArtifactInvalid') ||
   !cardReconcile.includes('// 可能已回退到旧 inactive/active 备份') ||
   !cardReconcile.includes('APP_MODE_VPN,\n        true')) {
