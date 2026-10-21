@@ -130,6 +130,20 @@ if (!source.includes("private previewedImportValue: string = '';") || previewAt 
   !source.includes("'scanner.previewEndpoint', 'endpoint', redactDiagnosticText(endpointText)")) {
   throw new Error('manual link import can save before an unchanged redacted preview is confirmed');
 }
+const importBody = source.slice(importAt, importEnd);
+const navigation = /this[.]getUIContext[(][)][.]getRouter[(][)][.]back[(][)];/g;
+let match;
+let successCount = 0;
+while ((match = navigation.exec(importBody)) !== null) {
+  successCount++;
+  const prefix = importBody.slice(Math.max(0, match.index - 100), match.index);
+  if (!prefix.includes('this.clearManualImportValue();')) {
+    throw new Error('manual link input retained credentials while navigating after success');
+  }
+}
+if (successCount !== 2) {
+  throw new Error(`Expected 2 successful manual link navigation paths, found ${successCount}`);
+}
 NODE
 printf 'manual link preview confirmation verification passed\n'
 

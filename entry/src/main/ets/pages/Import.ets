@@ -448,6 +448,7 @@ struct ImportPage {
         } catch (err) {
           // ignore
         }
+        this.clearManualImportValue();
         this.getUIContext().getRouter().back();
         return;
       }
@@ -467,6 +468,7 @@ struct ImportPage {
       } catch (err) {
         // ignore
       }
+      this.clearManualImportValue();
       this.getUIContext().getRouter().back();
     } catch (error) {
       this.lastError = this.f1('import.parseFailed', 'error', redactDiagnosticText(JSON.stringify(error)));
@@ -558,6 +560,12 @@ struct ImportPage {
     this.linkPreviewDetail = '';
     this.linkPreviewValid = false;
     this.previewedImportValue = '';
+  }
+
+  private clearManualImportValue(): void {
+    this.importBuffer = '';
+    this.lastError = '';
+    this.clearLinkPreview();
   }
 
   private t(key: string): string {
