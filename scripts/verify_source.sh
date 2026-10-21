@@ -401,6 +401,15 @@ if (!index.includes('if (this.isBusy() && !canCancelStartingConnection(this.stat
   !index.includes('shouldOfferConnectionStop(this.status, SHARED_RUNTIME_CONTROLLER.requiresCleanup())')) {
   throw new Error('home or external controls no longer expose safe startup cancellation');
 }
+const reconnectAt = index.indexOf('  private async reconnectService(): Promise<void>');
+const reconnectEnd = index.indexOf('\n  private async exportAllNodesToClipboard()', reconnectAt);
+const reconnect = index.slice(reconnectAt, reconnectEnd);
+const cleanupGuard = reconnect.indexOf('if (SHARED_RUNTIME_CONTROLLER.requiresCleanup())');
+const firstDirectStart = reconnect.indexOf('await this.startConnectionInternal();');
+if (reconnectAt < 0 || reconnectEnd < 0 || cleanupGuard < 0 || firstDirectStart < 0 ||
+  cleanupGuard > firstDirectStart || !reconnect.slice(cleanupGuard, firstDirectStart).includes('await this.stopConnection();')) {
+  throw new Error('service restart can bypass incomplete-cleanup isolation');
+}
 NODE
 printf 'connection startup cancellation verification passed\n'
 

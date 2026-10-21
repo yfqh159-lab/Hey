@@ -2934,6 +2934,13 @@ struct Index {
       return;
     }
 
+    // 与首页主按钮、外部控制入口保持同一清理闩锁：停止失败后“重启服务”本次只能
+    // 重试释放残留资源，不能在未知 TUN/核心上直接叠加新会话。
+    if (SHARED_RUNTIME_CONTROLLER.requiresCleanup()) {
+      await this.stopConnection();
+      return;
+    }
+
     this.connectionOperationRunning = true;
     try {
       if (this.isRunning()) {
