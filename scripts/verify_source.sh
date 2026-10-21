@@ -1976,6 +1976,17 @@ if (!diagnosticLog.includes('details: redactDiagnosticText(JSON.stringify(error)
 NODE
 printf 'ArkTS console/hilog error redaction verification passed\n'
 
+diagnostic_log="entry/src/main/ets/services/DiagnosticLog.ets"
+if ! grep -Fq "const DIAGNOSTIC_READ_TIMEOUT_MS: number = 2000;" "${diagnostic_log}" || \
+  ! grep -Fq "function withDiagnosticReadTimeout(promise: Promise<string>): Promise<string>" "${diagnostic_log}" || \
+  ! grep -Fq "private static readInFlight: Promise<string> | null = null;" "${diagnostic_log}" || \
+  ! grep -Fq "DiagnosticLog.readInFlight = readPromise;" "${diagnostic_log}" || \
+  ! grep -Fq "await withDiagnosticReadTimeout(readPromise)" "${diagnostic_log}" || \
+  ! grep -Fq "DiagnosticLog.releaseRead(readPromise)" "${diagnostic_log}"; then
+  throw_error "diagnostic log reads must not permanently block runtime refresh or VPN confirmation"
+fi
+printf 'bounded diagnostic-log read verification passed\n'
+
 # A full backup restore spans four independent stores and cannot be a single ArkData
 # transaction. Require a durable pre-import recovery file and an in-process rollback that
 # independently attempts every store, so a later failure cannot silently leave a mixed

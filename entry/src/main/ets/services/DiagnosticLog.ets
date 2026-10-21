@@ -5,6 +5,21 @@ import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 const LOG_FILE_NAME: string = 'hey-vpn-diagnostics.jsonl';
 const MAX_FILE_BYTES: number = 256 * 1024;
 const TRIMMED_FILE_BYTES: number = 160 * 1024;
+const DIAGNOSTIC_READ_TIMEOUT_MS: number = 2000;
+
+function withDiagnosticReadTimeout(promise: Promise<string>): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const timerId = setTimeout(() => reject(new Error('diagnostic read timed out')),
+      DIAGNOSTIC_READ_TIMEOUT_MS);
+    promise.then((value: string) => {
+      clearTimeout(timerId);
+      resolve(value);
+    }, (error: Object) => {
+      clearTimeout(timerId);
+      reject(error);
+    });
+  });
+}
 
 export interface DiagnosticEvent {
   at: number;
@@ -19,6 +34,8 @@ export interface DiagnosticEvent {
 }
 
 export class DiagnosticLog {
+  private static readInFlight: Promise<string> | null = null;
+
   static append(context: common.Context, event: DiagnosticEvent): void {
     const path = DiagnosticLog.path(context);
     let file: fs.File | null = null;
@@ -39,11 +56,29 @@ export class DiagnosticLog {
       if (!fs.accessSync(path)) {
         return [];
       }
-      const raw = await fs.readText(path);
+      if (DiagnosticLog.readInFlight !== null) {
+        return [];
+      }
+      const readPromise = fs.readText(path);
+      DiagnosticLog.readInFlight = readPromise;
+      readPromise.then(
+        (_value: string): void => DiagnosticLog.releaseRead(readPromise),
+        (_error: Object): void => DiagnosticLog.releaseRead(readPromise)
+      );
+      // 文件系统 Promise 在异常存储状态下也不能永久占住首页共享刷新队列或 VPN
+      // 启停确认。迟到读取没有副作用；超时本轮按空日志处理，但原读取结算前不再
+      // 叠加新的底层任务，避免异常存储状态下累积无限 pending Promise。
+      const raw = await withDiagnosticReadTimeout(readPromise);
       return DiagnosticLog.parse(raw, limit);
     } catch (error) {
       console.error(`Diagnostic read failed: ${redactDiagnosticText(JSON.stringify(error))}`);
       return [];
+    }
+  }
+
+  private static releaseRead(readPromise: Promise<string>): void {
+    if (DiagnosticLog.readInFlight === readPromise) {
+      DiagnosticLog.readInFlight = null;
     }
   }
 
