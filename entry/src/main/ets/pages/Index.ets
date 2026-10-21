@@ -2773,6 +2773,12 @@ struct Index {
       }
       this.applyRuntimeState(state);
       this.scheduleHomeAutoDelayTest();
+      // 设置重启信号可能曾在 STARTING/STOPPING 时被有意保留。周期性的权威状态刷新
+      // 一旦观察到稳定态，就重新安排消费；否则同一 true 值不会再次触发 @Watch，可能
+      // 让新选择的 TUN/本地代理模式与仍在运行的旧数据面长期不一致。
+      if (this.pageVisible && this.initialStateReady && this.pendingRuntimeSettingsRestartSignal && !this.isBusy()) {
+        this.consumePendingRuntimeSettingsRestartSoon();
+      }
     } catch (error) {
       this.lastError = redactDiagnosticText(JSON.stringify(error));
       if (strict) {

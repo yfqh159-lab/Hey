@@ -376,7 +376,9 @@ if ! grep -Fq "@StorageLink(RUNTIME_SETTINGS_RESTART_PENDING_KEY) @Watch('onPend
   ! grep -Fq "if (!this.pageVisible || !this.pendingRuntimeSettingsRestartSignal)" \
   "entry/src/main/ets/pages/Index.ets" || \
   ! grep -Fq "if (!await this.recoverForegroundAuthority())" "entry/src/main/ets/pages/Index.ets" || \
-  ! grep -Fq "await this.handlePendingRuntimeSettingsRestart();" "entry/src/main/ets/pages/Index.ets"; then
+  ! grep -Fq "await this.handlePendingRuntimeSettingsRestart();" "entry/src/main/ets/pages/Index.ets" || \
+  ! grep -Fq "this.pendingRuntimeSettingsRestartSignal && !this.isBusy()" \
+  "entry/src/main/ets/pages/Index.ets"; then
   throw_error "late settings-save restart signals must be consumed from authoritative visible-home state"
 fi
 printf 'late settings restart handoff verification passed\n'
