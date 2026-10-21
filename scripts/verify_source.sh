@@ -69,6 +69,16 @@ if [[ "${actual_http_request_files}" != "${expected_http_request_files}" ]]; the
 fi
 printf 'ArkTS HTTP request allowlist verification passed\n'
 
+# These legacy resources described removed automatic-connect/fastest-node features.
+# Their return would contradict the single-node, user-controlled runtime model even if
+# no current page referenced them, so keep their identifiers out of the translation map.
+if grep -qE "log[.]netAutomation(Connect|NoNode)|subscription[.]edit[.]autoSelectFastest" \
+  entry/src/main/ets/core/I18n.ets; then
+  printf 'removed automatic-connect translation keys were reintroduced\n' >&2
+  exit 1
+fi
+printf 'manual connection policy translation verification passed\n'
+
 if ! command -v node >/dev/null 2>&1; then
   printf 'node is required for the translation-key consistency check.\n' >&2
   exit 1
