@@ -44,6 +44,7 @@ import {
 } from '../main/ets/core/RuntimeHealth';
 import { proxyConfigDedupeKey } from '../main/ets/core/NodeDedupe';
 import { isSingboxOnlyProtocol, requiredCoreForProtocol, resolveRuntimeCoreType, CORE_TYPE_SINGBOX, CORE_TYPE_XRAY } from '../main/ets/core/CoreSelection';
+import { isCurrentEgressCheck } from '../main/ets/core/RuntimeEgress';
 import {
   DEFAULT_SUBSCRIPTION_UPDATE_INTERVAL_MINUTES,
   MIN_SUBSCRIPTION_UPDATE_INTERVAL_MINUTES,
@@ -2878,6 +2879,15 @@ export default function localUnitTest() {
       expect(recoveredVpnProfileMatches(0, 20)).assertTrue();
       expect(recoveredVpnProfileMatches(20, 20)).assertTrue();
       expect(recoveredVpnProfileMatches(10, 20)).assertFalse();
+    });
+
+    it('accepts egress results only from the current session and check generation', 0, () => {
+      expect(isCurrentEgressCheck(ConnectionStatus.RUNNING, 1000, 1000, 4, 4)).assertTrue();
+      expect(isCurrentEgressCheck(ConnectionStatus.RUNNING, 1000, 999, 4, 4)).assertFalse();
+      expect(isCurrentEgressCheck(ConnectionStatus.RUNNING, 1000, 1000, 5, 4)).assertFalse();
+      expect(isCurrentEgressCheck(ConnectionStatus.IDLE, 1000, 1000, 4, 4)).assertFalse();
+      expect(isCurrentEgressCheck(ConnectionStatus.ERROR, 1000, 1000, 4, 4)).assertFalse();
+      expect(isCurrentEgressCheck(ConnectionStatus.RUNNING, 0, 0, 4, 4)).assertFalse();
     });
 
     it('detects a stopped local proxy core without applying UI-process stats to VPN mode', 0, () => {

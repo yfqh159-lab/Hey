@@ -197,6 +197,26 @@ printf 'optional TUN/runtime mode separation verification passed\n'
 node <<'NODE'
 const fs = require('fs');
 
+const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeController.ets', 'utf8');
+const networkScene = fs.readFileSync('entry/src/main/ets/services/NetworkSceneManager.ets', 'utf8');
+if (!runtime.includes('private egressCheckGeneration: number = 0;') ||
+  !runtime.includes('this.egressCheckGeneration++') ||
+  !runtime.includes('isCurrentEgressCheck(')) {
+  throw new Error('egress checks must reject stale session/generation results');
+}
+const invalidateAt = networkScene.indexOf('SHARED_RUNTIME_CONTROLLER.invalidateCurrentEgressIp();');
+const recoverAt = networkScene.indexOf('await SHARED_RUNTIME_CONTROLLER.recoverProxyOnlyAfterNetworkChange(', invalidateAt);
+const recheckAt = networkScene.indexOf('await SHARED_RUNTIME_CONTROLLER.recheckCurrentEgressIp(', invalidateAt);
+if (invalidateAt < 0 || recoverAt < 0 || recheckAt < 0 ||
+  !(invalidateAt < recoverAt && recoverAt < recheckAt)) {
+  throw new Error('network handover must invalidate stale egress checks before recovery and recheck');
+}
+NODE
+printf 'egress handover generation verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
+
 const app = JSON.parse(fs.readFileSync('AppScope/app.json5', 'utf8'));
 const bundleName = app?.app?.bundleName;
 if (typeof bundleName !== 'string' || bundleName.length === 0) {

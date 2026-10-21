@@ -22,6 +22,7 @@ import { measureRuntimeProfileDelay, RuntimeDelayResult } from '../../services/R
 import { connectionStatusBackground, connectionStatusColor, formatClockTime, formatDuration } from '../../utils/Formatters';
 import { formatOne, localizedConnectionStatus, localizeCoreMessage, localizeDiagnosticHeartbeat } from '../../utils/LocalizationPresenter';
 import { redactDiagnosticText } from '../../core/DiagnosticRedaction';
+import { isCurrentEgressCheck } from '../../core/RuntimeEgress';
 
 const EMPTY_STATS: RuntimeStats = {
   uploadBytes: 0,
@@ -84,6 +85,7 @@ export class RuntimeController {
   // 只保存当前会话经代理实测得到的公网 IP；断开/切换会话立即清空，避免展示旧出口。
   private egressIp: string = '';
   private egressIpChecking: boolean = false;
+  private egressCheckGeneration: number = 0;
   private lastProxyHealthProbeAt: number = 0;
   private proxyUnhealthySampleCount: number = 0;
   private recoveredProfileUpdatedAt: number = 0;
@@ -536,13 +538,17 @@ export class RuntimeController {
     language: AppLanguage,
     startedAt: number
   ): void {
+    const checkGeneration = ++this.egressCheckGeneration;
     this.egressIpChecking = this.status === ConnectionStatus.RUNNING &&
       this.resolveRemoteIpProxyPort(profile, settings) > 0;
-    this.appendRuntimeConnectivityInfo(context, profile, settings, language, startedAt).catch((error: Object) => {
-      if (this.startedAt === startedAt) {
+    this.appendRuntimeConnectivityInfo(
+      context, profile, settings, language, startedAt, checkGeneration).catch((error: Object) => {
+      if (isCurrentEgressCheck(
+        this.status, this.startedAt, startedAt, this.egressCheckGeneration, checkGeneration)) {
         this.egressIpChecking = false;
+        this.egressIp = '';
+        this.appendLog(formatOne(language, 'log.remoteIpInfoFailed', 'error', JSON.stringify(error)));
       }
-      this.appendLog(formatOne(language, 'log.connectionDelayError', 'error', JSON.stringify(error)));
     });
   }
 
@@ -551,13 +557,14 @@ export class RuntimeController {
     profile: ProxyProfile,
     settings: AppSettings,
     language: AppLanguage,
-    startedAt: number
+    startedAt: number,
+    checkGeneration: number
   ): Promise<void> {
     // 两项互不依赖：出口 IP 是经代理的 HTTPS 连通性验证，节点延迟是另一条诊断信号。
     // 并行执行可避免 TCP 探测超时后才开始出口验证，缩短首页“正在验证”时间。
     await Promise.all([
       this.measureConnectionDelayInternal(context, profile, settings, language, startedAt),
-      this.appendRemoteIpInfo(profile, settings, language, startedAt)
+      this.appendRemoteIpInfo(profile, settings, language, startedAt, checkGeneration)
     ]);
   }
 
@@ -582,17 +589,25 @@ export class RuntimeController {
       return;
     }
     const startedAt = this.startedAt;
+    const checkGeneration = ++this.egressCheckGeneration;
     this.egressIpChecking = true;
     try {
-      await this.appendRemoteIpInfo(profile, settings, language, startedAt);
+      await this.appendRemoteIpInfo(profile, settings, language, startedAt, checkGeneration);
     } catch (error) {
-      if (this.status === ConnectionStatus.RUNNING && this.startedAt === startedAt) {
+      if (isCurrentEgressCheck(
+        this.status, this.startedAt, startedAt, this.egressCheckGeneration, checkGeneration)) {
         // 请求异常也不能继续展示上一次承载网络留下的出口，失败态应明确可见。
         this.egressIp = '';
         this.egressIpChecking = false;
         this.appendLog(formatOne(language, 'log.remoteIpInfoFailed', 'error', JSON.stringify(error)));
       }
     }
+  }
+
+  // 真实底层承载变化时先让所有在途请求失效。调用方随后可在确认存在可用承载后复测；
+  // 这里不自行联网，也不重启核心/VPN。
+  invalidateCurrentEgressIp(): void {
+    this.resetEgressIp();
   }
 
   // 测「当前连接」延迟并把结果写入状态与日志。期间会话变化（断开/热切换重连）时返回 null，
@@ -653,20 +668,29 @@ export class RuntimeController {
   }
 
   private resetEgressIp(): void {
+    this.egressCheckGeneration++;
     this.egressIp = '';
     this.egressIpChecking = false;
   }
 
-  private async appendRemoteIpInfo(profile: ProxyProfile, settings: AppSettings, language: AppLanguage, startedAt: number): Promise<void> {
+  private async appendRemoteIpInfo(
+    profile: ProxyProfile,
+    settings: AppSettings,
+    language: AppLanguage,
+    startedAt: number,
+    checkGeneration: number
+  ): Promise<void> {
     const proxyPort = this.resolveRemoteIpProxyPort(profile, settings);
-    if (this.status !== ConnectionStatus.RUNNING || this.startedAt !== startedAt || proxyPort <= 0) {
-      if (this.startedAt === startedAt) {
+    if (!isCurrentEgressCheck(
+      this.status, this.startedAt, startedAt, this.egressCheckGeneration, checkGeneration) || proxyPort <= 0) {
+      if (this.startedAt === startedAt && this.egressCheckGeneration === checkGeneration) {
         this.egressIpChecking = false;
       }
       return;
     }
     const result: RemoteIpInfoResult = await fetchRemoteIpInfo(settings.ipApiUrl, proxyPort);
-    if (this.status !== ConnectionStatus.RUNNING || this.startedAt !== startedAt) {
+    if (!isCurrentEgressCheck(
+      this.status, this.startedAt, startedAt, this.egressCheckGeneration, checkGeneration)) {
       return;
     }
     this.egressIpChecking = false;

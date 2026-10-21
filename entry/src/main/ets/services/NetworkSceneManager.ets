@@ -195,13 +195,22 @@ export class NetworkSceneManager {
         await this.applyDisconnect(context);
       } else if (runtimeRunning) {
         const language = this.currentLanguage();
+        const usableChangedTransport = transportChanged &&
+          shouldReloadActiveCoreAfterNetworkChange(ctx, action);
+        if (transportChanged) {
+          // 先撤销上一承载的在途出口请求；否则旧 Wi-Fi/蜂窝响应可能在新请求前后
+          // 迟到写回，继续冒充当前出口。瞬时无网络只清空，等待下一可用承载事件。
+          SHARED_RUNTIME_CONTROLLER.invalidateCurrentEgressIp();
+        }
         // VPN 核心由 Extension 的后台轮询恢复；Proxy-only 与 UI 同进程，需要在确认是
         // 真实签名变化（而非首次/强制补判）后重建预解析配置并原地重载核心。
-        if (transportChanged && shouldReloadActiveCoreAfterNetworkChange(ctx, action)) {
+        if (usableChangedTransport) {
           await SHARED_RUNTIME_CONTROLLER.recoverProxyOnlyAfterNetworkChange(context, language);
         }
         // 恢复完成后再经当前代理复测出口，避免把旧承载的结果继续展示为当前出口。
-        await SHARED_RUNTIME_CONTROLLER.recheckCurrentEgressIp(language);
+        if (!transportChanged || usableChangedTransport) {
+          await SHARED_RUNTIME_CONTROLLER.recheckCurrentEgressIp(language);
+        }
       }
     } catch (error) {
       hilog.error(DOMAIN, TAG, 'evaluate failed: %{public}s', redactDiagnosticText(JSON.stringify(error)));
