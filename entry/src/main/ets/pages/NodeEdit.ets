@@ -1196,23 +1196,18 @@ struct NodeEditPage {
         }
         promptAction.showToast({ message: this.t('nodeEdit.updated') });
       } else {
-        const duplicate = await SubscriptionStore.findDuplicateNode(
-          context,
-          validation.normalizedJson,
-          validation.configType
-        );
-        if (duplicate !== null) {
-          this.lastError = this.tf('scanner.duplicateNode', ['name'], [duplicate.name]);
-          return;
-        }
-        // 新增只入库，不切换当前选择或重启现有连接；用户随后在首页显式选择节点。
-        await SubscriptionStore.addManualNode(
+        const added = await SubscriptionStore.addManualNodeIfUnique(
           context,
           this.nodeName,
           validation.normalizedJson,
           validation.configType,
           false
         );
+        if (!added.added) {
+          this.lastError = this.tf(
+            'scanner.duplicateNode', ['name'], [added.duplicate?.name ?? this.nodeName]);
+          return;
+        }
         promptAction.showToast({ message: this.t('nodeEdit.saved') });
       }
       router.back();

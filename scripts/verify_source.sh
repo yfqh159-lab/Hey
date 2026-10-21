@@ -254,6 +254,51 @@ if (!disappear.includes("this.pendingSensitiveImport = '';" ) ||
 NODE
 printf 'import re-entry and scanner disposal verification passed\n'
 
+# Node/subscription persistence is a full-profile read/modify/write store. Every mutating
+# public method must enter the same queue before its first read, and all external node-add
+# paths must combine duplicate detection with insertion in that transaction.
+node <<'NODE'
+const fs = require('fs');
+const store = fs.readFileSync('entry/src/main/ets/storage/SubscriptionStore.ets', 'utf8');
+const mutations = [
+  'saveUrl', 'saveNodes', 'saveNodeDelay', 'saveNodeDelays', 'saveActiveGroupNodes',
+  'saveGroups', 'restoreProfile', 'removeNode', 'removeInvalidNodes',
+  'dedupeActiveGroupNodes', 'clearActiveGroupNodes', 'selectNode', 'selectGroup',
+  'toggleGroup', 'removeGroup', 'moveGroup', 'addGroup', 'updateGroup',
+  'addManualNode', 'addManualNodeIfUnique', 'updateManualNode'
+];
+for (const name of mutations) {
+  const methodAt = store.indexOf(`  static ${name}(`);
+  const nextMethodAt = store.indexOf('\n  static ', methodAt + 1);
+  const body = store.slice(methodAt, nextMethodAt < 0 ? store.length : nextMethodAt);
+  const queuedAt = body.indexOf('return SubscriptionStore.enqueueMutation(');
+  const loadAt = body.indexOf('SubscriptionStore.load(context)');
+  const saveAt = body.indexOf('SubscriptionStore.save(context');
+  const firstStorageAt = loadAt < 0 ? saveAt : (saveAt < 0 ? loadAt : Math.min(loadAt, saveAt));
+  if (methodAt < 0 || queuedAt < 0 || (firstStorageAt >= 0 && queuedAt > firstStorageAt)) {
+    throw new Error(`${name} is outside the subscription mutation queue`);
+  }
+}
+if (!store.includes('private static mutationTail: Promise<void> = Promise.resolve();') ||
+  !store.includes('SubscriptionStore.mutationTail = task.then(') ||
+  !store.includes('SubscriptionStore.findDuplicateNodeInProfile(profile, outboundJson, configType)')) {
+  throw new Error('subscription mutation queue or atomic duplicate check is missing');
+}
+for (const file of [
+  'entry/src/main/ets/pages/Scanner.ets',
+  'entry/src/main/ets/pages/Import.ets',
+  'entry/src/main/ets/pages/Index.ets',
+  'entry/src/main/ets/pages/JsonImport.ets',
+  'entry/src/main/ets/pages/NodeEdit.ets'
+]) {
+  const source = fs.readFileSync(file, 'utf8');
+  if (!source.includes('SubscriptionStore.addManualNodeIfUnique(')) {
+    throw new Error(`${file} bypasses atomic node deduplication`);
+  }
+}
+NODE
+printf 'subscription mutation transaction verification passed\n'
+
 # Manual link entry is a separate daily add path from camera/photo scanning. It must
 # parse into a redacted summary on the first action and require a second action for the
 # exact unchanged input before any node-store write.

@@ -767,12 +767,9 @@ struct ScannerPage {
     outboundJson: string,
     configType?: XrayConfigType
   ): Promise<boolean> {
-    const duplicate = await SubscriptionStore.findDuplicateNode(context, outboundJson, configType);
-    if (duplicate !== null) {
-      return false;
-    }
-    await SubscriptionStore.addManualNode(context, name, outboundJson, configType, false);
-    return true;
+    const result = await SubscriptionStore.addManualNodeIfUnique(
+      context, name, outboundJson, configType, false);
+    return result.added;
   }
 
   private t(key: string): string {

@@ -702,11 +702,9 @@ struct Index {
     outboundJson: string,
     configType?: XrayConfigType
   ): Promise<boolean> {
-    if (await SubscriptionStore.findDuplicateNode(context, outboundJson, configType) !== null) {
-      return false;
-    }
-    await SubscriptionStore.addManualNode(context, name, outboundJson, configType, false);
-    return true;
+    const result = await SubscriptionStore.addManualNodeIfUnique(
+      context, name, outboundJson, configType, false);
+    return result.added;
   }
 
   private uniqueImportLines(value: string): Array<string> {

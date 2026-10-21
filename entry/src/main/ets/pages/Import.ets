@@ -585,12 +585,10 @@ struct ImportPage {
     outboundJson: string,
     configType?: XrayConfigType
   ): Promise<boolean> {
-    if (await SubscriptionStore.findDuplicateNode(context, outboundJson, configType) !== null) {
-      return false;
-    }
-    // 导入只新增节点；不切换当前选择，也不改变正在运行的数据面。
-    await SubscriptionStore.addManualNode(context, name, outboundJson, configType, false);
-    return true;
+    // 去重与新增必须在节点库存储队列的同一事务中完成；页面先查再加仍有并发窗口。
+    const result = await SubscriptionStore.addManualNodeIfUnique(
+      context, name, outboundJson, configType, false);
+    return result.added;
   }
 
   private protocolDisplayTitle(protocol: string): string {

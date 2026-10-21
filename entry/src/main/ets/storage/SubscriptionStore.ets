@@ -21,6 +21,12 @@ export interface ManualNodeUpdateResult {
   profile: SubscriptionProfile;
 }
 
+export interface ManualNodeAddResult {
+  added: boolean;
+  duplicate: ProxyNode | null;
+  profile: SubscriptionProfile;
+}
+
 // 批量延迟落库的单条更新。
 export interface NodeDelayUpdate {
   nodeId: string;
@@ -35,6 +41,11 @@ export interface StoredSubscriptionSelection {
 }
 
 export class SubscriptionStore {
+  // Every public mutation below reads, modifies and writes the complete profile. Keep the
+  // whole transaction in one process-wide queue; serializing only Preferences.put/flush
+  // would still let two callers read the same old profile and lose whichever update saves first.
+  private static mutationTail: Promise<void> = Promise.resolve();
+
   static async load(context: common.Context): Promise<SubscriptionProfile> {
     const store = await preferences.getPreferences(context, PREFERENCES_NAME);
     const primaryRaw = (await store.get(SUBSCRIPTION_KEY, '')).toString();
@@ -72,7 +83,8 @@ export class SubscriptionStore {
     return { profile: null, source: 'invalid' };
   }
 
-  static async saveUrl(context: common.Context, url: string, groupId?: string, touchUpdatedAt: boolean = true): Promise<SubscriptionProfile> {
+  static saveUrl(context: common.Context, url: string, groupId?: string, touchUpdatedAt: boolean = true): Promise<SubscriptionProfile> {
+    return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
     const profile = await SubscriptionStore.load(context);
     let group: SubscriptionGroup | null = null;
     if (groupId && groupId.length > 0) {
@@ -95,9 +107,11 @@ export class SubscriptionStore {
     }
     await SubscriptionStore.save(context, SubscriptionStore.normalize(profile));
     return SubscriptionStore.load(context);
+    });
   }
 
-  static async saveNodes(context: common.Context, groupId: string, url: string, nodes: Array<ProxyNode>, selectedNodeId: string, makeActive: boolean = true): Promise<SubscriptionProfile> {
+  static saveNodes(context: common.Context, groupId: string, url: string, nodes: Array<ProxyNode>, selectedNodeId: string, makeActive: boolean = true): Promise<SubscriptionProfile> {
+    return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
     const profile = await SubscriptionStore.load(context);
     let group: SubscriptionGroup | null = null;
     if (groupId.length > 0) {
@@ -131,9 +145,11 @@ export class SubscriptionStore {
     }
     await SubscriptionStore.save(context, SubscriptionStore.normalize(profile));
     return SubscriptionStore.load(context);
+    });
   }
 
-  static async saveNodeDelay(context: common.Context, nodeId: string, delayMs: number, delayStatus: string, delayTestAt: number): Promise<SubscriptionProfile> {
+  static saveNodeDelay(context: common.Context, nodeId: string, delayMs: number, delayStatus: string, delayTestAt: number): Promise<SubscriptionProfile> {
+    return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
     const profile = await SubscriptionStore.load(context);
     for (let groupIndex = 0; groupIndex < profile.groups.length; groupIndex++) {
       const group = profile.groups[groupIndex];
@@ -147,11 +163,13 @@ export class SubscriptionStore {
     }
     await SubscriptionStore.save(context, SubscriptionStore.normalize(profile), false);
     return SubscriptionStore.load(context);
+    });
   }
 
   // 批量落库一组节点的延迟结果：一次 load/save 写完整块，避免逐节点反复读写
   // preferences（大列表分块测速时每块只写一次）。
-  static async saveNodeDelays(context: common.Context, updates: Array<NodeDelayUpdate>): Promise<SubscriptionProfile> {
+  static saveNodeDelays(context: common.Context, updates: Array<NodeDelayUpdate>): Promise<SubscriptionProfile> {
+    return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
     const profile = await SubscriptionStore.load(context);
     const byId = new Map<string, NodeDelayUpdate>();
     for (let i = 0; i < updates.length; i++) {
@@ -170,9 +188,11 @@ export class SubscriptionStore {
     }
     await SubscriptionStore.save(context, SubscriptionStore.normalize(profile), false);
     return SubscriptionStore.load(context);
+    });
   }
 
-  static async saveActiveGroupNodes(context: common.Context, nodes: Array<ProxyNode>, selectedNodeId: string): Promise<SubscriptionProfile> {
+  static saveActiveGroupNodes(context: common.Context, nodes: Array<ProxyNode>, selectedNodeId: string): Promise<SubscriptionProfile> {
+    return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
     const profile = await SubscriptionStore.load(context);
     const group = SubscriptionStore.activeGroup(profile);
     if (group !== null) {
@@ -182,22 +202,28 @@ export class SubscriptionStore {
       await SubscriptionStore.save(context, SubscriptionStore.normalize(profile));
     }
     return SubscriptionStore.load(context);
+    });
   }
 
-  static async saveGroups(context: common.Context, groups: Array<SubscriptionGroup>): Promise<SubscriptionProfile> {
+  static saveGroups(context: common.Context, groups: Array<SubscriptionGroup>): Promise<SubscriptionProfile> {
+    return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
     const profile = await SubscriptionStore.load(context);
     profile.groups = groups;
     await SubscriptionStore.save(context, SubscriptionStore.normalize(profile));
     return SubscriptionStore.load(context);
+    });
   }
 
   // 用整份订阅档案覆盖现有数据（配置恢复用）。normalize 负责字段归一化与容错。
-  static async restoreProfile(context: common.Context, profile: SubscriptionProfile): Promise<SubscriptionProfile> {
+  static restoreProfile(context: common.Context, profile: SubscriptionProfile): Promise<SubscriptionProfile> {
+    return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
     await SubscriptionStore.save(context, SubscriptionStore.normalize(profile));
     return SubscriptionStore.load(context);
+    });
   }
 
-  static async removeNode(context: common.Context, nodeId: string): Promise<SubscriptionProfile> {
+  static removeNode(context: common.Context, nodeId: string): Promise<SubscriptionProfile> {
+    return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
     const profile = await SubscriptionStore.load(context);
     let removed = false;
     for (let groupIndex = 0; groupIndex < profile.groups.length; groupIndex++) {
@@ -219,9 +245,11 @@ export class SubscriptionStore {
       await SubscriptionStore.save(context, SubscriptionStore.normalize(profile));
     }
     return SubscriptionStore.load(context);
+    });
   }
 
-  static async removeInvalidNodes(context: common.Context): Promise<SubscriptionProfile> {
+  static removeInvalidNodes(context: common.Context): Promise<SubscriptionProfile> {
+    return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
     const profile = await SubscriptionStore.load(context);
     const group = SubscriptionStore.activeGroup(profile);
     if (group !== null) {
@@ -238,9 +266,11 @@ export class SubscriptionStore {
       await SubscriptionStore.save(context, SubscriptionStore.normalize(profile));
     }
     return SubscriptionStore.load(context);
+    });
   }
 
-  static async dedupeActiveGroupNodes(context: common.Context): Promise<SubscriptionProfile> {
+  static dedupeActiveGroupNodes(context: common.Context): Promise<SubscriptionProfile> {
+    return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
     const profile = await SubscriptionStore.load(context);
     const group = SubscriptionStore.activeGroup(profile);
     if (group !== null) {
@@ -250,9 +280,11 @@ export class SubscriptionStore {
       await SubscriptionStore.save(context, SubscriptionStore.normalize(profile));
     }
     return SubscriptionStore.load(context);
+    });
   }
 
-  static async clearActiveGroupNodes(context: common.Context): Promise<SubscriptionProfile> {
+  static clearActiveGroupNodes(context: common.Context): Promise<SubscriptionProfile> {
+    return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
     const profile = await SubscriptionStore.load(context);
     const group = SubscriptionStore.activeGroup(profile);
     if (group !== null) {
@@ -262,9 +294,11 @@ export class SubscriptionStore {
       await SubscriptionStore.save(context, SubscriptionStore.normalize(profile));
     }
     return SubscriptionStore.load(context);
+    });
   }
 
-  static async selectNode(context: common.Context, selectedNodeId: string): Promise<SubscriptionProfile> {
+  static selectNode(context: common.Context, selectedNodeId: string): Promise<SubscriptionProfile> {
+    return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
     const profile = await SubscriptionStore.load(context);
     for (let index = 0; index < profile.groups.length; index++) {
       const group = profile.groups[index];
@@ -281,18 +315,22 @@ export class SubscriptionStore {
     profile.selectedNodeId = selectedNodeId;
     await SubscriptionStore.save(context, SubscriptionStore.normalize(profile));
     return SubscriptionStore.load(context);
+    });
   }
 
-  static async selectGroup(context: common.Context, groupId: string): Promise<SubscriptionProfile> {
+  static selectGroup(context: common.Context, groupId: string): Promise<SubscriptionProfile> {
+    return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
     const profile = await SubscriptionStore.load(context);
     if (SubscriptionStore.findGroup(profile.groups, groupId) !== null) {
       profile.selectedGroupId = groupId;
       await SubscriptionStore.save(context, SubscriptionStore.normalize(profile));
     }
     return SubscriptionStore.load(context);
+    });
   }
 
-  static async toggleGroup(context: common.Context, groupId: string): Promise<SubscriptionProfile> {
+  static toggleGroup(context: common.Context, groupId: string): Promise<SubscriptionProfile> {
+    return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
     const profile = await SubscriptionStore.load(context);
     const group = SubscriptionStore.findGroup(profile.groups, groupId);
     if (group !== null) {
@@ -300,9 +338,11 @@ export class SubscriptionStore {
       await SubscriptionStore.save(context, SubscriptionStore.normalize(profile));
     }
     return SubscriptionStore.load(context);
+    });
   }
 
-  static async removeGroup(context: common.Context, groupId: string): Promise<SubscriptionProfile> {
+  static removeGroup(context: common.Context, groupId: string): Promise<SubscriptionProfile> {
+    return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
     const profile = await SubscriptionStore.load(context);
     const groups: Array<SubscriptionGroup> = [];
     for (let index = 0; index < profile.groups.length; index++) {
@@ -316,16 +356,19 @@ export class SubscriptionStore {
     }
     await SubscriptionStore.save(context, SubscriptionStore.normalize(profile));
     return SubscriptionStore.load(context);
+    });
   }
 
-  static async moveGroup(context: common.Context, groupId: string, delta: number): Promise<SubscriptionProfile> {
+  static moveGroup(context: common.Context, groupId: string, delta: number): Promise<SubscriptionProfile> {
+    return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
     const profile = await SubscriptionStore.load(context);
     profile.groups = moveSubscriptionGroup(profile.groups, groupId, delta);
     await SubscriptionStore.save(context, SubscriptionStore.normalize(profile));
     return SubscriptionStore.load(context);
+    });
   }
 
-  static async addGroup(
+  static addGroup(
     context: common.Context,
     name: string,
     url: string,
@@ -337,15 +380,17 @@ export class SubscriptionStore {
     autoUpdate: boolean = false,
     updateIntervalMinutes: number = DEFAULT_SUBSCRIPTION_UPDATE_INTERVAL_MINUTES
   ): Promise<SubscriptionProfile> {
+    return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
     const profile = await SubscriptionStore.load(context);
     const group = SubscriptionStore.createGroup(url, name, userAgent, filter, prevProfile, nextProfile, allowInsecureUrl, autoUpdate, updateIntervalMinutes);
     profile.groups.push(group);
     profile.selectedGroupId = group.id;
     await SubscriptionStore.save(context, SubscriptionStore.normalize(profile));
     return SubscriptionStore.load(context);
+    });
   }
 
-  static async updateGroup(
+  static updateGroup(
     context: common.Context,
     groupId: string,
     name: string,
@@ -358,6 +403,7 @@ export class SubscriptionStore {
     autoUpdate: boolean = false,
     updateIntervalMinutes: number = DEFAULT_SUBSCRIPTION_UPDATE_INTERVAL_MINUTES
   ): Promise<SubscriptionProfile> {
+    return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
     const profile = await SubscriptionStore.load(context);
     const group = SubscriptionStore.findGroup(profile.groups, groupId);
     if (group !== null) {
@@ -373,17 +419,53 @@ export class SubscriptionStore {
       await SubscriptionStore.save(context, SubscriptionStore.normalize(profile));
     }
     return SubscriptionStore.load(context);
+    });
   }
 
-  static async addManualNode(
+  static addManualNode(
     context: common.Context,
     name: string,
     outboundJson: string,
     configType?: XrayConfigType,
     makeActive: boolean = true
   ): Promise<SubscriptionProfile> {
-    const profile = await SubscriptionStore.load(context);
-    
+    return SubscriptionStore.enqueueMutation(async (): Promise<SubscriptionProfile> => {
+      const profile = await SubscriptionStore.load(context);
+      return SubscriptionStore.addManualNodeToProfile(
+        context, profile, name, outboundJson, configType, makeActive);
+    });
+  }
+
+  static addManualNodeIfUnique(
+    context: common.Context,
+    name: string,
+    outboundJson: string,
+    configType?: XrayConfigType,
+    makeActive: boolean = false
+  ): Promise<ManualNodeAddResult> {
+    return SubscriptionStore.enqueueMutation(async (): Promise<ManualNodeAddResult> => {
+      const profile = await SubscriptionStore.load(context);
+      const duplicate = SubscriptionStore.findDuplicateNodeInProfile(profile, outboundJson, configType);
+      if (duplicate !== null) {
+        return { added: false, duplicate, profile };
+      }
+      return {
+        added: true,
+        duplicate: null,
+        profile: await SubscriptionStore.addManualNodeToProfile(
+          context, profile, name, outboundJson, configType, makeActive)
+      };
+    });
+  }
+
+  private static async addManualNodeToProfile(
+    context: common.Context,
+    profile: SubscriptionProfile,
+    name: string,
+    outboundJson: string,
+    configType?: XrayConfigType,
+    makeActive: boolean = true
+  ): Promise<SubscriptionProfile> {
     let localGroup = SubscriptionStore.findGroup(profile.groups, 'sub-local');
     if (localGroup === null) {
       localGroup = {
@@ -444,11 +526,19 @@ export class SubscriptionStore {
   }
 
   static async findDuplicateNode(context: common.Context, outboundJson: string, configType?: XrayConfigType): Promise<ProxyNode | null> {
+    const profile = await SubscriptionStore.load(context);
+    return SubscriptionStore.findDuplicateNodeInProfile(profile, outboundJson, configType);
+  }
+
+  private static findDuplicateNodeInProfile(
+    profile: SubscriptionProfile,
+    outboundJson: string,
+    configType?: XrayConfigType
+  ): ProxyNode | null {
     const targetKey = proxyConfigDedupeKey(outboundJson, configType);
     if (targetKey.length === 0) {
       return null;
     }
-    const profile = await SubscriptionStore.load(context);
     for (let groupIndex = 0; groupIndex < profile.groups.length; groupIndex++) {
       const nodes = profile.groups[groupIndex].nodes;
       for (let nodeIndex = 0; nodeIndex < nodes.length; nodeIndex++) {
@@ -460,7 +550,8 @@ export class SubscriptionStore {
     return null;
   }
 
-  static async updateManualNode(context: common.Context, nodeId: string, name: string, outboundJson: string, configType?: XrayConfigType): Promise<ManualNodeUpdateResult> {
+  static updateManualNode(context: common.Context, nodeId: string, name: string, outboundJson: string, configType?: XrayConfigType): Promise<ManualNodeUpdateResult> {
+    return SubscriptionStore.enqueueMutation(async (): Promise<ManualNodeUpdateResult> => {
     const profile = await SubscriptionStore.load(context);
     const validation = normalizeConfigInput(outboundJson, configType);
     const resolvedConfigType = SubscriptionStore.resolveConfigType(validation.configType, configType);
@@ -517,6 +608,19 @@ export class SubscriptionStore {
       node: null,
       profile
     };
+    });
+  }
+
+  private static enqueueMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const task = SubscriptionStore.mutationTail.then(
+      (): Promise<T> => operation(),
+      (): Promise<T> => operation()
+    );
+    SubscriptionStore.mutationTail = task.then(
+      (): void => {},
+      (_error: Object): void => {}
+    );
+    return task;
   }
 
   private static async save(context: common.Context, profile: SubscriptionProfile, preservePrevious: boolean = true): Promise<void> {
