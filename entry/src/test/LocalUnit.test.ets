@@ -2744,6 +2744,9 @@ export default function localUnitTest() {
       expect(selectPersistedVpnRuntimeState('{', active)?.active).assertTrue();
       expect(selectPersistedVpnRuntimeState(stopped, active)?.active).assertFalse();
       expect(selectPersistedVpnRuntimeState(active, stopped)?.active).assertTrue();
+      expect(selectPersistedVpnRuntimeState(null, active, stopped)?.active).assertFalse();
+      expect(selectPersistedVpnRuntimeState('{', active, stopped)?.active).assertFalse();
+      expect(selectPersistedVpnRuntimeState(null, active, '{')?.active).assertTrue();
       expect(selectPersistedVpnRuntimeState(null, null)).assertEqual(null);
     });
 

@@ -46,16 +46,19 @@ export function isPersistedVpnRuntimeHealthy(
 
 export function selectPersistedVpnRuntimeState(
   primaryContent: string | null,
-  backupContent: string | null
+  backupContent: string | null,
+  tempContent: string | null = null
 ): PersistedVpnRuntimeState | null {
   const primary = primaryContent === null ? null : parsePersistedVpnRuntimeState(primaryContent);
+  const temp = tempContent === null ? null : parsePersistedVpnRuntimeState(tempContent);
   const backup = backupContent === null ? null : parsePersistedVpnRuntimeState(backupContent);
-  if (primary === null) {
-    return backup;
+  if (primary !== null) {
+    return primary;
   }
-  // 主文件只有在临时文件完整关闭并完成 rename 后才出现，因此它始终是已提交状态；
-  // 备份仅用于主文件缺失/损坏时兜底，不能按墙钟时间反客为主（系统时间可能被校准）。
-  return primary;
+  // 临时文件在旧主文件移到备份之前已经完整写入并关闭。主文件缺失/损坏时，结构有效的
+  // temp 是尚差最后一次 rename 的新状态，应优先于旧备份；这对“正在写 stopped 时进程被杀”
+  // 尤其重要，否则旧 active 备份会让 UI 短暂虚报仍连接。
+  return temp !== null ? temp : backup;
 }
 
 export class VpnRuntimeStateStore {
@@ -111,7 +114,10 @@ export class VpnRuntimeStateStore {
       const backup = VpnRuntimeStateStore.readTextIfExists(
         VpnRuntimeStateStore.path(context, VPN_RUNTIME_STATE_BACKUP_FILE)
       );
-      return selectPersistedVpnRuntimeState(primary, backup);
+      const temp = VpnRuntimeStateStore.readTextIfExists(
+        VpnRuntimeStateStore.path(context, VPN_RUNTIME_STATE_TEMP_FILE)
+      );
+      return selectPersistedVpnRuntimeState(primary, backup, temp);
     } catch (error) {
       return null;
     }
@@ -130,8 +136,19 @@ export class VpnRuntimeStateStore {
   }
 
   private static recoverInterruptedWrite(targetPath: string, tempPath: string, backupPath: string): void {
-    VpnRuntimeStateStore.removeIfExists(tempPath);
-    if (!fs.accessSync(targetPath) && fs.accessSync(backupPath)) {
+    if (fs.accessSync(targetPath)) {
+      VpnRuntimeStateStore.removeIfExists(tempPath);
+      return;
+    }
+    if (fs.accessSync(tempPath)) {
+      const tempState = parsePersistedVpnRuntimeState(fs.readTextSync(tempPath));
+      if (tempState !== null) {
+        fs.renameSync(tempPath, targetPath);
+        return;
+      }
+      VpnRuntimeStateStore.removeIfExists(tempPath);
+    }
+    if (fs.accessSync(backupPath)) {
       fs.renameSync(backupPath, targetPath);
     }
   }
