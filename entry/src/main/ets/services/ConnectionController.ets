@@ -130,39 +130,51 @@ export class ConnectionController {
         context, validation.normalizedJson, validation.configType, profile.updatedAt, startGeneration, settings);
     }
 
-    const runtimeSettings = validation.configType === 'full' ? settings : this.resolveRuntimeSettings(settings);
-    const runtimeConfigJson = await this.resolveRuntimeConfigJson(context, validation.normalizedJson, validation.configType);
-    if (!this.isCurrentStart(startGeneration)) {
-      return this.getSnapshot();
-    }
-    const resolvedRuntimeSettings = await OUTBOUND_DOMAIN_RESOLVER.resolve(context, runtimeConfigJson, runtimeSettings, validation.configType);
-    if (!this.isCurrentStart(startGeneration)) {
-      return this.getSnapshot();
-    }
-    this.generatedConfig = buildRuntimeXrayConfig(runtimeConfigJson, resolvedRuntimeSettings, validation.configType);
-    // 让核心把分级运行日志落盘，供 Logcat 页读取（绝对路径，VPN 扩展进程与主进程共享沙箱）。
-    // 启动前清空旧文件：核心日志本就是逐会话的，避免跨会话累积、文件无限增长。
-    clearCoreLog(context.filesDir);
-    const coreLogPath = `${context.filesDir}/${XRAY_CORE_LOG_FILE}`;
-    const fallbackLogLevel = normalizeCoreLogLevel(resolvedRuntimeSettings?.logLevel ?? '');
-    this.generatedConfig.configJson = injectXrayLogFile(this.generatedConfig.configJson, coreLogPath, fallbackLogLevel);
-    this.runtimeMode = normalizeAppRuntimeMode(resolvedRuntimeSettings?.mode ?? settings?.mode, APP_MODE_VPN);
+    let runtimeSettings: AppSettings | undefined = undefined;
+    let runtimeConfigJson = '';
     let handoverConfigJson = '';
-    if (this.runtimeMode === APP_MODE_VPN) {
-      // 初次启动可使用当前承载的域名预解析结果；切网重载必须保留原始域名和用户自己
-      // 配置的静态 hosts，避免把旧网络解析出的临时地址永久带到新承载。配置完全相同
-      // 时不重复塞进 Want，减少大体积完整配置的跨进程参数开销。
-      const handoverConfig = buildRuntimeXrayConfig(runtimeConfigJson, runtimeSettings, validation.configType);
-      const handoverLogLevel = normalizeCoreLogLevel(runtimeSettings?.logLevel ?? '');
-      handoverConfig.configJson = injectXrayLogFile(handoverConfig.configJson, coreLogPath, handoverLogLevel);
-      if (handoverConfig.configJson !== this.generatedConfig.configJson) {
-        handoverConfigJson = handoverConfig.configJson;
+    try {
+      runtimeSettings = validation.configType === 'full' ? settings : this.resolveRuntimeSettings(settings);
+      runtimeConfigJson = await this.resolveRuntimeConfigJson(
+        context, validation.normalizedJson, validation.configType);
+      if (!this.isCurrentStart(startGeneration)) {
+        return this.getSnapshot();
       }
-    }
-    if (this.runtimeMode === APP_MODE_PROXY_ONLY) {
-      this.proxyReloadConfigJson = runtimeConfigJson;
-      this.proxyReloadSettings = runtimeSettings;
-      this.proxyReloadConfigType = validation.configType;
+      const resolvedRuntimeSettings = await OUTBOUND_DOMAIN_RESOLVER.resolve(
+        context, runtimeConfigJson, runtimeSettings, validation.configType);
+      if (!this.isCurrentStart(startGeneration)) {
+        return this.getSnapshot();
+      }
+      this.generatedConfig = buildRuntimeXrayConfig(
+        runtimeConfigJson, resolvedRuntimeSettings, validation.configType);
+      // 让核心把分级运行日志落盘，供 Logcat 页读取（绝对路径，VPN 扩展进程与主进程共享沙箱）。
+      // 启动前清空旧文件：核心日志本就是逐会话的，避免跨会话累积、文件无限增长。
+      clearCoreLog(context.filesDir);
+      const coreLogPath = `${context.filesDir}/${XRAY_CORE_LOG_FILE}`;
+      const fallbackLogLevel = normalizeCoreLogLevel(resolvedRuntimeSettings?.logLevel ?? '');
+      this.generatedConfig.configJson = injectXrayLogFile(
+        this.generatedConfig.configJson, coreLogPath, fallbackLogLevel);
+      this.runtimeMode = normalizeAppRuntimeMode(
+        resolvedRuntimeSettings?.mode ?? settings?.mode, APP_MODE_VPN);
+      if (this.runtimeMode === APP_MODE_VPN) {
+        // 初次启动可使用当前承载的域名预解析结果；切网重载必须保留原始域名和用户自己
+        // 配置的静态 hosts，避免把旧网络解析出的临时地址永久带到新承载。配置完全相同
+        // 时不重复塞进 Want，减少大体积完整配置的跨进程参数开销。
+        const handoverConfig = buildRuntimeXrayConfig(runtimeConfigJson, runtimeSettings, validation.configType);
+        const handoverLogLevel = normalizeCoreLogLevel(runtimeSettings?.logLevel ?? '');
+        handoverConfig.configJson = injectXrayLogFile(
+          handoverConfig.configJson, coreLogPath, handoverLogLevel);
+        if (handoverConfig.configJson !== this.generatedConfig.configJson) {
+          handoverConfigJson = handoverConfig.configJson;
+        }
+      }
+      if (this.runtimeMode === APP_MODE_PROXY_ONLY) {
+        this.proxyReloadConfigJson = runtimeConfigJson;
+        this.proxyReloadSettings = runtimeSettings;
+        this.proxyReloadConfigType = validation.configType;
+      }
+    } catch (error) {
+      return this.failStartPreparation(startGeneration, error as Object);
     }
     const requestedAt = Date.now();
     let vpnStartRequested = false;
@@ -458,6 +470,20 @@ export class ConnectionController {
 
   private isCurrentStart(generation: number): boolean {
     return this.startGeneration === generation && this.status === ConnectionStatus.STARTING;
+  }
+
+  private failStartPreparation(generation: number, error: Object): ConnectionSnapshot {
+    if (!this.isCurrentStart(generation)) {
+      return this.getSnapshot();
+    }
+    const businessError = error as BusinessError;
+    this.status = ConnectionStatus.ERROR;
+    this.startedAt = 0;
+    this.lastError = redactDiagnosticText(
+      `准备连接配置失败：${businessError.message ?? JSON.stringify(error)}`
+    );
+    hilog.error(LOG_DOMAIN, LOG_TAG, 'connection preparation failed: %{public}s', this.lastError);
+    return this.getSnapshot();
   }
 
   private resolveRuntimeSettings(settings?: AppSettings): AppSettings | undefined {
