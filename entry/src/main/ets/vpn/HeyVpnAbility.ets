@@ -44,6 +44,7 @@ import { buildHevTunConfigYaml } from '../core/HevTunConfig';
 import { isSingboxCore } from '../core/CoreSelection';
 import { DiagnosticLog } from '../services/DiagnosticLog';
 import {
+  normalizeActiveVpnStartedAt,
   VpnRuntimeStateStore,
   shouldCleanupAfterVpnRuntimeStateWriteFailures
 } from '../services/VpnRuntimeStateStore';
@@ -391,7 +392,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       const activeStateStored = VpnRuntimeStateStore.write(this.context, {
         sessionId: this.sessionId,
         active: true,
-        startedAt: this.startedAt,
+        startedAt: normalizeActiveVpnStartedAt(this.startedAt, activeAt),
         heartbeatAt: activeAt,
         coreType: this.activeCoreType,
         profileUpdatedAt: this.activeProfileUpdatedAt,
@@ -1009,7 +1010,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       const stored = VpnRuntimeStateStore.write(this.context, {
         sessionId: this.sessionId,
         active: true,
-        startedAt: this.startedAt,
+        startedAt: normalizeActiveVpnStartedAt(this.startedAt, now),
         heartbeatAt: now,
         coreType: this.activeCoreType,
         profileUpdatedAt: this.activeProfileUpdatedAt,

@@ -2099,6 +2099,15 @@ const secondCandidateCheckAt = persistedReconcile.indexOf(
   'this.isCurrentRecoveredVpnCandidate(context, recoveredSessionId, recoveredStartedAt)', stopFlagAt);
 const recoveredApplyAt = persistedReconcile.indexOf(
   'this.controller.reconcileRunning(\n        recoveredStartedAt, persisted.coreType, recoveredSessionId)', stopFlagAt);
+const normalizedActiveStartedAtCount =
+  (vpn.match(/startedAt: normalizeActiveVpnStartedAt\(this[.]startedAt, (?:activeAt|now)\)/g) ?? []).length;
+if (!runtimeStateStore.includes('export function normalizeActiveVpnStartedAt(') ||
+  !runtimeStateStore.includes('return Math.min(Math.floor(startedAt), normalizedHeartbeat);') ||
+  normalizedActiveStartedAtCount !== 2 ||
+  !fs.readFileSync('entry/src/test/LocalUnit.test.ets', 'utf8')
+    .includes("it('keeps active VPN heartbeats valid after the wall clock moves backwards'")) {
+  throw new Error('backward wall-clock changes can invalidate a healthy VPN heartbeat');
+}
 if (persistedReconcileAt < 0 || persistedReconcileEnd < 0 ||
   !runtime.includes('VPN_DATA_SOCKS_PORT') ||
   !runtime.includes('VPN_INTERNAL_HTTP_PROXY_PORT') ||

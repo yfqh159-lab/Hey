@@ -83,6 +83,19 @@ export function shouldCleanupAfterVpnRuntimeStateWriteFailures(failureCount: num
     failureCount >= VPN_RUNTIME_STATE_WRITE_FAILURE_LIMIT;
 }
 
+// Date.now() can move backwards after automatic/network time correction. Persisting the original
+// future startedAt beside a new lower heartbeatAt makes an otherwise healthy Extension look corrupt
+// until wall time catches up. Keep the same session identity, but clamp its display/recovery origin
+// to the heartbeat written by the still-running owner.
+export function normalizeActiveVpnStartedAt(startedAt: number, heartbeatAt: number): number {
+  const normalizedHeartbeat = Number.isFinite(heartbeatAt) && heartbeatAt > 0 ?
+    Math.floor(heartbeatAt) : 1;
+  if (!Number.isFinite(startedAt) || startedAt <= 0) {
+    return normalizedHeartbeat;
+  }
+  return Math.min(Math.floor(startedAt), normalizedHeartbeat);
+}
+
 export function isPersistedVpnRuntimeSessionReady(
   state: PersistedVpnRuntimeState | null,
   expectedSessionId: string,

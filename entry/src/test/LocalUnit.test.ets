@@ -65,7 +65,7 @@ import { parseCoreLog } from '../main/ets/services/CoreLogReader';
 import { nativeDelayFailureStatus } from '../main/ets/services/DelayTester';
 import { isRuntimeHealthPort } from '../main/ets/services/RuntimeHealthProbe';
 import { parseNetSceneStopTimestamp, selectNetSceneStopTimestamp, wasNetSceneStoppedAfter } from '../main/ets/services/NetSceneStopFlag';
-import { PersistedVpnRuntimeState, VPN_RUNTIME_HEARTBEAT_STALE_MS, hasInvalidPersistedVpnRuntimeArtifacts, inspectPersistedVpnRuntimeArtifacts, isPersistedVpnCleanupIncomplete, isPersistedVpnRuntimeHealthy, isPersistedVpnRuntimeSessionReady, isPersistedVpnRuntimeSessionStopped, parsePersistedVpnRuntimeState, selectPersistedVpnRuntimeState, shouldCleanupAfterVpnRuntimeStateWriteFailures } from '../main/ets/services/VpnRuntimeStateStore';
+import { PersistedVpnRuntimeState, VPN_RUNTIME_HEARTBEAT_STALE_MS, hasInvalidPersistedVpnRuntimeArtifacts, inspectPersistedVpnRuntimeArtifacts, isPersistedVpnCleanupIncomplete, isPersistedVpnRuntimeHealthy, isPersistedVpnRuntimeSessionReady, isPersistedVpnRuntimeSessionStopped, normalizeActiveVpnStartedAt, parsePersistedVpnRuntimeState, selectPersistedVpnRuntimeState, shouldCleanupAfterVpnRuntimeStateWriteFailures } from '../main/ets/services/VpnRuntimeStateStore';
 import { appendVpnStartCancellation, parseVpnStartCancellationHistory } from '../main/ets/services/VpnStartCancellationStore';
 import { buildAssetDownloadProxyPorts, resolveAssetDownloadProxyPlan } from '../main/ets/features/assets/AssetsController';
 import {
@@ -3431,6 +3431,23 @@ export default function localUnitTest() {
       expect(parsePersistedVpnRuntimeState(JSON.stringify(healthy))).assertEqual(null);
       healthy.profileUpdatedAt = 123456;
       expect(parsePersistedVpnRuntimeState('{"active":true}')).assertEqual(null);
+    });
+
+    it('keeps active VPN heartbeats valid after the wall clock moves backwards', 0, () => {
+      const heartbeatAt = 50000;
+      expect(normalizeActiveVpnStartedAt(100000, heartbeatAt)).assertEqual(heartbeatAt);
+      expect(normalizeActiveVpnStartedAt(40000, heartbeatAt)).assertEqual(40000);
+      expect(normalizeActiveVpnStartedAt(Number.NaN, heartbeatAt)).assertEqual(heartbeatAt);
+      const healthyAfterClockChange: PersistedVpnRuntimeState = {
+        sessionId: 'clock-shift-session',
+        active: true,
+        startedAt: normalizeActiveVpnStartedAt(100000, heartbeatAt),
+        heartbeatAt,
+        coreType: 'xray',
+        xrayRunning: true,
+        tunRunning: true
+      };
+      expect(isPersistedVpnRuntimeHealthy(healthyAfterClockChange, heartbeatAt + 1000)).assertTrue();
     });
 
     it('cleans up only after repeated VPN runtime state write failures', 0, () => {
