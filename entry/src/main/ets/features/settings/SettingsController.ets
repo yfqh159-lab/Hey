@@ -1,5 +1,5 @@
 import { common } from '@kit.AbilityKit';
-import { AppLanguage, AppRuntimeMode, AppSettings, normalizeAppRuntimeMode, normalizeHevTunLogLevel, normalizeHevTunRwTimeout, normalizeHomeDelayTestInterval, normalizeOutboundDomainResolveMethod, normalizeRealPingConcurrency, normalizeRoutingDomainStrategy, normalizeUiModeNight, normalizeVpnBypassLanMode, normalizeVpnInterfaceAddressIndex, normalizeVpnMtuValue, OutboundDomainResolveMethod, RoutingRule } from '../../core/Profile';
+import { APP_MODE_PROXY_ONLY, AppLanguage, AppRuntimeMode, AppSettings, normalizeAppRuntimeMode, normalizeHevTunLogLevel, normalizeHevTunRwTimeout, normalizeHomeDelayTestInterval, normalizeOutboundDomainResolveMethod, normalizeRealPingConcurrency, normalizeRoutingDomainStrategy, normalizeUiModeNight, normalizeVpnBypassLanMode, normalizeVpnInterfaceAddressIndex, normalizeVpnMtuValue, OutboundDomainResolveMethod, RoutingRule } from '../../core/Profile';
 import { normalizeCoreLogLevel, normalizeFragmentPackets, normalizeMuxXudpQuic } from '../../core/ProtocolOptions';
 import { DEFAULT_APP_SETTINGS, SettingsStore } from '../../storage/SettingsStore';
 import { isReservedAppRuntimePort } from '../../core/XrayConfig';
@@ -145,8 +145,12 @@ export class SettingsController {
 
   buildSettings(draft: SettingsDraft): AppSettings {
     const useHevTun = draft.useHevTun;
+    const runtimeMode = normalizeAppRuntimeMode(draft.mode, DEFAULT_APP_SETTINGS.mode);
     // TUN 数据面引擎与用户可见的本地代理入口相互独立。
     const localSocksEnabled = draft.localSocksEnabled;
+    // 本地代理模式无条件创建 SOCKS/HTTP 入站；即使用户此前在 TUN 模式关闭了额外
+    // SOCKS 开关，局域网共享选择也不能在保存时被这个隐藏的旧值静默清掉。
+    const localProxyAvailable = localSocksEnabled || runtimeMode === APP_MODE_PROXY_ONLY;
     const localDnsEnabled = draft.localDnsEnabled;
     const remoteDns = this.remoteDnsValue(draft.remoteDns);
     let localSocksPort = this.runtimePortValue(draft.localSocksPort, DEFAULT_APP_SETTINGS.localSocksPort);
@@ -194,7 +198,7 @@ export class SettingsController {
       fragmentInterval: this.nonEmptyString(draft.fragmentInterval, DEFAULT_APP_SETTINGS.fragmentInterval),
       ipv6Enabled: draft.ipv6Enabled,
       preferIpv6: draft.preferIpv6,
-      proxySharingEnabled: draft.proxySharingEnabled && localSocksEnabled,
+      proxySharingEnabled: draft.proxySharingEnabled && localProxyAvailable,
       allowInsecure: draft.allowInsecure,
       localDnsPort,
       vpnInterfaceAddressIndex: normalizeVpnInterfaceAddressIndex(draft.vpnInterfaceAddressIndex, DEFAULT_APP_SETTINGS.vpnInterfaceAddressIndex),
@@ -210,7 +214,7 @@ export class SettingsController {
       homeDelayTestInterval: this.homeDelayTestIntervalValue(draft.homeDelayTestInterval, DEFAULT_APP_SETTINGS.homeDelayTestInterval),
       logLevel: normalizeCoreLogLevel(draft.logLevel, DEFAULT_APP_SETTINGS.logLevel),
       outboundDomainResolveMethod: normalizeOutboundDomainResolveMethod(draft.outboundDomainResolveMethod, DEFAULT_APP_SETTINGS.outboundDomainResolveMethod),
-      mode: normalizeAppRuntimeMode(draft.mode, DEFAULT_APP_SETTINGS.mode),
+      mode: runtimeMode,
       trafficMode: draft.trafficMode,
       routingDomainStrategy: normalizeRoutingDomainStrategy(draft.routingDomainStrategy, DEFAULT_APP_SETTINGS.routingDomainStrategy),
       routingRules: this.copyRoutingRules(draft.routingRules),

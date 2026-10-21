@@ -4,6 +4,7 @@ import { DEFAULT_LANGUAGE, normalizeLanguage } from '../core/I18n';
 import {
   AppLanguage,
   AppSettings,
+  APP_MODE_PROXY_ONLY,
   APP_MODE_VPN,
   DEFAULT_DELAY_TEST_URL,
   DEFAULT_HEV_TUN_LOG_LEVEL,
@@ -219,9 +220,11 @@ export class SettingsStore {
   private static normalize(raw: AppSettings): AppSettings {
     const base = SettingsStore.copy(DEFAULT_APP_SETTINGS);
     const useHevTun = SettingsStore.boolValue(raw.useHevTun, base.useHevTun);
+    const runtimeMode = normalizeAppRuntimeMode(raw.mode, base.mode);
     // Hev 只是 VPN/TUN 数据面的可选适配器，固定转发到内部 VPN_DATA_SOCKS_PORT；
     // 它不依赖、也不应擅自开启用户可见的本地 SOCKS 监听。
     const localSocksEnabled = SettingsStore.boolValue(raw.localSocksEnabled, base.localSocksEnabled);
+    const localProxyAvailable = localSocksEnabled || runtimeMode === APP_MODE_PROXY_ONLY;
     const localDnsEnabled = SettingsStore.boolValue(raw.localDnsEnabled, base.localDnsEnabled);
     let localSocksPort = SettingsStore.runtimePortValue(raw.localSocksPort, base.localSocksPort);
     let localDnsPort = SettingsStore.runtimePortValue(raw.localDnsPort, base.localDnsPort);
@@ -268,7 +271,7 @@ export class SettingsStore {
       fragmentInterval: SettingsStore.stringValue(raw.fragmentInterval, base.fragmentInterval),
       ipv6Enabled: SettingsStore.boolValue(raw.ipv6Enabled, base.ipv6Enabled),
       preferIpv6: SettingsStore.boolValue(raw.preferIpv6, base.preferIpv6),
-      proxySharingEnabled: SettingsStore.boolValue(raw.proxySharingEnabled, base.proxySharingEnabled) && localSocksEnabled,
+      proxySharingEnabled: SettingsStore.boolValue(raw.proxySharingEnabled, base.proxySharingEnabled) && localProxyAvailable,
       allowInsecure: SettingsStore.boolValue(raw.allowInsecure, base.allowInsecure),
       localDnsPort,
       vpnInterfaceAddressIndex: normalizeVpnInterfaceAddressIndex(raw.vpnInterfaceAddressIndex, base.vpnInterfaceAddressIndex),
@@ -284,7 +287,7 @@ export class SettingsStore {
       homeDelayTestInterval: normalizeHomeDelayTestInterval(raw.homeDelayTestInterval, base.homeDelayTestInterval),
       logLevel: normalizeCoreLogLevel(SettingsStore.stringValue(raw.logLevel, base.logLevel), base.logLevel),
       outboundDomainResolveMethod: normalizeOutboundDomainResolveMethod(raw.outboundDomainResolveMethod, base.outboundDomainResolveMethod),
-      mode: normalizeAppRuntimeMode(raw.mode, base.mode),
+      mode: runtimeMode,
       trafficMode: SettingsStore.trafficModeValue(raw.trafficMode, base.trafficMode),
       routingDomainStrategy: normalizeRoutingDomainStrategy(raw.routingDomainStrategy, base.routingDomainStrategy),
       routingRules: SettingsStore.routingRulesValue(raw.routingRules),

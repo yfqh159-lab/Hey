@@ -331,8 +331,20 @@ class SocksInboundSettings {
 }
 
 class HttpInboundSettings {
-  auth: string = 'noauth';
   userLevel: number = 0;
+  users?: Array<XraySocksAccount>;
+
+  constructor(username: string = '', password: string = '') {
+    // Xray HTTP inbound uses `users` for Basic Authentication. Reuse the same optional
+    // credentials as the visible SOCKS listener so enabling LAN sharing never leaves HTTP
+    // unintentionally unauthenticated while SOCKS is protected.
+    if (username.trim().length > 0 && password.trim().length > 0) {
+      this.users = [{
+        user: username.trim(),
+        pass: password.trim()
+      }];
+    }
+  }
 }
 
 class TunInboundSettings {
@@ -1865,7 +1877,10 @@ function buildXrayConfigFromOutbounds(
       listen: httpProxyHost,
       port: LOCAL_HTTP_PROXY_PORT,
       protocol: 'http',
-      settings: new HttpInboundSettings()
+      settings: new HttpInboundSettings(
+        runtimeSettings.localSocksUsername,
+        runtimeSettings.localSocksPassword
+      )
     };
     if (sniffing !== undefined) {
       httpInbound.sniffing = sniffing;

@@ -2735,6 +2735,8 @@ export default function localUnitTest() {
       draft.useHevTun = true;
       draft.localSocksEnabled = false;
       expect(SETTINGS_CONTROLLER.buildSettings(draft).proxySharingEnabled).assertFalse();
+      draft.mode = APP_MODE_PROXY_ONLY;
+      expect(SETTINGS_CONTROLLER.buildSettings(draft).proxySharingEnabled).assertTrue();
     });
 
     it('normalizes real ping concurrency', 0, () => {

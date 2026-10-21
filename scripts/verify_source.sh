@@ -1147,6 +1147,17 @@ if (!config.includes('if (vpnMode) {\n    inbounds.push(tunInbound);') ||
 NODE
 printf 'optional TUN/runtime mode separation verification passed\n'
 
+if ! grep -Fq "const localProxyAvailable = localSocksEnabled || runtimeMode === APP_MODE_PROXY_ONLY;" \
+  "entry/src/main/ets/features/settings/SettingsController.ets" || \
+  ! grep -Fq "const localProxyAvailable = localSocksEnabled || runtimeMode === APP_MODE_PROXY_ONLY;" \
+  "entry/src/main/ets/storage/SettingsStore.ets" || \
+  ! grep -Fq "settings: new HttpInboundSettings(" "entry/src/main/ets/core/XrayConfig.ets" || \
+  ! grep -Fq "runtimeSettings.localSocksUsername" "entry/src/main/ets/core/XrayConfig.ets" || \
+  ! grep -Fq "users?: Array<XraySocksAccount>;" "entry/src/main/ets/core/XrayConfig.ets"; then
+  throw_error "proxy-only sharing and SOCKS/HTTP authentication semantics diverged"
+fi
+printf 'local proxy sharing consistency verification passed\n'
+
 # The core config, VpnConfig and TUN engine form one launch transaction. The UI process
 # must pass the exact normalized settings snapshot used to build the core config; loading
 # mutable Preferences later in the Extension could mix IPv6/DNS/app-routing/MTU settings
