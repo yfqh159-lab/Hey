@@ -74,6 +74,7 @@ const GEO_UPDATE_TEMP_SUFFIX: string = '.geo-update.tmp';
 const GEO_UPDATE_BACKUP_SUFFIX: string = '.geo-update.bak';
 const GEO_UPDATE_STATE_FILE: string = '.geo-update.state';
 const GEO_UPDATE_COMMIT_FILE: string = '.geo-update.committed';
+const GEO_METADATA_INVALID_FILE: string = '.geo-metadata.invalid';
 const MAX_ASSET_REDIRECTS: number = 5;
 
 function isValidAssetDownloadProxyPort(proxyPort: number): boolean {
@@ -128,6 +129,9 @@ export class AssetsController {
     context: common.Context,
     metadata: GeoUpdateMetadata
   ): Promise<boolean> {
+    if (this.fileExists(`${context.filesDir}/${GEO_METADATA_INVALID_FILE}`)) {
+      return false;
+    }
     if (metadata.assets.length === 0) {
       return metadata.version.length === 0;
     }
@@ -254,8 +258,16 @@ export class AssetsController {
       let metadataSaved = true;
       try {
         await AssetStore.saveGeoUpdateMetadata(context, updateMetadata);
+        // 上一次文件安装成功、Preferences 保存失败时可能留下失效标志。只有本次记录
+        // 已持久化后才移除；移除失败同样视为记录未能安全启用。
+        this.removeFileStrictIfExists(`${context.filesDir}/${GEO_METADATA_INVALID_FILE}`);
       } catch (error) {
         metadataSaved = false;
+        try {
+          this.writeFileData(`${context.filesDir}/${GEO_METADATA_INVALID_FILE}`, new Uint8Array([1]).buffer);
+        } catch (markerError) {
+          // 文件摘要复核仍能识别通常的内容变化；标志是相同内容跨版本时的额外防线。
+        }
       }
       if (transactionCommitted) {
         this.finishGeoTransaction(context, staged);

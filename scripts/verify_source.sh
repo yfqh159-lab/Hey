@@ -101,6 +101,7 @@ const verifyAt = controller.indexOf('  async isBuiltinGeoMetadataCurrent(');
 const verifyEnd = controller.indexOf('\n  // 检查可信默认发布源', verifyAt);
 const verify = controller.slice(verifyAt, verifyEnd);
 if (verifyAt < 0 || verifyEnd < 0 ||
+  !verify.includes('GEO_METADATA_INVALID_FILE') ||
   !verify.includes('metadata.assets.length !== BUILTIN_GEO_DATA_FILE_NAMES.length') ||
   !verify.includes('isPlausibleGeoData(data, matched.size)') ||
   !verify.includes('await this.sha256(data) !== matched.sha256')) {
@@ -121,6 +122,11 @@ const update = page.slice(updateAt, updateEnd);
 if (updateAt < 0 || updateEnd < 0 || !update.includes('if (result.metadataSaved)') ||
   !update.includes('await this.clearGeoMetadata();') || !update.includes('this.applyGeoMetadata({')) {
   throw new Error('a metadata write failure can reload and display an obsolete Geo version');
+}
+if (!controller.includes('await AssetStore.saveGeoUpdateMetadata(context, updateMetadata);') ||
+  !controller.includes('this.removeFileStrictIfExists(`${context.filesDir}/${GEO_METADATA_INVALID_FILE}`);') ||
+  !controller.includes('this.writeFileData(`${context.filesDir}/${GEO_METADATA_INVALID_FILE}`')) {
+  throw new Error('Geo metadata failures are not durably invalidated across equal-content releases');
 }
 NODE
 printf 'installed Geo metadata verification passed\n'
