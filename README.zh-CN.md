@@ -173,8 +173,12 @@ entry/build/default/outputs/default/entry-default-signed.hap
 跑单元测试：
 
 ```bash
-node "$HVIGORW" --mode module -p module=entry@default -p isLocalTest=true test --no-daemon
+./scripts/device_vpn_smoke_test.sh test
 ```
+
+`build` 命令会先校验仓库中的全部原生产物，再确认签名 HAP 内确实包含
+`libheyvpn.so`、Xray、sing-box 和两套 TUN 适配器。若本机签名配置生成了不同路径的
+产物，脚本会显示预期路径；此时可用 `HAP=/绝对路径/文件.hap` 指定实际文件。
 
 构建前先确认稀疏检出中包含全部随包原生核心，并检查 AArch64 桥接符号及 TLSDESC ABI
 是否与 N-API 桥一致：

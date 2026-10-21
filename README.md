@@ -223,8 +223,13 @@ entry/build/default/outputs/default/entry-default-signed.hap
 Run the unit tests:
 
 ```bash
-node "$HVIGORW" --mode module -p module=entry@default -p isLocalTest=true test --no-daemon
+./scripts/device_vpn_smoke_test.sh test
 ```
+
+The `build` command first verifies all repository-native artifacts, then checks
+that `libheyvpn.so`, Xray, sing-box, and both TUN adapters are present in the
+signed HAP. It fails with the expected output path if local signing produced a
+different artifact; set `HAP=/absolute/path/to/file.hap` in that case.
 
 Before building, verify that the sparse checkout contains all packaged native
 cores and that their AArch64 bridge symbols/TLSDESC ABI match the N-API bridge:

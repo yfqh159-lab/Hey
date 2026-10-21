@@ -8,7 +8,41 @@ HDC="${HDC:-${DEVECO_SDK_HOME}/default/openharmony/toolchains/hdc}"
 HAP="${HAP:-${ROOT_DIR}/entry/build/default/outputs/default/entry-default-signed.hap}"
 
 usage() {
-  printf 'Usage: %s {build|install|logs|targets|doctor}\n' "$0"
+  printf 'Usage: %s {build|test|install|logs|targets|doctor}\n' "$0"
+}
+
+require_hvigor() {
+  if [[ "${HVIGOR}" == */* ]]; then
+    if [[ ! -x "${HVIGOR}" ]]; then
+      printf 'hvigorw not found or not executable: %s\n' "${HVIGOR}" >&2
+      exit 1
+    fi
+  elif ! command -v "${HVIGOR}" >/dev/null 2>&1; then
+    printf 'hvigorw not found on PATH: %s\n' "${HVIGOR}" >&2
+    exit 1
+  fi
+}
+
+verify_hap_native_libs() {
+  if [[ ! -f "${HAP}" ]]; then
+    printf 'Signed HAP not found after build: %s\n' "${HAP}" >&2
+    printf 'Configure your local signing profile, or override HAP with the actual signed output path.\n' >&2
+    exit 1
+  fi
+  if ! command -v unzip >/dev/null 2>&1; then
+    printf 'unzip is required to verify packaged native libraries.\n' >&2
+    exit 1
+  fi
+  local archive_list
+  archive_list="$(unzip -Z1 "${HAP}")"
+  local library
+  for library in libheyvpn.so libxray.so libsingbox.so libheytun2socks.so libhevsocks5tun.so; do
+    if ! grep -qE "(^|/)libs/arm64-v8a/${library}$" <<<"${archive_list}"; then
+      printf 'Packaged native library missing from HAP: %s\n' "${library}" >&2
+      exit 1
+    fi
+  done
+  printf 'Packaged native libraries verified in: %s\n' "${HAP}"
 }
 
 require_hdc() {
@@ -20,9 +54,16 @@ require_hdc() {
 
 case "${1:-}" in
   build)
+    require_hvigor
+    "${ROOT_DIR}/scripts/verify_prebuilt_native.sh"
     DEVECO_SDK_HOME="${DEVECO_SDK_HOME}" "${HVIGOR}" clean --no-daemon --stacktrace
     DEVECO_SDK_HOME="${DEVECO_SDK_HOME}" "${HVIGOR}" assembleApp --no-daemon --stacktrace
-    unzip -l "${HAP}" | awk '/libs\/arm64-v8a\/(libhey|libxray).*\.so/ { print }'
+    verify_hap_native_libs
+    ;;
+  test)
+    require_hvigor
+    DEVECO_SDK_HOME="${DEVECO_SDK_HOME}" "${HVIGOR}" --mode module \
+      -p module=entry@default -p isLocalTest=true test --no-daemon --stacktrace
     ;;
   install)
     require_hdc
