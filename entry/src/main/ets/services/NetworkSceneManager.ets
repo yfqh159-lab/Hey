@@ -40,6 +40,8 @@ export class NetworkSceneManager {
   private evaluationPending: boolean = false;
   private pendingForce: boolean = false;
   private lastHandledSignature: string = '';
+  // 隔离 UIAbility 销毁/重建前后的异步评估；旧任务即使稍后恢复也不得操作新会话。
+  private lifecycleGeneration: number = 0;
 
   /** 启动网络变化监听（幂等），生命周期跟随 UIAbility，与自动断开开关无关。 */
   ensureStarted(context: common.Context): void {
@@ -48,6 +50,7 @@ export class NetworkSceneManager {
       return;
     }
     try {
+      this.lifecycleGeneration++;
       const netConnection = connection.createNetConnection();
       netConnection.on('netAvailable', () => this.scheduleEvaluate(false));
       netConnection.on('netLost', () => this.scheduleEvaluate(false));
@@ -69,6 +72,7 @@ export class NetworkSceneManager {
 
   /** UIAbility 销毁时停止监听。 */
   stop(): void {
+    this.lifecycleGeneration++;
     if (this.debounceTimer !== -1) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = -1;
@@ -118,6 +122,7 @@ export class NetworkSceneManager {
     if (context === null) {
       return;
     }
+    const generation = this.lifecycleGeneration;
     if (this.evaluating) {
       // 探测/出口请求在途时合并后续事件，结束后至少再评估一次；force 语义不得丢失。
       this.evaluationPending = true;
@@ -127,6 +132,9 @@ export class NetworkSceneManager {
     this.evaluating = true;
     try {
       const settings = await SettingsStore.load(context);
+      if (!this.isCurrentEvaluation(context, generation)) {
+        return;
+      }
       // 启停期间不介入，但保留一次补判；不能假设忙碌结束后系统还会再发网络事件。
       if (SHARED_RUNTIME_CONTROLLER.isBusy()) {
         this.evaluationPending = true;
@@ -134,6 +142,9 @@ export class NetworkSceneManager {
         return;
       }
       const ctx = await NetworkProbe.readCurrentNetContext();
+      if (!this.isCurrentEvaluation(context, generation)) {
+        return;
+      }
       const signature = `${ctx.kind}|${ctx.ssid ?? ''}`;
       if (!force && signature === this.lastHandledSignature) {
         return; // 同一网络只处理一次，避免抖动/较劲
@@ -145,8 +156,12 @@ export class NetworkSceneManager {
         cellularTrusted: settings.netAutomationCellularTrusted
       };
       // 后台可能已由 VPN 扩展自动断开，本进程状态滞留「运行中」；据跨进程标志校正。
-      if (SHARED_RUNTIME_CONTROLLER.isRunning() &&
-        await NetSceneStopFlag.wasStopped(context, SHARED_RUNTIME_CONTROLLER.runtimeStartedAt())) {
+      const sceneStopped = SHARED_RUNTIME_CONTROLLER.isRunning() &&
+        await NetSceneStopFlag.wasStopped(context, SHARED_RUNTIME_CONTROLLER.runtimeStartedAt());
+      if (!this.isCurrentEvaluation(context, generation)) {
+        return;
+      }
+      if (sceneStopped) {
         SHARED_RUNTIME_CONTROLLER.reconcileStopped();
       }
       // 此自动化只管理系统 VPN/TUN。仅代理模式没有系统隧道，切换可信网络
@@ -161,6 +176,9 @@ export class NetworkSceneManager {
       if (settings.netAutomationEnabled || runtimeRunning) {
         SHARED_RUNTIME_CONTROLLER.appendLog(
           `[netscene] kind=${ctx.kind}; ssid=${ctx.ssid === undefined ? '<none>' : '<redacted>'}; running=${running}; action=${action}`);
+      }
+      if (!this.isCurrentEvaluation(context, generation)) {
+        return;
       }
       if (action === NET_ACTION_DISCONNECT) {
         await this.applyDisconnect(context);
@@ -180,6 +198,10 @@ export class NetworkSceneManager {
         this.scheduleEvaluate(pendingForce);
       }
     }
+  }
+
+  private isCurrentEvaluation(context: common.Context, generation: number): boolean {
+    return this.started && this.context === context && this.lifecycleGeneration === generation;
   }
 
 
