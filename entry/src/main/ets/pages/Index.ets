@@ -2464,6 +2464,7 @@ struct Index {
     const context = this.getUIContext().getHostContext() as common.Context;
     const expectedStopGeneration = this.explicitStopGeneration;
     const shouldSwitchConnection = this.isRunning() && node.id !== this.selectedNodeId;
+    const expectedRuntimeStartedAt = shouldSwitchConnection ? SHARED_RUNTIME_CONTROLLER.runtimeStartedAt() : 0;
     this.selectedNodeId = node.id;
     this.outboundJson = node.outboundJson;
 
@@ -2478,6 +2479,12 @@ struct Index {
       SHARED_RUNTIME_CONTROLLER.appendLog(message);
 
       if (shouldSwitchConnection && state.lastError.length === 0) {
+        // 节点选择写入等待期间，可信网络规则或故障清理可能已经停止原会话。
+        // 此时只能保留新的节点选择，不能把旧“切节点并重连”意图当成自动连接。
+        if (!SHARED_RUNTIME_CONTROLLER.isRunning() ||
+          SHARED_RUNTIME_CONTROLLER.runtimeStartedAt() !== expectedRuntimeStartedAt) {
+          return;
+        }
         SHARED_RUNTIME_CONTROLLER.appendLog(this.t('log.switchNodeReconnect'));
         const stopped = await this.stopConnectionInternal();
         if (stopped && expectedStopGeneration === this.explicitStopGeneration) {

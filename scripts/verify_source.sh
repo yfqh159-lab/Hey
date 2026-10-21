@@ -1568,6 +1568,11 @@ if (settingsRestartAt < 0 || settingsRestartEnd < 0 || selectNodeAt < 0 || selec
   !settingsRestart.includes('const expectedStopGeneration = this.explicitStopGeneration;') ||
   !settingsRestart.includes('stopped && expectedStopGeneration === this.explicitStopGeneration') ||
   !selectNode.includes('const expectedStopGeneration = this.explicitStopGeneration;') ||
+  !selectNode.includes('const expectedRuntimeStartedAt = shouldSwitchConnection ? SHARED_RUNTIME_CONTROLLER.runtimeStartedAt() : 0;') ||
+  !selectNode.includes('!SHARED_RUNTIME_CONTROLLER.isRunning()') ||
+  !selectNode.includes('SHARED_RUNTIME_CONTROLLER.runtimeStartedAt() !== expectedRuntimeStartedAt') ||
+  selectNode.indexOf('SHARED_RUNTIME_CONTROLLER.runtimeStartedAt() !== expectedRuntimeStartedAt') >
+    selectNode.indexOf("SHARED_RUNTIME_CONTROLLER.appendLog(this.t('log.switchNodeReconnect'))") ||
   !selectNode.includes('stopped && expectedStopGeneration === this.explicitStopGeneration')) {
   throw new Error('stop-then-start continuations are not isolated from an explicit user stop');
 }
