@@ -1363,6 +1363,18 @@ if (!config.includes('if (vpnMode) {\n    inbounds.push(tunInbound);') ||
 NODE
 printf 'optional TUN/runtime mode separation verification passed\n'
 
+runtime_panel="entry/src/main/ets/features/runtime/RuntimePanel.ets"
+logs_page="entry/src/main/ets/pages/Logs.ets"
+if ! grep -Fq "@Prop dataPlaneLabel: string = 'TUN';" "${runtime_panel}" || \
+  ! grep -Fq "@Prop dataPlaneActive: boolean = false;" "${runtime_panel}" || \
+  ! grep -Fq "dataPlaneLabel: isProxyOnlyRuntimeMode(this.runtimeMode) ? 'SOCKS/HTTP' : 'TUN'" \
+  "${logs_page}" || \
+  ! grep -Fq "this.runtimeMode = state.runtimeMode;" "${logs_page}" || \
+  grep -Fq "@Prop tunActive:" "${runtime_panel}"; then
+  throw_error "runtime diagnostics do not distinguish optional TUN from local SOCKS/HTTP mode"
+fi
+printf 'runtime data-plane label verification passed\n'
+
 if ! grep -Fq "const localProxyAvailable = localSocksEnabled || runtimeMode === APP_MODE_PROXY_ONLY;" \
   "entry/src/main/ets/features/settings/SettingsController.ets" || \
   ! grep -Fq "const localProxyAvailable = localSocksEnabled || runtimeMode === APP_MODE_PROXY_ONLY;" \

@@ -3,7 +3,7 @@ import { promptAction } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
-import { AppLanguage, ConnectionStatus, RuntimeStats } from '../core/Profile';
+import { APP_MODE_VPN, AppLanguage, AppRuntimeMode, ConnectionStatus, RuntimeStats, isProxyOnlyRuntimeMode } from '../core/Profile';
 import { LogConsole } from '../features/logs/LogPanel';
 import { LogEntry, LogLevelFilter, logLevelLabel } from '../features/logs/LogModel';
 import { countLogLevels, filterLogEntries, formatLogEntriesText } from '../features/logs/LogOperations';
@@ -50,6 +50,7 @@ struct LogsPage {
   @State private paused: boolean = false;
   @State private stats: RuntimeStats = EMPTY_STATS;
   @State private speedEnabled: boolean = false;
+  @State private runtimeMode: AppRuntimeMode = APP_MODE_VPN;
   // 运行内核名,随所选内核显示 Xray / sing-box(预览)。
   @State private coreLabel: string = 'Xray';
 
@@ -89,7 +90,9 @@ struct LogsPage {
           downloadLabel: this.t('runtime.download'),
           downloadValue: formatBytes(this.stats.downloadBytes),
           xrayActive: this.stats.xrayRunning,
-          tunActive: this.stats.tunRunning,
+          dataPlaneLabel: isProxyOnlyRuntimeMode(this.runtimeMode) ? 'SOCKS/HTTP' : 'TUN',
+          dataPlaneActive: isProxyOnlyRuntimeMode(this.runtimeMode) ?
+            this.status === ConnectionStatus.RUNNING && this.stats.xrayRunning : this.stats.tunRunning,
           coreLabel: this.coreLabel
         })
       }
@@ -399,6 +402,7 @@ struct LogsPage {
 
   private applyRuntimeState(state: RuntimeViewState): void {
     this.status = state.status;
+    this.runtimeMode = state.runtimeMode;
     this.elapsedText = state.elapsedText;
     this.stats = state.stats;
     // 暂停时冻结日志列表（状态条仍随刷新更新），恢复时再同步。
