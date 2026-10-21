@@ -52,13 +52,14 @@ export function selectPersistedVpnRuntimeState(
   const primary = primaryContent === null ? null : parsePersistedVpnRuntimeState(primaryContent);
   const temp = tempContent === null ? null : parsePersistedVpnRuntimeState(tempContent);
   const backup = backupContent === null ? null : parsePersistedVpnRuntimeState(backupContent);
-  if (primary !== null) {
-    return primary;
+  // temp 只有在一次新状态已经完整序列化、但尚未来得及完成原子 rename 时才会留下。
+  // 它代表比主文件更新的意图（尤其常见于 active -> stopped）；只要结构完整就应优先，
+  // 否则旧主文件会在异常退出后短暂把已停止的 VPN 恢复成“运行中”。半写 temp 解析失败，
+  // 此时仍安全回退到已提交的主文件，再回退备份。
+  if (temp !== null) {
+    return temp;
   }
-  // 临时文件在旧主文件移到备份之前已经完整写入并关闭。主文件缺失/损坏时，结构有效的
-  // temp 是尚差最后一次 rename 的新状态，应优先于旧备份；这对“正在写 stopped 时进程被杀”
-  // 尤其重要，否则旧 active 备份会让 UI 短暂虚报仍连接。
-  return temp !== null ? temp : backup;
+  return primary !== null ? primary : backup;
 }
 
 export class VpnRuntimeStateStore {
@@ -77,6 +78,8 @@ export class VpnRuntimeStateStore {
       if (written !== bytes.byteLength) {
         throw new Error('short VPN runtime state write');
       }
+      // 先把完整 JSON 持久化，再进入 rename 事务；进程中断后只有通过解析的 temp 才会被采用。
+      fs.fsyncSync(file.fd);
       fs.closeSync(file);
       file = null;
 

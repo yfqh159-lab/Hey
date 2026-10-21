@@ -2729,7 +2729,7 @@ export default function localUnitTest() {
       expect(parsePersistedVpnRuntimeState('{"active":true}')).assertEqual(null);
     });
 
-    it('prefers committed VPN runtime state and falls back from a partial write', 0, () => {
+    it('prefers a complete pending VPN state and falls back from a partial write', 0, () => {
       const active = JSON.stringify({
         sessionId: 'active-session',
         active: true,
@@ -2751,8 +2751,12 @@ export default function localUnitTest() {
       expect(selectPersistedVpnRuntimeState('{', active)?.active).assertTrue();
       expect(selectPersistedVpnRuntimeState(stopped, active)?.active).assertFalse();
       expect(selectPersistedVpnRuntimeState(active, stopped)?.active).assertTrue();
+      // 完整 temp 是比仍存在的旧主文件更新的一次状态写入；停止态不能被旧 active 覆盖。
+      expect(selectPersistedVpnRuntimeState(active, active, stopped)?.active).assertFalse();
       expect(selectPersistedVpnRuntimeState(null, active, stopped)?.active).assertFalse();
       expect(selectPersistedVpnRuntimeState('{', active, stopped)?.active).assertFalse();
+      // 半写 temp 无法解析时继续采用已提交主文件。
+      expect(selectPersistedVpnRuntimeState(active, stopped, '{')?.active).assertTrue();
       expect(selectPersistedVpnRuntimeState(null, active, '{')?.active).assertTrue();
       expect(selectPersistedVpnRuntimeState(null, null)).assertEqual(null);
     });
