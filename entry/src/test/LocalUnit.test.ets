@@ -28,7 +28,7 @@ import { SUPPORTED_SHARE_LINK_SCHEMES, buildUnsupportedShareLinkMessage, formatO
 import { buildSingboxConfig } from '../main/ets/core/SingboxConfig';
 import { exportRoutingRulesJson, importRoutingRulesJson } from '../main/ets/core/RoutingRules';
 import { buildConfigBackup, parseConfigBackup, serializeConfigBackup, CONFIG_BACKUP_APP_TAG, CONFIG_BACKUP_VERSION } from '../main/ets/core/ConfigBackup';
-import { CustomAssetUrl } from '../main/ets/storage/AssetStore';
+import { AssetStore, CustomAssetUrl, GeoUpdateMetadata } from '../main/ets/storage/AssetStore';
 import { ProfileStore } from '../main/ets/storage/ProfileStore';
 import { SubscriptionStore } from '../main/ets/storage/SubscriptionStore';
 import { ProxyProfile, SubscriptionProfile } from '../main/ets/core/Profile';
@@ -440,6 +440,36 @@ export default function localUnitTest() {
       const empty = SettingsStore.selectStoredSettings('', '');
       expect(empty.source).assertEqual('empty');
       expect(empty.settings?.mode ?? '').assertEqual(APP_MODE_VPN);
+    });
+
+    it('recovers custom Geo sources and verified update metadata independently', 0, () => {
+      const custom: Array<CustomAssetUrl> = [{
+        id: 'custom-1',
+        name: 'private.dat',
+        url: 'https://rules.example.com/private.dat'
+      }];
+      const customRaw = JSON.stringify(custom);
+      expect(AssetStore.selectStoredCustomAssets(customRaw, '{broken').source).assertEqual('primary');
+      const recoveredCustom = AssetStore.selectStoredCustomAssets('{broken', customRaw);
+      expect(recoveredCustom.source).assertEqual('backup');
+      expect(recoveredCustom.assets?.[0].name ?? '').assertEqual('private.dat');
+      expect(AssetStore.selectStoredCustomAssets('{}', '{broken').source).assertEqual('invalid');
+
+      const sha256 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+      const metadata: GeoUpdateMetadata = {
+        version: '202610220001',
+        source: 'builtin',
+        checkedAt: 123,
+        result: 'updated',
+        assets: [{ fileName: 'geoip.dat', sha256, size: 1024, updatedAt: 123 }]
+      };
+      const metadataRaw = JSON.stringify(metadata);
+      expect(AssetStore.selectStoredGeoMetadata(metadataRaw, '{broken').source).assertEqual('primary');
+      const recoveredMetadata = AssetStore.selectStoredGeoMetadata('{broken', metadataRaw);
+      expect(recoveredMetadata.source).assertEqual('backup');
+      expect(recoveredMetadata.metadata?.assets[0].sha256 ?? '').assertEqual(sha256);
+      expect(AssetStore.selectStoredGeoMetadata('{}', '{broken').source).assertEqual('invalid');
+      expect(AssetStore.selectStoredGeoMetadata('', '').source).assertEqual('empty');
     });
   });
 

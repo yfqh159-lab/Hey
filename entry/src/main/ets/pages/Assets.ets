@@ -1087,18 +1087,25 @@ struct AssetsPage {
       this.tempImportUri = '';
     }
 
+    let nextAssets = this.customAssets.slice();
     if (this.editId.length > 0) {
-      this.customAssets = this.customAssets.map(item => {
+      nextAssets = this.customAssets.map(item => {
         if (item.id === this.editId) {
           return { id: item.id, name: trimmedName, url: trimmedUrl } as CustomAssetUrl;
         }
         return item;
       });
     } else {
-      this.customAssets.push({ id: Date.now().toString(), name: trimmedName, url: trimmedUrl });
+      nextAssets.push({ id: Date.now().toString(), name: trimmedName, url: trimmedUrl });
     }
 
-    await AssetStore.save(context, this.customAssets);
+    try {
+      await AssetStore.save(context, nextAssets);
+    } catch (error) {
+      this.toast(this.f1('assets.saveFailed', 'error', redactDiagnosticText(JSON.stringify(error))));
+      return;
+    }
+    this.customAssets = nextAssets;
     this.refreshCustomStatuses();
     // 从主视图触发的自定义导入，保存后带用户进入列表看到结果
     this.showCustomUrls = true;
@@ -1155,29 +1162,38 @@ struct AssetsPage {
   }
 
   private async loadCustomAssets(): Promise<void> {
-    const context = this.getUIContext().getHostContext() as common.Context;
-    this.customAssets = await AssetStore.load(context);
-    this.refreshCustomStatuses();
+    try {
+      const context = this.getUIContext().getHostContext() as common.Context;
+      this.customAssets = await AssetStore.load(context);
+      this.refreshCustomStatuses();
+    } catch (error) {
+      this.toast(this.f1('assets.loadFailed', 'error', redactDiagnosticText(JSON.stringify(error))));
+    }
   }
 
   private async loadState(): Promise<void> {
     this.isStateLoaded = false;
-    const context = this.getUIContext().getHostContext() as common.Context;
-    this.language = (await SETTINGS_CONTROLLER.load(context)).language;
-
-    // 一次性迁移：清掉旧版本写入的内置下载源地址。
     try {
-      const assetStore = await preferences.getPreferences(context, 'hey_vpn_assets');
-      if (await assetStore.has('geo_source_url')) {
-        await assetStore.delete('geo_source_url');
-        await assetStore.flush();
+      const context = this.getUIContext().getHostContext() as common.Context;
+      this.language = (await SETTINGS_CONTROLLER.load(context)).language;
+
+      // 一次性迁移：清掉旧版本写入的内置下载源地址。
+      try {
+        const assetStore = await preferences.getPreferences(context, 'hey_vpn_assets');
+        if (await assetStore.has('geo_source_url')) {
+          await assetStore.delete('geo_source_url');
+          await assetStore.flush();
+        }
+      } catch (err) {
+        // ignore obsolete-key cleanup failure
       }
-    } catch (err) {
-      // ignore
+      await this.loadGeoMetadata();
+    } catch (error) {
+      this.toast(this.f1('assets.loadFailed', 'error', redactDiagnosticText(JSON.stringify(error))));
+    } finally {
+      this.updateFileStatus();
+      this.isStateLoaded = true;
     }
-    await this.loadGeoMetadata();
-    this.updateFileStatus();
-    this.isStateLoaded = true;
   }
 
   private async loadGeoMetadata(): Promise<void> {
