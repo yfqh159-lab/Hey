@@ -103,17 +103,29 @@ node <<'NODE'
 const fs = require('fs');
 const addresses = fs.readFileSync('entry/src/main/ets/core/DnsAddresses.ets', 'utf8');
 const xray = fs.readFileSync('entry/src/main/ets/core/XrayConfig.ets', 'utf8');
+const settings = fs.readFileSync('entry/src/main/ets/features/settings/SettingsController.ets', 'utf8');
+const settingsStore = fs.readFileSync('entry/src/main/ets/storage/SettingsStore.ets', 'utf8');
 if (!addresses.includes('export function isLocalCoreDnsAddress(value: string): boolean') ||
   !addresses.includes("lower === 'localhost'") ||
   !addresses.includes("lower.startsWith('https+local://')") ||
   !addresses.includes("lower.startsWith('tcp+local://')") ||
   !addresses.includes("lower.startsWith('quic+local://')") ||
   !addresses.includes('allowLocalCoreDns: boolean = true') ||
-  !addresses.includes('allowLocalCoreDns || !isLocalCoreDnsAddress(address)')) {
+  !addresses.includes('allowLocalCoreDns || !isLocalCoreDnsAddress(address)') ||
+  !addresses.includes('export function normalizeRemoteDnsValue(')) {
   throw new Error('DNS normalization does not distinguish routed and physical-network local modes');
 }
 if (!xray.includes('DNS_PROXY, true, false);')) {
   throw new Error('remote DNS can bypass Xray routing through localhost or a +local mode');
+}
+if (!settings.includes('private remoteDnsValue(value: string): string') ||
+  !settings.includes('return normalizeRemoteDnsValue(value);') ||
+  !settings.includes('remoteDns,')) {
+  throw new Error('settings can display a remote DNS value that runtime silently ignores');
+}
+if (!settingsStore.includes(
+  'remoteDns: normalizeRemoteDnsValue(SettingsStore.stringValue(raw.remoteDns, base.remoteDns))')) {
+  throw new Error('persisted or imported local-mode remote DNS survives settings normalization');
 }
 NODE
 printf 'remote DNS local-mode leak guard passed\n'

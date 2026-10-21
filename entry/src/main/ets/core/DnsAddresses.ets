@@ -63,6 +63,13 @@ export function normalizeDnsServers(
   return filterDnsServers(source, allowCoreDns, allowLocalCoreDns);
 }
 
+export function normalizeRemoteDnsValue(value: string | undefined, fallback: string = DNS_PROXY): string {
+  const trimmed = value?.trim() ?? '';
+  const normalized = normalizeDnsServers(
+    trimmed.length > 0 ? trimmed : undefined, fallback, true, false);
+  return normalized.length > 0 ? normalized.join(',') : fallback;
+}
+
 export function normalizeVpnDnsServers(value?: string, fallback: string = DNS_VPN): Array<string> {
   if (value === undefined || value.trim().length === 0) {
     return [stripIpAddressBrackets(fallback.trim())];

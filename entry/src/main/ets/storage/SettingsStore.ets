@@ -27,7 +27,7 @@ import {
   RoutingRule
 } from '../core/Profile';
 import { DEFAULT_CORE_LOG_LEVEL, DEFAULT_MUX_XUDP_QUIC, normalizeCoreLogLevel, normalizeMuxXudpQuic } from '../core/ProtocolOptions';
-import { DNS_PROXY } from '../core/DnsAddresses';
+import { DNS_PROXY, normalizeRemoteDnsValue } from '../core/DnsAddresses';
 import { isReservedAppRuntimePort } from '../core/XrayConfig';
 
 const PREFERENCES_NAME: string = 'hey_vpn_settings';
@@ -274,7 +274,7 @@ export class SettingsStore {
       vpnBypassLan: normalizeVpnBypassLanMode(raw.vpnBypassLan, base.vpnBypassLan),
       vpnMtu: normalizeVpnMtuValue(raw.vpnMtu, base.vpnMtu),
       vpnDns: SettingsStore.stringValue(raw.vpnDns, base.vpnDns),
-      remoteDns: SettingsStore.stringValue(raw.remoteDns, base.remoteDns),
+      remoteDns: normalizeRemoteDnsValue(SettingsStore.stringValue(raw.remoteDns, base.remoteDns)),
       domesticDns: SettingsStore.stringValue(raw.domesticDns, base.domesticDns),
       dnsHosts: SettingsStore.stringValue(raw.dnsHosts, base.dnsHosts),
       delayTestUrl: SettingsStore.stringValue(raw.delayTestUrl, base.delayTestUrl),

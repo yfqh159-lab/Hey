@@ -3,6 +3,7 @@ import { AppLanguage, AppRuntimeMode, AppSettings, normalizeAppRuntimeMode, norm
 import { normalizeCoreLogLevel, normalizeFragmentPackets, normalizeMuxXudpQuic } from '../../core/ProtocolOptions';
 import { DEFAULT_APP_SETTINGS, SettingsStore } from '../../storage/SettingsStore';
 import { isReservedAppRuntimePort } from '../../core/XrayConfig';
+import { normalizeRemoteDnsValue } from '../../core/DnsAddresses';
 
 export interface SettingsDraft {
   language: AppLanguage;
@@ -146,6 +147,7 @@ export class SettingsController {
     // TUN 数据面引擎与用户可见的本地代理入口相互独立。
     const localSocksEnabled = draft.localSocksEnabled;
     const localDnsEnabled = draft.localDnsEnabled;
+    const remoteDns = this.remoteDnsValue(draft.remoteDns);
     let localSocksPort = this.runtimePortValue(draft.localSocksPort, DEFAULT_APP_SETTINGS.localSocksPort);
     let localDnsPort = this.runtimePortValue(draft.localDnsPort, DEFAULT_APP_SETTINGS.localDnsPort);
     if (localDnsPort === localSocksPort) {
@@ -198,7 +200,7 @@ export class SettingsController {
       vpnBypassLan: normalizeVpnBypassLanMode(draft.vpnBypassLan, DEFAULT_APP_SETTINGS.vpnBypassLan),
       vpnMtu: this.vpnMtuValue(draft.vpnMtu, DEFAULT_APP_SETTINGS.vpnMtu),
       vpnDns: draft.vpnDns.trim(),
-      remoteDns: draft.remoteDns.trim(),
+      remoteDns,
       domesticDns: draft.domesticDns.trim(),
       dnsHosts: draft.dnsHosts.trim(),
       delayTestUrl: draft.delayTestUrl.trim(),
@@ -217,6 +219,10 @@ export class SettingsController {
       netAutomationTrustedSsids: this.normalizeSsidList(draft.netAutomationTrustedSsids),
       netAutomationCellularTrusted: draft.netAutomationCellularTrusted
     };
+  }
+
+  private remoteDnsValue(value: string): string {
+    return normalizeRemoteDnsValue(value);
   }
 
   private normalizeSsidList(list: string[]): string[] {

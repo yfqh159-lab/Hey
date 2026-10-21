@@ -1491,6 +1491,14 @@ export default function localUnitTest() {
       expect(routed[0]).assertEqual('8.8.8.8:5353');
       expect(routed[1]).assertEqual('[2606:4700:4700::1111]:53');
       expect(routed[2]).assertEqual('https://dns.google/dns-query');
+
+      const settingsController = new SettingsController();
+      const draft = settingsController.toDraft(buildSettingsFixture());
+      draft.remoteDns = 'localhost,https+local://dns.google/dns-query';
+      expect(settingsController.buildSettings(draft).remoteDns).assertEqual(DNS_PROXY);
+      draft.remoteDns = '9.9.9.9:5353,https://dns.google/dns-query,tcp+local://1.1.1.1';
+      expect(settingsController.buildSettings(draft).remoteDns)
+        .assertEqual('9.9.9.9:5353,https://dns.google/dns-query');
     });
 
     it('adds the protocol spec default dns hosts before user hosts', 0, () => {
