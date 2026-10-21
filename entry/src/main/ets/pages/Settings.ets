@@ -565,7 +565,7 @@ struct SettingsPage {
         this.settingAppendHttpProxy = this.isLocalProxyEnabled() ? !this.settingAppendHttpProxy : false;
         break;
       case 'localSocks':
-        this.settingLocalSocks = this.settingUseHevTun ? true : !this.settingLocalSocks;
+        this.settingLocalSocks = !this.settingLocalSocks;
         if (!this.settingLocalSocks) {
           this.settingAppendHttpProxy = false;
           this.settingProxySharing = false;
@@ -573,9 +573,6 @@ struct SettingsPage {
         break;
       case 'useHevTun':
         this.settingUseHevTun = !this.settingUseHevTun;
-        if (this.settingUseHevTun) {
-          this.settingLocalSocks = true;
-        }
         break;
       case 'localSocksDynamicPort':
         this.settingLocalSocksDynamicPort = !this.settingLocalSocksDynamicPort;
@@ -607,7 +604,7 @@ struct SettingsPage {
 
   private isLocalProxyEnabled(): boolean {
     return normalizeAppRuntimeMode(this.settingMode) === APP_MODE_PROXY_ONLY ||
-      this.settingLocalSocks || this.settingUseHevTun;
+      this.settingLocalSocks;
   }
 
   private updateSettingInput(action: string, value: string): void {

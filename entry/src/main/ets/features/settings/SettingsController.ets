@@ -143,7 +143,8 @@ export class SettingsController {
 
   buildSettings(draft: SettingsDraft): AppSettings {
     const useHevTun = draft.useHevTun;
-    const localSocksEnabled = draft.localSocksEnabled || useHevTun;
+    // TUN 数据面引擎与用户可见的本地代理入口相互独立。
+    const localSocksEnabled = draft.localSocksEnabled;
     const localDnsEnabled = draft.localDnsEnabled;
     let localSocksPort = this.runtimePortValue(draft.localSocksPort, DEFAULT_APP_SETTINGS.localSocksPort);
     let localDnsPort = this.runtimePortValue(draft.localDnsPort, DEFAULT_APP_SETTINGS.localDnsPort);

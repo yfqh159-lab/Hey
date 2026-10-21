@@ -137,7 +137,9 @@ export class SettingsStore {
   private static normalize(raw: AppSettings): AppSettings {
     const base = SettingsStore.copy(DEFAULT_APP_SETTINGS);
     const useHevTun = SettingsStore.boolValue(raw.useHevTun, base.useHevTun);
-    const localSocksEnabled = SettingsStore.boolValue(raw.localSocksEnabled, base.localSocksEnabled) || useHevTun;
+    // Hev 只是 VPN/TUN 数据面的可选适配器，固定转发到内部 VPN_DATA_SOCKS_PORT；
+    // 它不依赖、也不应擅自开启用户可见的本地 SOCKS 监听。
+    const localSocksEnabled = SettingsStore.boolValue(raw.localSocksEnabled, base.localSocksEnabled);
     const localDnsEnabled = SettingsStore.boolValue(raw.localDnsEnabled, base.localDnsEnabled);
     let localSocksPort = SettingsStore.runtimePortValue(raw.localSocksPort, base.localSocksPort);
     let localDnsPort = SettingsStore.runtimePortValue(raw.localDnsPort, base.localDnsPort);

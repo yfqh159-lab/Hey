@@ -1575,6 +1575,22 @@ export default function localUnitTest() {
       expect(result.httpProxyPort).assertEqual(LOCAL_HTTP_PROXY_PORT);
     });
 
+    it('keeps the Hev TUN engine independent from user-visible local proxy listeners', 0, () => {
+      const settings = buildSettingsFixture();
+      settings.mode = APP_MODE_VPN;
+      settings.useHevTun = true;
+      settings.localSocksEnabled = false;
+      settings.appendHttpProxy = false;
+      const result = buildXrayConfigWithSettings(VLESS_REALITY_OUTBOUND, settings);
+      expect(result.configJson).assertContain('"tag": "tun-in"');
+      expect(result.configJson).assertContain('"tag": "vpn-http-in"');
+      expect(result.configJson.indexOf('"tag": "socks-in"')).assertEqual(-1);
+      expect(result.configJson.indexOf('"tag": "http-in"')).assertEqual(-1);
+      expect(result.socksPort === undefined).assertTrue();
+      expect(result.httpProxyPort === undefined).assertTrue();
+      expect(result.runtimeHealthPort).assertEqual(VPN_DATA_SOCKS_PORT);
+    });
+
     it('routes proxy only policy groups through local socks and http inbounds without vpn tun', 0, () => {
       const settings = buildSettingsFixture();
       settings.mode = APP_MODE_PROXY_ONLY;
@@ -2367,8 +2383,8 @@ export default function localUnitTest() {
       draft.useHevTun = true;
       draft.localSocksEnabled = false;
       draft.appendHttpProxy = true;
-      expect(SETTINGS_CONTROLLER.buildSettings(draft).localSocksEnabled).assertTrue();
-      expect(SETTINGS_CONTROLLER.buildSettings(draft).appendHttpProxy).assertTrue();
+      expect(SETTINGS_CONTROLLER.buildSettings(draft).localSocksEnabled).assertFalse();
+      expect(SETTINGS_CONTROLLER.buildSettings(draft).appendHttpProxy).assertFalse();
       draft.useHevTun = false;
       draft.localSocksEnabled = false;
       draft.appendHttpProxy = true;
@@ -2387,7 +2403,7 @@ export default function localUnitTest() {
       expect(SETTINGS_CONTROLLER.buildSettings(draft).proxySharingEnabled).assertTrue();
       draft.useHevTun = true;
       draft.localSocksEnabled = false;
-      expect(SETTINGS_CONTROLLER.buildSettings(draft).proxySharingEnabled).assertTrue();
+      expect(SETTINGS_CONTROLLER.buildSettings(draft).proxySharingEnabled).assertFalse();
     });
 
     it('normalizes real ping concurrency', 0, () => {
