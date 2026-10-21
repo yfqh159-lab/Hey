@@ -110,6 +110,8 @@ struct Index {
   private settingsLoadInFlight: Promise<AppSettings> | null = null;
   private nodesLoadInFlight: Promise<NodesControllerState> | null = null;
   private connectionCoreLoadInFlight: Promise<CoreType> | null = null;
+  private connectionProfileSaveInFlight: Promise<SaveProfileResult> | null = null;
+  private connectionProfileSaveKey: string = '';
 
   @State private currentTab: number = 0;
   @State private showSearch: boolean = false;
@@ -2294,14 +2296,17 @@ struct Index {
 
   private async startConnectionInternal(): Promise<boolean> {
     const context = this.getUIContext().getHostContext() as common.Context;
-    const saved = await NODES_CONTROLLER.saveProfile(context, this.outboundJson, this.language, this.configType);
-    this.applySaveProfileResult(saved);
-    if (saved.profile === null) {
-      SHARED_RUNTIME_CONTROLLER.appendLog(saved.lastError);
-      return false;
-    }
-
     try {
+      const outboundJson = this.outboundJson;
+      const configType = this.configType;
+      const saved = await withAuthoritativeStorageTimeout(
+        this.saveConnectionProfileSingleFlight(context, outboundJson, this.language, configType),
+        'selected profile save');
+      this.applySaveProfileResult(saved);
+      if (saved.profile === null) {
+        SHARED_RUNTIME_CONTROLLER.appendLog(saved.lastError);
+        return false;
+      }
       this.runtimeMode = normalizeAppRuntimeMode(this.currentSettings.mode, APP_MODE_VPN);
       this.status = ConnectionStatus.STARTING;
       // 后台 WorkScheduler 不共享 UI 单例。必须先持久化 STARTING 路由意图，再允许
@@ -2332,6 +2337,38 @@ struct Index {
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
       this.syncControlCard();
       return false;
+    }
+  }
+
+  private saveConnectionProfileSingleFlight(
+    context: common.Context,
+    outboundJson: string,
+    language: AppLanguage,
+    configType: XrayConfigType
+  ): Promise<SaveProfileResult> {
+    const requestKey = `${configType}\n${outboundJson}`;
+    if (this.connectionProfileSaveInFlight !== null) {
+      if (this.connectionProfileSaveKey === requestKey) {
+        return this.connectionProfileSaveInFlight;
+      }
+      // 旧节点保存仍占用 ProfileStore 串行队列时，不能把其结果交给新节点继续启动，
+      // 也不能在已卡住的写入后无限追加任务；待原操作结算后由用户再次明确连接。
+      return Promise.reject(new Error('A previous selected-profile save is still pending.'));
+    }
+    const promise = NODES_CONTROLLER.saveProfile(context, outboundJson, language, configType);
+    this.connectionProfileSaveInFlight = promise;
+    this.connectionProfileSaveKey = requestKey;
+    promise.then(
+      (_result: SaveProfileResult): void => this.releaseConnectionProfileSave(promise),
+      (_error: Object): void => this.releaseConnectionProfileSave(promise)
+    );
+    return promise;
+  }
+
+  private releaseConnectionProfileSave(promise: Promise<SaveProfileResult>): void {
+    if (this.connectionProfileSaveInFlight === promise) {
+      this.connectionProfileSaveInFlight = null;
+      this.connectionProfileSaveKey = '';
     }
   }
 

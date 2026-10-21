@@ -1549,13 +1549,24 @@ if (!controlCardManager.includes('async persistRuntimeState(') ||
 const pageStartAt = indexPage.indexOf('  private async startConnectionInternal(): Promise<boolean>');
 const pageStartEnd = indexPage.indexOf('\n  private showProxySharingStartWarning(', pageStartAt);
 const pageStart = indexPage.slice(pageStartAt, pageStartEnd);
+const pageProfileSaveAt = pageStart.indexOf("this.saveConnectionProfileSingleFlight(context, outboundJson, this.language, configType)");
+const pageProfileApplyAt = pageStart.indexOf('this.applySaveProfileResult(saved);', pageProfileSaveAt);
 const pageStartingAt = pageStart.indexOf('this.status = ConnectionStatus.STARTING;');
 const pagePersistAt = pageStart.indexOf('await CONTROL_CARD_MANAGER.persistRuntimeState(', pageStartingAt);
 const pageCancelAt = pageStart.indexOf('if (this.status !== ConnectionStatus.STARTING)', pagePersistAt);
 const pageControllerStartAt = pageStart.indexOf('await SHARED_RUNTIME_CONTROLLER.start(', pageCancelAt);
-if (pageStartAt < 0 || pageStartEnd < 0 || pageStartingAt < 0 || pagePersistAt < pageStartingAt ||
+if (pageStartAt < 0 || pageStartEnd < 0 || pageProfileSaveAt < 0 ||
+  pageProfileApplyAt < pageProfileSaveAt || pageStartingAt < pageProfileApplyAt || pagePersistAt < pageStartingAt ||
   pageCancelAt < pagePersistAt || pageControllerStartAt < pageCancelAt) {
   throw new Error('UI startup can open the data plane before persisting STARTING or resume after cancellation');
+}
+if (!indexPage.includes('private connectionProfileSaveInFlight: Promise<SaveProfileResult> | null = null;') ||
+  !pageStart.includes("'selected profile save'") ||
+  !pageStart.includes('if (this.connectionProfileSaveKey === requestKey) {') ||
+  !pageStart.includes("return Promise.reject(new Error('A previous selected-profile save is still pending.'));") ||
+  !pageStart.includes('this.releaseConnectionProfileSave(promise)') ||
+  pageStart.indexOf('NODES_CONTROLLER.saveProfile(context, outboundJson, language, configType)') < pageStartingAt) {
+  throw new Error('selected-profile persistence can stall startup, accumulate writes, or reuse an old node result');
 }
 const startWaitAt = connection.indexOf('  private async waitForVpnStartEvent(');
 const cleanupWaitAt = connection.indexOf('  private async waitForVpnCleanupEvent(', startWaitAt);
