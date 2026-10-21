@@ -141,6 +141,16 @@ if grep -qE "log[.]netAutomation(Connect|NoNode)|subscription[.]edit[.]autoSelec
 fi
 printf 'manual connection policy translation verification passed\n'
 
+# Trusted-network edits only change the auto-disconnect decision. They must be
+# re-evaluated immediately without scheduling a core/TUN restart.
+network_scenario_source='entry/src/main/ets/pages/NetworkScenario.ets'
+if grep -Fq 'markRuntimeSettingsRestartNeeded' "${network_scenario_source}" ||
+  ! grep -Fq 'NETWORK_SCENE_MANAGER.refreshNow(true);' "${network_scenario_source}"; then
+  printf 'trusted-network settings can still restart the active data plane\n' >&2
+  exit 1
+fi
+printf 'trusted-network no-restart verification passed\n'
+
 # External deep links and shared text can contain subscription tokens, UUIDs and
 # passwords. Confirmation dialogs must use a derived redacted summary, never interpolate
 # the raw payload into a screenshot-visible message.

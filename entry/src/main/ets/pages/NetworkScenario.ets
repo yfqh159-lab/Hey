@@ -2,7 +2,6 @@ import { common } from '@kit.AbilityKit';
 import { AppLanguage } from '../core/Profile';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { SETTINGS_CONTROLLER, SettingsDraft } from '../features/settings/SettingsController';
-import { markRuntimeSettingsRestartNeeded } from '../core/SettingsChange';
 import { NETWORK_SCENE_MANAGER } from '../services/NetworkSceneManager';
 import { NetworkProbe, WifiScanEntry } from '../services/NetworkProbe';
 import { PageHeader } from '../shell/PageHeader';
@@ -343,8 +342,8 @@ struct NetworkScenarioPage {
     this.draft.netAutomationCellularTrusted = this.cellularTrusted;
     const context = this.getUIContext().getHostContext() as common.Context;
     this.draft = SETTINGS_CONTROLLER.toDraft(await SETTINGS_CONTROLLER.save(context, this.draft));
-    markRuntimeSettingsRestartNeeded();
-    // 可信集合变化：让管理器按新配置立即补判一次当前网络
+    // 可信集合只影响之后的自动断开决策，不进入核心、TUN 或监听配置，因此不能
+    // 请求数据面重启。按新配置立即补判当前网络即可。
     NETWORK_SCENE_MANAGER.ensureStarted(context);
     NETWORK_SCENE_MANAGER.refreshNow(true);
   }
