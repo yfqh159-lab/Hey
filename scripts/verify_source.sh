@@ -97,6 +97,7 @@ node <<'NODE'
 const fs = require('fs');
 const controller = fs.readFileSync('entry/src/main/ets/features/assets/AssetsController.ets', 'utf8');
 const page = fs.readFileSync('entry/src/main/ets/pages/Assets.ets', 'utf8');
+const assetStore = fs.readFileSync('entry/src/main/ets/storage/AssetStore.ets', 'utf8');
 const verifyAt = controller.indexOf('  async isBuiltinGeoMetadataCurrent(');
 const verifyEnd = controller.indexOf('\n  // 检查可信默认发布源', verifyAt);
 const verify = controller.slice(verifyAt, verifyEnd);
@@ -127,6 +128,20 @@ if (!controller.includes('await AssetStore.saveGeoUpdateMetadata(context, update
   !controller.includes('this.removeFileStrictIfExists(`${context.filesDir}/${GEO_METADATA_INVALID_FILE}`);') ||
   !controller.includes('this.writeFileData(`${context.filesDir}/${GEO_METADATA_INVALID_FILE}`')) {
   throw new Error('Geo metadata failures are not durably invalidated across equal-content releases');
+}
+for (const name of ['load', 'save', 'loadGeoUpdateMetadata', 'saveGeoUpdateMetadata', 'clearGeoUpdateMetadata']) {
+  const methodAt = assetStore.indexOf(`  static ${name}(`);
+  const nextMethodAt = assetStore.indexOf('\n  static ', methodAt + 1);
+  const body = assetStore.slice(methodAt, nextMethodAt < 0 ? assetStore.length : nextMethodAt);
+  if (methodAt < 0 || !body.includes('return AssetStore.enqueueOperation(')) {
+    throw new Error(`${name} bypasses serialized Geo metadata storage`);
+  }
+}
+if (!assetStore.includes('private static operationTail: Promise<void> = Promise.resolve();') ||
+  !assetStore.includes('AssetStore.operationTail = task.then(') ||
+  !assetStore.includes('const assetsSnapshot = AssetStore.normalizeCustomAssets(assets);') ||
+  !assetStore.includes('const metadataSnapshot = AssetStore.copyGeoUpdateMetadata(metadata);')) {
+  throw new Error('Geo/custom asset storage queue or input snapshots are missing');
 }
 NODE
 printf 'installed Geo metadata verification passed\n'

@@ -50,24 +50,28 @@ function emptyGeoUpdateMetadata(): GeoUpdateMetadata {
 }
 
 export class AssetStore {
-  static async load(context: common.Context): Promise<Array<CustomAssetUrl>> {
-    const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-    const primaryRaw = (await store.get(CUSTOM_ASSETS_KEY, '')).toString();
-    const backupRaw = (await store.get(CUSTOM_ASSETS_BACKUP_KEY, '')).toString();
-    const selection = AssetStore.selectStoredCustomAssets(primaryRaw, backupRaw);
-    if (selection.assets !== null && selection.source !== 'backup') {
-      return selection.assets;
-    }
-    if (selection.assets !== null) {
-      try {
-        await store.put(CUSTOM_ASSETS_KEY, JSON.stringify(selection.assets));
-        await store.flush();
-      } catch (_error) {
-        // keep recovered in-memory value
+  private static operationTail: Promise<void> = Promise.resolve();
+
+  static load(context: common.Context): Promise<Array<CustomAssetUrl>> {
+    return AssetStore.enqueueOperation(async (): Promise<Array<CustomAssetUrl>> => {
+      const store = await preferences.getPreferences(context, PREFERENCES_NAME);
+      const primaryRaw = (await store.get(CUSTOM_ASSETS_KEY, '')).toString();
+      const backupRaw = (await store.get(CUSTOM_ASSETS_BACKUP_KEY, '')).toString();
+      const selection = AssetStore.selectStoredCustomAssets(primaryRaw, backupRaw);
+      if (selection.assets !== null && selection.source !== 'backup') {
+        return selection.assets;
       }
-      return selection.assets;
-    }
-    throw new Error('Stored custom Geo sources are unreadable; the existing data was not overwritten.');
+      if (selection.assets !== null) {
+        try {
+          await store.put(CUSTOM_ASSETS_KEY, JSON.stringify(selection.assets));
+          await store.flush();
+        } catch (_error) {
+          // keep recovered in-memory value
+        }
+        return selection.assets;
+      }
+      throw new Error('Stored custom Geo sources are unreadable; the existing data was not overwritten.');
+    });
   }
 
   static selectStoredCustomAssets(primaryRaw: string, backupRaw: string): StoredCustomAssetsSelection {
@@ -85,40 +89,45 @@ export class AssetStore {
     return { assets: null, source: 'invalid' };
   }
 
-  static async save(context: common.Context, assets: Array<CustomAssetUrl>): Promise<void> {
-    const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-    const nextRaw = JSON.stringify(AssetStore.normalizeCustomAssets(assets));
-    const currentRaw = (await store.get(CUSTOM_ASSETS_KEY, '')).toString();
-    if (AssetStore.parseStoredCustomAssets(currentRaw) !== null) {
-      await store.put(CUSTOM_ASSETS_BACKUP_KEY, currentRaw);
-    } else {
-      const backupRaw = (await store.get(CUSTOM_ASSETS_BACKUP_KEY, '')).toString();
-      if (AssetStore.parseStoredCustomAssets(backupRaw) === null) {
-        await store.put(CUSTOM_ASSETS_BACKUP_KEY, nextRaw);
+  static save(context: common.Context, assets: Array<CustomAssetUrl>): Promise<void> {
+    const assetsSnapshot = AssetStore.normalizeCustomAssets(assets);
+    return AssetStore.enqueueOperation(async (): Promise<void> => {
+      const store = await preferences.getPreferences(context, PREFERENCES_NAME);
+      const nextRaw = JSON.stringify(assetsSnapshot);
+      const currentRaw = (await store.get(CUSTOM_ASSETS_KEY, '')).toString();
+      if (AssetStore.parseStoredCustomAssets(currentRaw) !== null) {
+        await store.put(CUSTOM_ASSETS_BACKUP_KEY, currentRaw);
+      } else {
+        const backupRaw = (await store.get(CUSTOM_ASSETS_BACKUP_KEY, '')).toString();
+        if (AssetStore.parseStoredCustomAssets(backupRaw) === null) {
+          await store.put(CUSTOM_ASSETS_BACKUP_KEY, nextRaw);
+        }
       }
-    }
-    await store.put(CUSTOM_ASSETS_KEY, nextRaw);
-    await store.flush();
+      await store.put(CUSTOM_ASSETS_KEY, nextRaw);
+      await store.flush();
+    });
   }
 
-  static async loadGeoUpdateMetadata(context: common.Context): Promise<GeoUpdateMetadata> {
-    const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-    const primaryRaw = (await store.get(GEO_UPDATE_METADATA_KEY, '')).toString();
-    const backupRaw = (await store.get(GEO_UPDATE_METADATA_BACKUP_KEY, '')).toString();
-    const selection = AssetStore.selectStoredGeoMetadata(primaryRaw, backupRaw);
-    if (selection.metadata !== null && selection.source !== 'backup') {
-      return selection.metadata;
-    }
-    if (selection.metadata !== null) {
-      try {
-        await store.put(GEO_UPDATE_METADATA_KEY, JSON.stringify(selection.metadata));
-        await store.flush();
-      } catch (_error) {
-        // keep recovered in-memory value
+  static loadGeoUpdateMetadata(context: common.Context): Promise<GeoUpdateMetadata> {
+    return AssetStore.enqueueOperation(async (): Promise<GeoUpdateMetadata> => {
+      const store = await preferences.getPreferences(context, PREFERENCES_NAME);
+      const primaryRaw = (await store.get(GEO_UPDATE_METADATA_KEY, '')).toString();
+      const backupRaw = (await store.get(GEO_UPDATE_METADATA_BACKUP_KEY, '')).toString();
+      const selection = AssetStore.selectStoredGeoMetadata(primaryRaw, backupRaw);
+      if (selection.metadata !== null && selection.source !== 'backup') {
+        return selection.metadata;
       }
-      return selection.metadata;
-    }
-    throw new Error('Stored Geo update metadata is unreadable; the existing record was not overwritten.');
+      if (selection.metadata !== null) {
+        try {
+          await store.put(GEO_UPDATE_METADATA_KEY, JSON.stringify(selection.metadata));
+          await store.flush();
+        } catch (_error) {
+          // keep recovered in-memory value
+        }
+        return selection.metadata;
+      }
+      throw new Error('Stored Geo update metadata is unreadable; the existing record was not overwritten.');
+    });
   }
 
   static selectStoredGeoMetadata(primaryRaw: string, backupRaw: string): StoredGeoMetadataSelection {
@@ -136,27 +145,63 @@ export class AssetStore {
     return { metadata: null, source: 'invalid' };
   }
 
-  static async saveGeoUpdateMetadata(context: common.Context, metadata: GeoUpdateMetadata): Promise<void> {
-    const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-    const nextRaw = JSON.stringify(metadata);
-    const currentRaw = (await store.get(GEO_UPDATE_METADATA_KEY, '')).toString();
-    if (AssetStore.parseStoredGeoMetadata(currentRaw) !== null) {
-      await store.put(GEO_UPDATE_METADATA_BACKUP_KEY, currentRaw);
-    } else {
-      const backupRaw = (await store.get(GEO_UPDATE_METADATA_BACKUP_KEY, '')).toString();
-      if (AssetStore.parseStoredGeoMetadata(backupRaw) === null) {
-        await store.put(GEO_UPDATE_METADATA_BACKUP_KEY, nextRaw);
+  static saveGeoUpdateMetadata(context: common.Context, metadata: GeoUpdateMetadata): Promise<void> {
+    const metadataSnapshot = AssetStore.copyGeoUpdateMetadata(metadata);
+    return AssetStore.enqueueOperation(async (): Promise<void> => {
+      const store = await preferences.getPreferences(context, PREFERENCES_NAME);
+      const nextRaw = JSON.stringify(metadataSnapshot);
+      const currentRaw = (await store.get(GEO_UPDATE_METADATA_KEY, '')).toString();
+      if (AssetStore.parseStoredGeoMetadata(currentRaw) !== null) {
+        await store.put(GEO_UPDATE_METADATA_BACKUP_KEY, currentRaw);
+      } else {
+        const backupRaw = (await store.get(GEO_UPDATE_METADATA_BACKUP_KEY, '')).toString();
+        if (AssetStore.parseStoredGeoMetadata(backupRaw) === null) {
+          await store.put(GEO_UPDATE_METADATA_BACKUP_KEY, nextRaw);
+        }
       }
-    }
-    await store.put(GEO_UPDATE_METADATA_KEY, nextRaw);
-    await store.flush();
+      await store.put(GEO_UPDATE_METADATA_KEY, nextRaw);
+      await store.flush();
+    });
   }
 
-  static async clearGeoUpdateMetadata(context: common.Context): Promise<void> {
-    const store = await preferences.getPreferences(context, PREFERENCES_NAME);
-    await store.delete(GEO_UPDATE_METADATA_KEY);
-    await store.delete(GEO_UPDATE_METADATA_BACKUP_KEY);
-    await store.flush();
+  static clearGeoUpdateMetadata(context: common.Context): Promise<void> {
+    return AssetStore.enqueueOperation(async (): Promise<void> => {
+      const store = await preferences.getPreferences(context, PREFERENCES_NAME);
+      await store.delete(GEO_UPDATE_METADATA_KEY);
+      await store.delete(GEO_UPDATE_METADATA_BACKUP_KEY);
+      await store.flush();
+    });
+  }
+
+  private static enqueueOperation<T>(operation: () => Promise<T>): Promise<T> {
+    const task = AssetStore.operationTail.then(
+      (): Promise<T> => operation(),
+      (): Promise<T> => operation()
+    );
+    AssetStore.operationTail = task.then(
+      (): void => {},
+      (_error: Object): void => {}
+    );
+    return task;
+  }
+
+  private static copyGeoUpdateMetadata(metadata: GeoUpdateMetadata): GeoUpdateMetadata {
+    const assets = new Array<GeoAssetMetadata>();
+    for (let index = 0; index < metadata.assets.length; index++) {
+      assets.push({
+        fileName: metadata.assets[index].fileName,
+        sha256: metadata.assets[index].sha256,
+        size: metadata.assets[index].size,
+        updatedAt: metadata.assets[index].updatedAt
+      });
+    }
+    return {
+      version: metadata.version,
+      source: metadata.source,
+      checkedAt: metadata.checkedAt,
+      result: metadata.result,
+      assets
+    };
   }
 
   private static parseStoredCustomAssets(raw: string): Array<CustomAssetUrl> | null {
