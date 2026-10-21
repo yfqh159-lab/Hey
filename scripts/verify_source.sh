@@ -143,6 +143,7 @@ const catalog = fs.readFileSync('entry/src/main/ets/features/settings/SettingsCa
 const options = fs.readFileSync('entry/src/main/ets/features/settings/SettingsOptions.ets', 'utf8');
 const controller = fs.readFileSync('entry/src/main/ets/services/ConnectionController.ets', 'utf8');
 const config = fs.readFileSync('entry/src/main/ets/core/XrayConfig.ets', 'utf8');
+const coreSelection = fs.readFileSync('entry/src/main/ets/core/CoreSelection.ets', 'utf8');
 
 if (!catalog.includes("{ key: 'mode', titleKey: 'settings.mode', type: 'option' }")) {
   throw new Error('runtime mode selector is missing from settings');
@@ -150,6 +151,14 @@ if (!catalog.includes("{ key: 'mode', titleKey: 'settings.mode', type: 'option' 
 if (!options.includes('{ value: APP_MODE_VPN,') ||
   !options.includes('{ value: APP_MODE_PROXY_ONLY,')) {
   throw new Error('runtime mode selector must offer both VPN/TUN and local proxy modes');
+}
+if (!catalog.includes("{ key: 'coreType', titleKey: 'settings.coreType', type: 'option', descKey: 'settings.coreType.detail', vpnOnly: true }")) {
+  throw new Error('VPN-only preview core selector must stay hidden in local proxy mode');
+}
+if (!coreSelection.includes('normalizeAppRuntimeMode(runtimeMode) === APP_MODE_PROXY_ONLY') ||
+  !coreSelection.includes('return CORE_TYPE_XRAY;') ||
+  !controller.includes('this.effectiveCoreType = resolveRuntimeCoreType(')) {
+  throw new Error('local proxy standard nodes must stay on the main Xray core');
 }
 
 const xrayStartMarker = '  async start(context: common.Context, profile: ProxyProfile, settings?: AppSettings)';

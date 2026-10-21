@@ -1852,7 +1852,7 @@ struct Index {
     // 用当前待连接的 outbound 推协议（与 ConnectionController 判定 forceSingbox 的口径一致），
     // 不依赖 this.nodes 是否包含当前节点（当前节点是全局值，可能不在正浏览的组里）。
     const protocol = normalizeOutboundInput(this.outboundJson).protocol;
-    const requiredCore = requiredCoreForProtocol(currentCore, protocol);
+    const requiredCore = requiredCoreForProtocol(currentCore, protocol, this.currentSettings.mode);
     if (requiredCore === null) {
       await this.startConnection();
       return;

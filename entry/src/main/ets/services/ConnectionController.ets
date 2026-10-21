@@ -7,7 +7,7 @@ import { resolveDynamicPolicyGroupConfigJson } from '../core/AdvancedOutboundBui
 import { selectRuntimeLocalSocksPort, shouldUseDynamicLocalSocksPort, withRuntimeLocalSocksPort } from '../core/LocalProxy';
 import { appReservedRuntimePorts, buildRuntimeXrayConfig, injectXrayLogFile, normalizeConfigInput, VPN_DATA_SOCKS_PORT, XRAY_CORE_LOG_FILE } from '../core/XrayConfig';
 import { normalizeCoreLogLevel } from '../core/ProtocolOptions';
-import { CORE_TYPE_SINGBOX, CORE_TYPE_XRAY, CoreSelectionStore, CoreType, isSingboxCore, isSingboxOnlyProtocol } from '../core/CoreSelection';
+import { CORE_TYPE_SINGBOX, CORE_TYPE_XRAY, CoreSelectionStore, CoreType, isSingboxCore, resolveRuntimeCoreType } from '../core/CoreSelection';
 import { buildSingboxConfig, GeneratedSingboxConfig } from '../core/SingboxConfig';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { SubscriptionStore } from '../storage/SubscriptionStore';
@@ -144,9 +144,13 @@ export class ConnectionController {
     if (!this.isCurrentStart(startGeneration)) {
       return this.getSnapshot();
     }
-    const forceSingbox = validation.configType === 'outbound' && isSingboxOnlyProtocol(validation.protocol);
-    const useSingbox = isSingboxCore(coreType) || forceSingbox;
-    this.effectiveCoreType = useSingbox ? CORE_TYPE_SINGBOX : CORE_TYPE_XRAY;
+    const requestedMode = normalizeAppRuntimeMode(settings?.mode, APP_MODE_VPN);
+    this.effectiveCoreType = resolveRuntimeCoreType(
+      coreType,
+      validation.configType === 'outbound' ? validation.protocol : undefined,
+      requestedMode
+    );
+    const useSingbox = isSingboxCore(this.effectiveCoreType);
     if (useSingbox) {
       return this.startSingbox(
         context, validation.normalizedJson, validation.configType, profile.updatedAt, startGeneration, settings);

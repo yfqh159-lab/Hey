@@ -43,7 +43,7 @@ import {
   shouldCleanupUnhealthyVpnRuntimeState
 } from '../main/ets/core/RuntimeHealth';
 import { proxyConfigDedupeKey } from '../main/ets/core/NodeDedupe';
-import { isSingboxOnlyProtocol, requiredCoreForProtocol, CORE_TYPE_SINGBOX, CORE_TYPE_XRAY } from '../main/ets/core/CoreSelection';
+import { isSingboxOnlyProtocol, requiredCoreForProtocol, resolveRuntimeCoreType, CORE_TYPE_SINGBOX, CORE_TYPE_XRAY } from '../main/ets/core/CoreSelection';
 import {
   DEFAULT_SUBSCRIPTION_UPDATE_INTERVAL_MINUTES,
   MIN_SUBSCRIPTION_UPDATE_INTERVAL_MINUTES,
@@ -242,6 +242,7 @@ export default function localUnitTest() {
       const proxyEnabled = (key: string): boolean => key === 'localSocks' || isEnabled(key);
       const keys = allKeys(filterSettings(SETTINGS_CATALOG, proxyEnabled, '', idText, APP_MODE_PROXY_ONLY));
       expect(keys.includes('perApp')).assertFalse();
+      expect(keys.includes('coreType')).assertFalse();
       expect(keys.includes('localDns')).assertFalse();
       expect(keys.includes('appendHttpProxy')).assertFalse();
       expect(keys.includes('localSocks')).assertFalse();
@@ -4076,6 +4077,22 @@ export default function localUnitTest() {
       expect(requiredCoreForProtocol(CORE_TYPE_SINGBOX, 'anytls') === null).assertTrue();
       expect(requiredCoreForProtocol(CORE_TYPE_SINGBOX, 'vless') === null).assertTrue();
       expect(requiredCoreForProtocol(CORE_TYPE_XRAY, undefined) === null).assertTrue();
+      // sing-box 预览没有用户可见的本地代理入站，不能先弹一个无法兑现的切核确认。
+      expect(requiredCoreForProtocol(CORE_TYPE_XRAY, 'anytls', APP_MODE_PROXY_ONLY) === null).assertTrue();
+    });
+
+    it('keeps proxy-only standard nodes on the main Xray core', 0, () => {
+      expect(resolveRuntimeCoreType(CORE_TYPE_SINGBOX, 'vless', APP_MODE_PROXY_ONLY)).assertEqual(CORE_TYPE_XRAY);
+      expect(resolveRuntimeCoreType(CORE_TYPE_SINGBOX, 'vmess', APP_MODE_PROXY_ONLY)).assertEqual(CORE_TYPE_XRAY);
+      expect(resolveRuntimeCoreType(CORE_TYPE_SINGBOX, 'trojan', APP_MODE_PROXY_ONLY)).assertEqual(CORE_TYPE_XRAY);
+      expect(resolveRuntimeCoreType(CORE_TYPE_SINGBOX, 'shadowsocks', APP_MODE_PROXY_ONLY)).assertEqual(CORE_TYPE_XRAY);
+      // 独有协议仍进入 sing-box，让启动层返回明确的“仅支持 VPN”错误。
+      expect(resolveRuntimeCoreType(CORE_TYPE_XRAY, 'anytls', APP_MODE_PROXY_ONLY)).assertEqual(CORE_TYPE_SINGBOX);
+      expect(resolveRuntimeCoreType(CORE_TYPE_XRAY, 'hysteria2', APP_MODE_PROXY_ONLY)).assertEqual(CORE_TYPE_SINGBOX);
+      // VPN 模式继续尊重全局选择及协议强制切核。
+      expect(resolveRuntimeCoreType(CORE_TYPE_SINGBOX, 'vless', APP_MODE_VPN)).assertEqual(CORE_TYPE_SINGBOX);
+      expect(resolveRuntimeCoreType(CORE_TYPE_XRAY, 'vless', APP_MODE_VPN)).assertEqual(CORE_TYPE_XRAY);
+      expect(resolveRuntimeCoreType(CORE_TYPE_XRAY, 'tuic', APP_MODE_VPN)).assertEqual(CORE_TYPE_SINGBOX);
     });
 
     it('matches the protocol spec ShadowsocksFmt parsing parity', 0, () => {

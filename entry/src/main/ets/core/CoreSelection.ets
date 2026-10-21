@@ -1,5 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
+import { APP_MODE_PROXY_ONLY, AppRuntimeMode, normalizeAppRuntimeMode } from './Profile';
 
 /**
  * 内核选择（全局开关，预览功能）。
@@ -36,10 +37,40 @@ export function isSingboxOnlyProtocol(protocol: string | undefined): boolean {
   return SINGBOX_ONLY_PROTOCOLS.indexOf(protocol.trim().toLowerCase()) >= 0;
 }
 
+/**
+ * 解析一次连接真正使用的内核。
+ *
+ * 本地代理目前由主 Xray 内核提供用户配置的 SOCKS/HTTP 入站；sing-box 预览只实现了
+ * VPN 内部固定端口。旧设置即使还保存着 sing-box，也不能让普通节点误入 VPN-only
+ * 分支。sing-box 独有协议仍交给 sing-box，使调用方得到明确的模式不支持错误。
+ */
+export function resolveRuntimeCoreType(
+  selectedCore: CoreType | string | undefined,
+  protocol: string | undefined,
+  runtimeMode: AppRuntimeMode | string | undefined
+): CoreType {
+  if (isSingboxOnlyProtocol(protocol)) {
+    return CORE_TYPE_SINGBOX;
+  }
+  if (normalizeAppRuntimeMode(runtimeMode) === APP_MODE_PROXY_ONLY) {
+    return CORE_TYPE_XRAY;
+  }
+  return normalizeCoreType(selectedCore as string | undefined);
+}
+
 // 为跑 protocol 需要临时切换到的内核；currentCore 已能支持则返回 null。
 // 目前只有 anytls / tuic / hysteria2 是 sing-box 独有：Xray 内核下需切 sing-box；
 // sing-box 内核覆盖全部协议，无需反向切换。
-export function requiredCoreForProtocol(currentCore: CoreType | string | undefined, protocol: string | undefined): CoreType | null {
+export function requiredCoreForProtocol(
+  currentCore: CoreType | string | undefined,
+  protocol: string | undefined,
+  runtimeMode?: AppRuntimeMode | string
+): CoreType | null {
+  // 本地代理不展示“一次性切到 sing-box”的确认：该预览内核目前没有用户可见的
+  // 本地代理入站。启动层会对 sing-box 独有协议返回明确的不支持提示。
+  if (normalizeAppRuntimeMode(runtimeMode) === APP_MODE_PROXY_ONLY) {
+    return null;
+  }
   if (!isSingboxCore(currentCore) && isSingboxOnlyProtocol(protocol)) {
     return CORE_TYPE_SINGBOX;
   }

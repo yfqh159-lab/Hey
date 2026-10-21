@@ -54,7 +54,7 @@ export const SETTINGS_CATALOG: SettingGroup[] = [
     color: '#F97910',
     items: [
       { key: 'mode', titleKey: 'settings.mode', type: 'option' },
-      { key: 'coreType', titleKey: 'settings.coreType', type: 'option', descKey: 'settings.coreType.detail' },
+      { key: 'coreType', titleKey: 'settings.coreType', type: 'option', descKey: 'settings.coreType.detail', vpnOnly: true },
       { key: 'sniffing', titleKey: 'settings.sniffing', type: 'toggle', descKey: 'settings.sniffing.detail' },
       { key: 'routeOnly', titleKey: 'settings.routeOnly', type: 'toggle' },
       { key: 'allowInsecure', titleKey: 'settings.allowInsecure', type: 'toggle', danger: true, descKey: 'settings.allowInsecure.detail' }
