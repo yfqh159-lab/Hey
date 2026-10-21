@@ -1538,6 +1538,17 @@ printf 'optional TUN/runtime mode separation verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');
+const i18n = fs.readFileSync('entry/src/main/ets/core/I18n.ets', 'utf8');
+if (!i18n.includes("'settings.mode.proxyOnly.desc': 'SOCKS 端口可配置；HTTP 使用 127.0.0.1:18081，不创建 VPN/TUN'") ||
+  !i18n.includes("'settings.mode.hint': '选择 TUN 接管设备流量，或用本地代理手动配置系统/应用'") ||
+  !i18n.includes("'settings.mode.proxyOnly.desc': 'Configurable SOCKS port; HTTP is 127.0.0.1:18081; no VPN/TUN'")) {
+  throw new Error('local proxy mode does not expose its HTTP endpoint or optional-TUN behavior');
+}
+NODE
+printf 'local proxy endpoint guidance verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
 const store = fs.readFileSync('entry/src/main/ets/storage/SettingsStore.ets', 'utf8');
 const defaultsAt = store.indexOf('export const DEFAULT_APP_SETTINGS');
 const defaultsEnd = store.indexOf('\n};', defaultsAt);
