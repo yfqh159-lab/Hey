@@ -5,7 +5,7 @@ import { IconButton } from '../components/IconButton';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { BOTTOM_SAFE_HEIGHT_KEY, TOP_SAFE_HEIGHT_KEY } from '../core/Immersive';
 import { shouldExposeLocalHttpProxy } from '../core/LocalProxy';
-import { AppLanguage, AppSettings, ConnectionStatus, isProxyOnlyRuntimeMode, normalizeHomeDelayTestInterval, normalizeRealPingConcurrency, ProxyNode, ProxyProfile, resolveDelayTestUrl, RuntimeStats, SubscriptionGroup, SubscriptionProfile, XrayConfigType } from '../core/Profile';
+import { APP_MODE_VPN, AppLanguage, AppRuntimeMode, AppSettings, ConnectionStatus, isProxyOnlyRuntimeMode, normalizeHomeDelayTestInterval, normalizeRealPingConcurrency, ProxyNode, ProxyProfile, resolveDelayTestUrl, RuntimeStats, SubscriptionGroup, SubscriptionProfile, XrayConfigType } from '../core/Profile';
 import { CoreSelectionStore, requiredCoreForProtocol, CORE_TYPE_SINGBOX } from '../core/CoreSelection';
 import { DELAY_TEST_BATCH_PORT_BASE, LOCAL_HTTP_PROXY_PORT, normalizeOutboundInput } from '../core/XrayConfig';
 import { DeepLinkControlAction, DeepLinkIntent, parseDeepLink, subscriptionNameFromDeepLink } from '../core/DeepLink';
@@ -102,6 +102,7 @@ struct Index {
   @State private subscriptionUpdating: boolean = false;
   @State private delayTesting: boolean = false;
   @State private status: ConnectionStatus = ConnectionStatus.IDLE;
+  @State private runtimeMode: AppRuntimeMode = APP_MODE_VPN;
   @State private connectionOperationRunning: boolean = false;
   @State private elapsedText: string = '00:00';
   // 「当前连接」延迟（圆环下方点按测速胶囊），权威状态在 RuntimeController，随快照回填。
@@ -2446,6 +2447,7 @@ struct Index {
 
   private applyRuntimeState(state: RuntimeViewState): void {
     this.status = state.status;
+    this.runtimeMode = state.runtimeMode;
     this.elapsedText = state.elapsedText;
     this.connectionStartedAt = state.startedAt;
     this.connectionDelayMs = state.connectionDelayMs;
@@ -2702,15 +2704,16 @@ struct Index {
 
   private statusLabel(): string {
     if (this.status === ConnectionStatus.RUNNING) {
+      const proxyOnly = isProxyOnlyRuntimeMode(this.runtimeMode);
       if (this.egressIpChecking) {
-        return this.t(isProxyOnlyRuntimeMode(this.currentSettings.mode) ?
+        return this.t(proxyOnly ?
           'home.proxyConnectionVerifying' : 'home.connectionVerifying');
       }
       if (this.egressIp.length === 0) {
-        return this.t(isProxyOnlyRuntimeMode(this.currentSettings.mode) ?
+        return this.t(proxyOnly ?
           'home.proxyConnectionUnverified' : 'home.connectionUnverified');
       }
-      return this.t(isProxyOnlyRuntimeMode(this.currentSettings.mode) ?
+      return this.t(proxyOnly ?
         'home.proxyConnected' : 'home.tunConnected');
     }
     return this.t('status.' + this.status);

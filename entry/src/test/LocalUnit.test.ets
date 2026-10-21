@@ -71,6 +71,7 @@ import {
   sortNodes
 } from '../main/ets/features/nodes/NodeOperations';
 import { SETTINGS_CONTROLLER } from '../main/ets/features/settings/SettingsController';
+import { settingsForRecoveredVpn } from '../main/ets/features/runtime/RuntimeController';
 import { filterSettings, SettingGroup, SettingItem, SETTINGS_CATALOG } from '../main/ets/features/settings/SettingsCatalog';
 import { APP_HTTP_USER_AGENT } from '../main/ets/core/HttpDefaults';
 import { normalizeIpApiUrl, parseRemoteIpInfoContent } from '../main/ets/services/RemoteIpInfo';
@@ -2576,6 +2577,14 @@ export default function localUnitTest() {
       expect(normalizeAppRuntimeMode(APP_MODE_VPN)).assertEqual(APP_MODE_VPN);
       expect(normalizeAppRuntimeMode(APP_MODE_PROXY_ONLY)).assertEqual(APP_MODE_PROXY_ONLY);
       expect(normalizeAppRuntimeMode('bad')).assertEqual(APP_MODE_VPN);
+    });
+
+    it('keeps recovered vpn sessions on their actual runtime mode', 0, () => {
+      const settings = buildSettingsFixture();
+      settings.mode = APP_MODE_PROXY_ONLY;
+      const recovered = settingsForRecoveredVpn(settings);
+      expect(recovered.mode).assertEqual(APP_MODE_VPN);
+      expect(settings.mode).assertEqual(APP_MODE_PROXY_ONLY);
     });
 
     it('detects a stopped local proxy core without applying UI-process stats to VPN mode', 0, () => {

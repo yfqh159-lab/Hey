@@ -30,6 +30,7 @@ const LOCAL_PROXY_UNHEALTHY_SAMPLE_LIMIT: number = 2;
 
 export interface RuntimeViewState {
   status: ConnectionStatus;
+  runtimeMode: AppRuntimeMode;
   startedAt: number;
   elapsedText: string;
   lastError: string;
@@ -41,6 +42,12 @@ export interface RuntimeViewState {
   connectionDelayFailed: boolean;
   egressIp: string;
   egressIpChecking: boolean;
+}
+
+export function settingsForRecoveredVpn(settings: AppSettings): AppSettings {
+  const recovered = JSON.parse(JSON.stringify(settings)) as AppSettings;
+  recovered.mode = APP_MODE_VPN;
+  return recovered;
 }
 
 export class RuntimeController {
@@ -153,11 +160,12 @@ export class RuntimeController {
     if (this.status !== ConnectionStatus.RUNNING || this.activeProfile !== null) {
       return this.snapshot();
     }
+    const recoveredSettings = settingsForRecoveredVpn(settings);
     this.activeProfile = profile;
-    this.activeSettings = settings;
+    this.activeSettings = recoveredSettings;
     this.resetConnectionDelay();
     this.resetEgressIp();
-    this.scheduleRuntimeConnectivityInfo(context, profile, settings, language, this.startedAt);
+    this.scheduleRuntimeConnectivityInfo(context, profile, recoveredSettings, language, this.startedAt);
     return this.snapshot();
   }
 
@@ -225,6 +233,7 @@ export class RuntimeController {
   snapshot(): RuntimeViewState {
     return {
       status: this.status,
+      runtimeMode: this.runtimeMode,
       startedAt: this.startedAt,
       elapsedText: this.elapsedText,
       lastError: this.lastError,
