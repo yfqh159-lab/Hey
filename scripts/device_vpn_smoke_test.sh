@@ -46,8 +46,13 @@ verify_hap_native_libs() {
 }
 
 require_hdc() {
-  if [[ ! -x "${HDC}" ]]; then
-    printf 'hdc not found: %s\n' "${HDC}" >&2
+  if [[ "${HDC}" == */* ]]; then
+    if [[ ! -x "${HDC}" ]]; then
+      printf 'hdc not found or not executable: %s\n' "${HDC}" >&2
+      exit 1
+    fi
+  elif ! command -v "${HDC}" >/dev/null 2>&1; then
+    printf 'hdc not found on PATH: %s\n' "${HDC}" >&2
     exit 1
   fi
 }
@@ -69,10 +74,7 @@ case "${1:-}" in
     ;;
   install)
     require_hdc
-    if [[ ! -f "${HAP}" ]]; then
-      printf 'HAP not found, run build first: %s\n' "${HAP}" >&2
-      exit 1
-    fi
+    verify_hap_native_libs
     "${HDC}" install -r "${HAP}"
     ;;
   logs)
