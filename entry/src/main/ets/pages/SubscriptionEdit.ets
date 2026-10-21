@@ -1,5 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { AppLanguage } from '../core/Profile';
 import {
   DEFAULT_SUBSCRIPTION_UPDATE_INTERVAL_MINUTES,
@@ -559,7 +560,9 @@ struct SubscriptionEditPage {
     } catch (error) {
       if (!isScanCancelled(error)) {
         try {
-          this.getUIContext().getPromptAction().showToast({ message: this.f1('scanner.scanFailed', 'error', JSON.stringify(error)) });
+          this.getUIContext().getPromptAction().showToast({
+            message: this.f1('scanner.scanFailed', 'error', redactDiagnosticText(JSON.stringify(error)))
+          });
         } catch (err) {
           // ignore
         }

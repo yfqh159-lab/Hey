@@ -5,6 +5,7 @@ import fs from '@ohos.file.fs';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { promptAction } from '@kit.ArkUI';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { AppLanguage, ProxyNode, RoutingRule } from '../core/Profile';
 import { markRuntimeSettingsRestartNeeded } from '../core/SettingsChange';
 import { exportRoutingRulesJson, importRoutingRulesJson, RoutingRuleSkip } from '../core/RoutingRules';
@@ -615,7 +616,7 @@ struct RoutingPage {
       if (isScanCancelled(error)) {
         return;
       }
-      const message = this.f1('routing.rule.scanFailed', 'error', JSON.stringify(error));
+      const message = this.f1('routing.rule.scanFailed', 'error', redactDiagnosticText(JSON.stringify(error)));
       try {
         this.getUIContext().getPromptAction().showToast({ message });
       } catch (err) {
@@ -744,7 +745,7 @@ struct RoutingPage {
     } catch (error) {
       try {
         this.getUIContext().getPromptAction().showToast({
-          message: this.f1('assets.openPickerFailed', 'error', JSON.stringify(error))
+          message: this.f1('assets.openPickerFailed', 'error', redactDiagnosticText(JSON.stringify(error)))
         });
       } catch (err) {
         // ignore

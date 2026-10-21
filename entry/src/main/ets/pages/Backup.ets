@@ -3,6 +3,7 @@ import { promptAction } from '@kit.ArkUI';
 import { picker, fileIo as fs } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { AppLanguage } from '../core/Profile';
 import { ConfigBackup, parseConfigBackup, serializeConfigBackup } from '../core/ConfigBackup';
 import { BackupManager } from '../services/BackupManager';
@@ -369,9 +370,9 @@ struct BackupPage {
 
   private stringifyError(error: Object): string {
     if (error instanceof Error) {
-      return (error as Error).message;
+      return redactDiagnosticText((error as Error).message);
     }
-    return JSON.stringify(error);
+    return redactDiagnosticText(JSON.stringify(error));
   }
 
   private t(key: string): string {

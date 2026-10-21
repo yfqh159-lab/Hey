@@ -1,4 +1,5 @@
 import { common } from '@kit.AbilityKit';
+import { redactDiagnosticText } from '../../core/DiagnosticRedaction';
 import { translate } from '../../core/I18n';
 import { AppLanguage, ProxyNode, ProxyProfile, SubscriptionGroup, SubscriptionProfile, ValidationResult, XrayConfigType } from '../../core/Profile';
 import { normalizeConfigInput } from '../../core/XrayConfig';
@@ -99,7 +100,7 @@ export class NodesController {
         lastError: ''
       };
     } catch (error) {
-      const message = formatOne(language, 'error.saveProfile', 'error', JSON.stringify(error));
+      const message = formatOne(language, 'error.saveProfile', 'error', redactDiagnosticText(JSON.stringify(error)));
       return {
         profile: null,
         outboundJson,
@@ -124,7 +125,7 @@ export class NodesController {
       const subscription = await SubscriptionStore.load(context);
       const configType = node.configType ?? 'outbound';
       const validation = this.validateConfig(node.outboundJson, language, configType);
-      return this.buildState(subscription, node.outboundJson, this.resolveConfigType(validation, configType), validation, 0, language, formatOne(language, 'error.selectNode', 'error', JSON.stringify(error)));
+      return this.buildState(subscription, node.outboundJson, this.resolveConfigType(validation, configType), validation, 0, language, formatOne(language, 'error.selectNode', 'error', redactDiagnosticText(JSON.stringify(error))));
     }
   }
 
@@ -170,7 +171,7 @@ export class NodesController {
         lastError: ''
       };
     } catch (error) {
-      const lastError = formatOne(language, 'error.saveProfile', 'error', JSON.stringify(error));
+      const lastError = formatOne(language, 'error.saveProfile', 'error', redactDiagnosticText(JSON.stringify(error)));
       return {
         success: false,
         message,

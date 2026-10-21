@@ -4,6 +4,7 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import { picker, fileIo as fs } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { resolveJsonConfigNodeName } from '../core/JsonConfigNames';
 import { AppLanguage, ProxyNode, XrayConfigType } from '../core/Profile';
 import { markRuntimeSettingsRestartNeeded } from '../core/SettingsChange';
@@ -463,8 +464,8 @@ struct JsonImportPage {
   private stringifyError(error: Object): string {
     const text = `${error}`;
     if (text.length > 0 && text !== '[object Object]') {
-      return text;
+      return redactDiagnosticText(text);
     }
-    return JSON.stringify(error);
+    return redactDiagnosticText(JSON.stringify(error));
   }
 }

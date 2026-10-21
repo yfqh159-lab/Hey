@@ -2,6 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { AppLanguage, ConnectionStatus, RuntimeStats } from '../core/Profile';
 import { LogConsole } from '../features/logs/LogPanel';
 import { LogEntry, LogLevelFilter, logLevelLabel } from '../features/logs/LogModel';
@@ -319,7 +320,9 @@ struct LogsPage {
       }
     } catch (error) {
       try {
-        this.getUIContext().getPromptAction().showToast({ message: this.f1('logs.copyFailed', 'error', JSON.stringify(error)) });
+        this.getUIContext().getPromptAction().showToast({
+          message: this.f1('logs.copyFailed', 'error', redactDiagnosticText(JSON.stringify(error)))
+        });
       } catch (err) {
         // ignore
       }

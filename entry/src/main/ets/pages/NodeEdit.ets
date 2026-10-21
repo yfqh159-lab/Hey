@@ -1,6 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { router, promptAction } from '@kit.ArkUI';
 import { DEFAULT_LANGUAGE, formatTranslation, translate } from '../core/I18n';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { buildH2HttpSettings } from '../core/H2Transport';
 import { buildKcpFinalMask } from '../core/KcpTransport';
 import { isManualEditProtocol, ManualOutboundEditState, normalizeManualEditProtocol, parseManualOutboundEditState } from '../core/ManualOutboundEditState';
@@ -1143,7 +1144,7 @@ struct NodeEditPage {
               }
               xhttpSettings.extra = extra;
             } catch (error) {
-              this.lastError = this.tf('nodeEdit.xhttpExtraParseFailed', ['error'], [JSON.stringify(error)]);
+              this.lastError = this.tf('nodeEdit.xhttpExtraParseFailed', ['error'], [redactDiagnosticText(JSON.stringify(error))]);
               return;
             }
           }
@@ -1160,7 +1161,7 @@ struct NodeEditPage {
             }
             streamSettings.finalmask = finalMask;
           } catch (error) {
-            this.lastError = this.tf('nodeEdit.finalMaskParseFailed', ['error'], [JSON.stringify(error)]);
+            this.lastError = this.tf('nodeEdit.finalMaskParseFailed', ['error'], [redactDiagnosticText(JSON.stringify(error))]);
             return;
           }
         }
@@ -1216,7 +1217,7 @@ struct NodeEditPage {
       }
       router.back();
     } catch (error) {
-      this.lastError = this.tf('nodeEdit.saveFailed', ['error'], [JSON.stringify(error)]);
+      this.lastError = this.tf('nodeEdit.saveFailed', ['error'], [redactDiagnosticText(JSON.stringify(error))]);
     } finally {
       this.isBusy = false;
     }

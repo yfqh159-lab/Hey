@@ -8,6 +8,7 @@ import {
   AppLanguage
 } from '../core/Profile';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { SettingsStore } from '../storage/SettingsStore';
 import { SHARED_RUNTIME_CONTROLLER } from '../features/runtime/RuntimeController';
 import { formatOne } from '../utils/LocalizationPresenter';
@@ -228,7 +229,7 @@ struct LanguagePage {
       );
     } catch (error) {
       SHARED_RUNTIME_CONTROLLER.appendLog(
-        formatOne(code, 'error.saveSettings', 'error', JSON.stringify(error))
+        formatOne(code, 'error.saveSettings', 'error', redactDiagnosticText(JSON.stringify(error)))
       );
     }
     // 4) 约 0.5s 后自动滑回设置页。

@@ -1,6 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { router, promptAction } from '@kit.ArkUI';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { buildDynamicPolicyGroupConfigFromNodes, buildPolicyGroupConfigFromNodes, buildProxyChainConfigFromNodes, isAdvancedOutboundBuildableNode, normalizeAdvancedOutboundMemberJson, parseAdvancedOutboundEditState, PolicyGroupStrategy } from '../core/AdvancedOutboundBuilder';
 import { AppLanguage, ProxyNode, SubscriptionGroup, SubscriptionProfile } from '../core/Profile';
 import { markRuntimeSettingsRestartNeeded } from '../core/SettingsChange';
@@ -501,7 +502,7 @@ struct AdvancedOutboundPage {
         this.nodeName = this.mode === 'policy-group' ? this.t('advancedOutbound.defaultPolicyGroupName') : this.t('advancedOutbound.defaultProxyChainName');
       }
     } catch (error) {
-      this.lastError = this.f1('advancedOutbound.loadFailed', 'error', JSON.stringify(error));
+      this.lastError = this.f1('advancedOutbound.loadFailed', 'error', redactDiagnosticText(JSON.stringify(error)));
     }
   }
 
@@ -833,7 +834,7 @@ struct AdvancedOutboundPage {
       }
       router.back();
     } catch (error) {
-      this.lastError = this.f1('advancedOutbound.saveFailed', 'error', JSON.stringify(error));
+      this.lastError = this.f1('advancedOutbound.saveFailed', 'error', redactDiagnosticText(JSON.stringify(error)));
     } finally {
       this.isBusy = false;
     }

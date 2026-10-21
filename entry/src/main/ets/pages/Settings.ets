@@ -1,6 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { router } from '@kit.ArkUI';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import {
   APP_LANGUAGE_AUTO,
   APP_LANGUAGE_EN,
@@ -507,7 +508,7 @@ struct SettingsPage {
       this.applyDraft(SETTINGS_CONTROLLER.toDraft(await SETTINGS_CONTROLLER.load(context)));
       this.settingCoreType = await CoreSelectionStore.load(context);
     } catch (error) {
-      this.lastError = this.f1('error.loadSettings', 'error', JSON.stringify(error));
+      this.lastError = this.f1('error.loadSettings', 'error', redactDiagnosticText(JSON.stringify(error)));
     }
   }
 
@@ -690,7 +691,7 @@ struct SettingsPage {
       }
       this.lastError = '';
     } catch (error) {
-      this.lastError = this.f1('error.saveSettings', 'error', JSON.stringify(error));
+      this.lastError = this.f1('error.saveSettings', 'error', redactDiagnosticText(JSON.stringify(error)));
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
     }
   }
@@ -1026,7 +1027,7 @@ struct SettingsPage {
       const context = this.getUIContext().getHostContext() as common.Context;
       this.settingCoreType = await CoreSelectionStore.save(context, value as CoreType);
     } catch (error) {
-      this.lastError = this.f1('error.saveSettings', 'error', JSON.stringify(error));
+      this.lastError = this.f1('error.saveSettings', 'error', redactDiagnosticText(JSON.stringify(error)));
     }
   }
 

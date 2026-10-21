@@ -1,4 +1,5 @@
 import { AppSettings, ProxyNode, SubscriptionGroup } from '../../core/Profile';
+import { redactDiagnosticText } from '../../core/DiagnosticRedaction';
 import { resolveDynamicPolicyGroupConfigJson } from '../../core/AdvancedOutboundBuilder';
 import { buildRuntimeXrayConfig, normalizeConfigInput } from '../../core/XrayConfig';
 import { formatOutboundJsonToShareLink } from '../../core/ShareLinkParser';
@@ -541,7 +542,7 @@ export function buildNodeFullConfigModel(
     return {
       success: false,
       content: '',
-      message: failed.message ?? JSON.stringify(error)
+      message: redactDiagnosticText(failed.message ?? JSON.stringify(error))
     };
   }
 }

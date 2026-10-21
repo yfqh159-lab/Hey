@@ -4,6 +4,7 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import { generateBarcode, scanCore } from '@kit.ScanKit';
 import { image } from '@kit.ImageKit';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { AppLanguage, AppSettings, ProxyNode, SubscriptionGroup } from '../core/Profile';
 import { formatOutboundJsonToShareLink } from '../core/ShareLinkParser';
 import { isManualEditProtocol, normalizeManualEditProtocol } from '../core/ManualOutboundEditState';
@@ -653,7 +654,7 @@ struct NodeDetailPage {
       };
       this.qrImage = await generateBarcode.createBarcode(link, options);
     } catch (error) {
-      this.lastError = this.f1('error.qrGenerate', 'error', JSON.stringify(error));
+      this.lastError = this.f1('error.qrGenerate', 'error', redactDiagnosticText(JSON.stringify(error)));
     }
   }
 

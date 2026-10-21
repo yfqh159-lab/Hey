@@ -6,6 +6,7 @@ import { generateBarcode, scanCore } from '@kit.ScanKit';
 import { image } from '@kit.ImageKit';
 import { util } from '@kit.ArkTS';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { AppLanguage, ProxyNode, SubscriptionGroup } from '../core/Profile';
 import { formatOutboundJsonToShareLink } from '../core/ShareLinkParser';
 import { buildNodeExportModel, NodeExportModel } from '../features/nodes/NodeOperations';
@@ -578,7 +579,7 @@ struct ExportPage {
       };
       this.qrImage = await generateBarcode.createBarcode(link, options);
     } catch (error) {
-      this.showToast(this.f1('error.qrGenerate', 'error', JSON.stringify(error)));
+      this.showToast(this.f1('error.qrGenerate', 'error', redactDiagnosticText(JSON.stringify(error))));
     }
   }
 
@@ -631,7 +632,7 @@ struct ExportPage {
       this.showToast(this.t('export.fileSuccess'));
       SHARED_RUNTIME_CONTROLLER.appendLog(this.t('export.fileSuccess'));
     } catch (error) {
-      this.showToast(this.f1('export.fileFailed', 'error', JSON.stringify(error)));
+      this.showToast(this.f1('export.fileFailed', 'error', redactDiagnosticText(JSON.stringify(error))));
     }
   }
 
