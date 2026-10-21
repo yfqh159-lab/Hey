@@ -113,6 +113,7 @@
 - `df88e25`：源码验收固定 TUN 为可选运行模式：设置必须同时提供 VPN/TUN 与本地代理选项；Xray 本地代理启动必须在调用 VPN Extension 前返回，且该启动方法不得创建或控制系统 VPN；`tun-in` 只允许在 VPN 模式加入运行配置。这样后续重构不能在没有显式选择 TUN 时悄悄创建虚拟网卡。
 - `78171e4`、`7901a66`、`f08ba2f`：校验预编译 AArch64 原生库，并以模块级 `assembleHap` 构建后确认五个关键 `.so` 已打入签名 HAP；构建脚本统一提供 `build/test/install/logs/targets/doctor`。
 - `42b6792`：设备烟测脚本优先识别 `PATH` 中的 `hvigorw` / `hdc`，仅在实际存在时使用 macOS 默认 DevEco 路径，不再向 Linux 环境注入无效 SDK；`doctor` 一次报告构建工具、SDK、签名配置、HAP、设备与 VPN 授权组件的全部缺口。
+- `9f4a8cd`：`build` 与 `test` 在调用 Hvigor 前统一执行完整 `verify_source.sh`，避免模式隔离、网络调用、自包防回环或资源一致性已经破坏时仍进入耗时构建；`doctor` 同时预检源码门禁依赖的 Node.js 和签名 HAP 验包依赖的 unzip，中英文交付命令与脚本保持一致。
 - `660dcb9`：真机安装前先检查 HAP 中五个关键原生库，且设备脚本同时接受 PATH 命令或绝对路径形式的 `hdc`。
 - `fc5d0f5`：提供 `scripts/verify_source.sh`，统一执行静态差异、合规、原生预编译库、Shell 与翻译键检查。
 - `b646daf`：源码校验先确认应用清单、媒体资源、模块配置与页面清单确实存在，并拒绝仍把 `AppScope` / `entry` 构建文件标成 skip-worktree 的不完整稀疏检出；无 `.git` 的源码归档仍按实际文件检查。
@@ -154,6 +155,8 @@
 2026-10-22 运行 `./scripts/device_vpn_smoke_test.sh doctor`，脚本一次完成环境探测并准确报告：
 
 ```text
+OK: node: /home/yftwq/.nvm/versions/node/v24.16.0/bin/node
+OK: unzip: /usr/bin/unzip
 MISSING: hvigorw
 MISSING: build-profile.json5（需由 build-profile.example.json5 配置本地签名）
 MISSING: hdc
