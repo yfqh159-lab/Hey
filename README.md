@@ -247,6 +247,12 @@ Run the wording check before sending a patch:
 ./scripts/compliance_scan.sh
 ```
 
+Run all source-only checks available without a Harmony SDK or device:
+
+```bash
+./scripts/verify_source.sh
+```
+
 Useful device commands:
 
 ```bash

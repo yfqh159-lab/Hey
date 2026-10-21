@@ -196,6 +196,12 @@ entry/build/default/outputs/default/entry-default-signed.hap
 ./scripts/compliance_scan.sh
 ```
 
+一次运行所有不依赖 Harmony SDK 或真机的源码检查：
+
+```bash
+./scripts/verify_source.sh
+```
+
 常用真机命令：
 
 ```bash

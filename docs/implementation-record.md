@@ -40,11 +40,12 @@
 以下检查已在无 Harmony SDK 的开发环境执行并通过：
 
 ```text
-git diff --check
-./scripts/compliance_scan.sh
-./scripts/verify_prebuilt_native.sh
-bash -n scripts/*.sh
-中英文翻译键完整性检查（1130 个键）
+./scripts/verify_source.sh
+  - git diff --check
+  - 合规措辞扫描
+  - AArch64 原生库、桥接符号与 Go TLSDESC 校验
+  - 所有 Shell 脚本语法
+  - 中英文翻译键完整性检查（1130 个键）
 ```
 
 2026-10-21 还直接核对了
