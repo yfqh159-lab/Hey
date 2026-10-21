@@ -177,6 +177,24 @@ if ! grep -Fq 'private settingsSaveInFlight: boolean = false;' "${settings_page_
 fi
 printf 'general settings save serialization verification passed\n'
 
+# Settings pages persist complete AppSettings snapshots. Serialize every store read and
+# write globally so one page cannot load stale data during another page's save and later
+# overwrite unrelated settings. Language changes must keep their read-modify-write inside
+# the same queue operation rather than recursively enqueueing and deadlocking.
+settings_store_source='entry/src/main/ets/storage/SettingsStore.ets'
+if ! grep -Fq 'private static operationTail: Promise<void> = Promise.resolve();' "${settings_store_source}" ||
+  ! grep -Fq 'return SettingsStore.enqueueOperation((): Promise<AppSettings> => SettingsStore.loadNow(context));' "${settings_store_source}" ||
+  ! grep -Fq 'return SettingsStore.enqueueOperation((): Promise<AppSettings> => SettingsStore.saveNow(context, normalized));' "${settings_store_source}" ||
+  ! grep -Fq 'return SettingsStore.enqueueOperation(async (): Promise<AppSettings> => {' "${settings_store_source}" ||
+  ! grep -Fq 'const settings = await SettingsStore.loadNow(context);' "${settings_store_source}" ||
+  ! grep -Fq 'return SettingsStore.saveNow(context, SettingsStore.normalize(settings));' "${settings_store_source}" ||
+  ! grep -Fq 'private static enqueueOperation<T>(operation: () => Promise<T>): Promise<T>' "${settings_store_source}" ||
+  ! grep -Fq 'SettingsStore.operationTail = task.then(' "${settings_store_source}"; then
+  printf 'settings store operations are not serialized against cross-page stale snapshots\n' >&2
+  exit 1
+fi
+printf 'settings store global operation serialization verification passed\n'
+
 # External deep links and shared text can contain subscription tokens, UUIDs and
 # passwords. Confirmation dialogs must use a derived redacted summary, never interpolate
 # the raw payload into a screenshot-visible message.

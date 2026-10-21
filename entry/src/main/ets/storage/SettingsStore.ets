@@ -108,7 +108,16 @@ export interface StoredSettingsSelection {
 }
 
 export class SettingsStore {
-  static async load(context: common.Context): Promise<AppSettings> {
+  // Preferences exposes independent asynchronous operations. Keep reads and writes in one
+  // process-wide queue so a page cannot load an old full-settings snapshot while another
+  // page is still saving and later write that stale snapshot back over newer values.
+  private static operationTail: Promise<void> = Promise.resolve();
+
+  static load(context: common.Context): Promise<AppSettings> {
+    return SettingsStore.enqueueOperation((): Promise<AppSettings> => SettingsStore.loadNow(context));
+  }
+
+  private static async loadNow(context: common.Context): Promise<AppSettings> {
     const store = await preferences.getPreferences(context, PREFERENCES_NAME);
     const primaryRaw = (await store.get(SETTINGS_KEY, '')).toString();
     const backupRaw = (await store.get(SETTINGS_BACKUP_KEY, '')).toString();
@@ -143,8 +152,12 @@ export class SettingsStore {
     return { settings: null, source: 'invalid' };
   }
 
-  static async save(context: common.Context, settings: AppSettings): Promise<AppSettings> {
+  static save(context: common.Context, settings: AppSettings): Promise<AppSettings> {
     const normalized = SettingsStore.normalize(settings);
+    return SettingsStore.enqueueOperation((): Promise<AppSettings> => SettingsStore.saveNow(context, normalized));
+  }
+
+  private static async saveNow(context: common.Context, normalized: AppSettings): Promise<AppSettings> {
     const store = await preferences.getPreferences(context, PREFERENCES_NAME);
     const nextRaw = JSON.stringify(normalized);
     const currentRaw = (await store.get(SETTINGS_KEY, '')).toString();
@@ -161,10 +174,24 @@ export class SettingsStore {
     return normalized;
   }
 
-  static async saveLanguage(context: common.Context, language: AppLanguage): Promise<AppSettings> {
-    const settings = await SettingsStore.load(context);
-    settings.language = language;
-    return SettingsStore.save(context, settings);
+  static saveLanguage(context: common.Context, language: AppLanguage): Promise<AppSettings> {
+    return SettingsStore.enqueueOperation(async (): Promise<AppSettings> => {
+      const settings = await SettingsStore.loadNow(context);
+      settings.language = language;
+      return SettingsStore.saveNow(context, SettingsStore.normalize(settings));
+    });
+  }
+
+  private static enqueueOperation<T>(operation: () => Promise<T>): Promise<T> {
+    const task = SettingsStore.operationTail.then(
+      (): Promise<T> => operation(),
+      (): Promise<T> => operation()
+    );
+    SettingsStore.operationTail = task.then(
+      (): void => {},
+      (_error: Object): void => {}
+    );
+    return task;
   }
 
   private static parseStoredSettings(raw: string): AppSettings | null {
