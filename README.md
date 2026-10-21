@@ -94,6 +94,9 @@ traffic stats.
   outbound, subscriptions, subscription detail/edit, routing, settings,
   language, per-app tunnel, network scenario, data files, logs, scanner,
   backup, export, and about.
+  The normal add flow exposes only single-node protocols and custom JSON;
+  proxy-chain/policy-group creation is hidden while existing configurations
+  remain compatible.
 - Node and subscription handling: multiple subscription groups, selected group
   and node state, custom User-Agent, filters, pre/post profile fields, manual
   refresh, due refresh, WorkScheduler background refresh, search/sort/cleanup,

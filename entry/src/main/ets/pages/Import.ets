@@ -40,10 +40,10 @@ struct ImportPage {
           // 模块二：手动协议配置
           this.ManualGridSection()
 
-          // 模块三：高级出站配置
-          this.AdvancedConfigSection()
+          // 项目默认只创建单节点、单跳配置。代理链/策略组的底层兼容与既有节点编辑保留，
+          // 但不再在日常“添加节点”路径提供新建入口。
 
-          // 模块四：自定义 JSON 配置
+          // 模块三：自定义 JSON 配置
           this.JsonImportSection()
 
           if (this.lastError.length > 0) {
