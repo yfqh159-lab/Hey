@@ -19,9 +19,49 @@ export class BackupManager {
 
   // 用备份覆盖现有配置（覆盖语义）。调用方应在此之前先留一份安全副本。
   static async applyBackup(context: common.Context, backup: ConfigBackup): Promise<void> {
-    await ProfileStore.save(context, backup.profile.outboundJson, backup.profile.configType ?? 'outbound');
+    const previous = await BackupManager.collectBackup(context);
+    try {
+      await BackupManager.applyBackupParts(context, backup);
+    } catch (_error) {
+      const rollbackComplete = await BackupManager.rollbackBackupParts(context, previous);
+      if (rollbackComplete) {
+        throw new Error('Configuration restore failed; the previous configuration was restored.');
+      }
+      throw new Error('Configuration restore and rollback failed; restart the app and restore the pre-import backup.');
+    }
+  }
+
+  private static async applyBackupParts(context: common.Context, backup: ConfigBackup): Promise<void> {
+    // 先恢复节点数据库，再恢复与其对应的当前 Profile；两者中途失败会由调用方回滚。
     await SubscriptionStore.restoreProfile(context, backup.subscriptions);
+    await ProfileStore.save(context, backup.profile.outboundJson, backup.profile.configType ?? 'outbound');
     await SettingsStore.save(context, backup.settings);
     await AssetStore.save(context, backup.assets);
+  }
+
+  private static async rollbackBackupParts(context: common.Context, backup: ConfigBackup): Promise<boolean> {
+    // 每块独立尝试，避免第一项回滚失败后直接放弃其余仍可恢复的数据。
+    let complete = true;
+    try {
+      await SubscriptionStore.restoreProfile(context, backup.subscriptions);
+    } catch (_error) {
+      complete = false;
+    }
+    try {
+      await ProfileStore.save(context, backup.profile.outboundJson, backup.profile.configType ?? 'outbound');
+    } catch (_error) {
+      complete = false;
+    }
+    try {
+      await SettingsStore.save(context, backup.settings);
+    } catch (_error) {
+      complete = false;
+    }
+    try {
+      await AssetStore.save(context, backup.assets);
+    } catch (_error) {
+      complete = false;
+    }
+    return complete;
   }
 }

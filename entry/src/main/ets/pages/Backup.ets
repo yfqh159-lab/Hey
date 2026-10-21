@@ -238,16 +238,15 @@ struct BackupPage {
   }
 
   private async applyImport(backup: ConfigBackup): Promise<void> {
+    if (this.busy) {
+      return;
+    }
     this.busy = true;
     try {
       const context = getContext(this) as common.UIAbilityContext;
       // 导入前自动留一份当前配置的安全副本，误导入可手动找回。
-      try {
-        const current = await BackupManager.collectBackup(context);
-        this.writeFilesDirFile(context, PRE_IMPORT_BACKUP_FILE, serializeConfigBackup(current));
-      } catch (copyError) {
-        // 安全副本失败不阻断恢复
-      }
+      const current = await BackupManager.collectBackup(context);
+      this.writeFilesDirFile(context, PRE_IMPORT_BACKUP_FILE, serializeConfigBackup(current));
       await BackupManager.applyBackup(context, backup);
       this.refreshSummary(backup);
       promptAction.showToast({ message: this.t('backup.import.success') });
@@ -320,13 +319,49 @@ struct BackupPage {
 
   private writeFilesDirFile(context: common.UIAbilityContext, name: string, content: string): void {
     const path = context.filesDir + '/' + name;
+    const tempPath = path + '.tmp';
+    const backupPath = path + '.bak';
     let file: fs.File | null = null;
     try {
-      file = fs.openSync(path, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+      if (fs.accessSync(tempPath)) {
+        fs.unlinkSync(tempPath);
+      }
+      file = fs.openSync(tempPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
       fs.writeSync(file.fd, content);
+      fs.fsyncSync(file.fd);
+      fs.closeSync(file);
+      file = null;
+      if (fs.accessSync(backupPath)) {
+        fs.unlinkSync(backupPath);
+      }
+      if (fs.accessSync(path)) {
+        fs.renameSync(path, backupPath);
+      }
+      try {
+        fs.renameSync(tempPath, path);
+      } catch (error) {
+        if (!fs.accessSync(path) && fs.accessSync(backupPath)) {
+          fs.renameSync(backupPath, path);
+        }
+        throw error;
+      }
+      if (fs.accessSync(backupPath)) {
+        fs.unlinkSync(backupPath);
+      }
     } finally {
       if (file !== null) {
-        fs.closeSync(file);
+        try {
+          fs.closeSync(file);
+        } catch (_error) {
+          // Preserve the original write/fsync/rename failure reported to the user.
+        }
+      }
+      try {
+        if (fs.accessSync(tempPath)) {
+          fs.unlinkSync(tempPath);
+        }
+      } catch (_error) {
+        // A stale temporary file is ignored on failure and removed before the next attempt.
       }
     }
   }

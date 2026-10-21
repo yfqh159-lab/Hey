@@ -1041,6 +1041,62 @@ if (unsafe.length > 0) {
 NODE
 printf 'ArkTS console/hilog error redaction verification passed\n'
 
+# A full backup restore spans four independent stores and cannot be a single ArkData
+# transaction. Require a durable pre-import recovery file and an in-process rollback that
+# independently attempts every store, so a later failure cannot silently leave a mixed
+# configuration or report success. Cleanup errors must not hide the original write error.
+node <<'NODE'
+const fs = require('fs');
+const page = fs.readFileSync('entry/src/main/ets/pages/Backup.ets', 'utf8');
+const manager = fs.readFileSync('entry/src/main/ets/services/BackupManager.ets', 'utf8');
+
+const applyAt = page.indexOf('  private async applyImport(backup: ConfigBackup): Promise<void>');
+const applyEnd = page.indexOf('\n  private summaryValue(', applyAt);
+const apply = page.slice(applyAt, applyEnd);
+if (applyAt < 0 || applyEnd < 0 ||
+  !apply.includes('if (this.busy) {') ||
+  !apply.includes('this.writeFilesDirFile(context, PRE_IMPORT_BACKUP_FILE, serializeConfigBackup(current));') ||
+  !apply.includes('await BackupManager.applyBackup(context, backup);') ||
+  apply.indexOf('this.writeFilesDirFile(') > apply.indexOf('await BackupManager.applyBackup(') ||
+  apply.includes('安全副本失败不阻断恢复')) {
+  throw new Error('backup import can overwrite stores before a durable safety copy exists');
+}
+
+const writeAt = page.indexOf('  private writeFilesDirFile(');
+const writeEnd = page.indexOf('\n  private readTextFromUri(', writeAt);
+const write = page.slice(writeAt, writeEnd);
+for (const marker of ["path + '.tmp'", "path + '.bak'", 'fs.fsyncSync(file.fd);',
+  'fs.renameSync(path, backupPath);', 'fs.renameSync(tempPath, path);',
+  'fs.renameSync(backupPath, path);']) {
+  if (writeAt < 0 || writeEnd < 0 || !write.includes(marker)) {
+    throw new Error(`pre-import recovery file is not replaced transactionally: ${marker}`);
+  }
+}
+
+const restoreAt = manager.indexOf('  static async applyBackup(');
+const restoreEnd = manager.indexOf('\n  private static async applyBackupParts(', restoreAt);
+const restore = manager.slice(restoreAt, restoreEnd);
+if (restoreAt < 0 || restoreEnd < 0 ||
+  !restore.includes('const previous = await BackupManager.collectBackup(context);') ||
+  !restore.includes('await BackupManager.applyBackupParts(context, backup);') ||
+  !restore.includes('await BackupManager.rollbackBackupParts(context, previous);')) {
+  throw new Error('multi-store backup restore does not snapshot and roll back the previous configuration');
+}
+
+const rollbackAt = manager.indexOf('  private static async rollbackBackupParts(');
+const rollback = manager.slice(rollbackAt);
+for (const marker of ['SubscriptionStore.restoreProfile(', 'ProfileStore.save(',
+  'SettingsStore.save(', 'AssetStore.save(']) {
+  if (rollbackAt < 0 || !rollback.includes(marker)) {
+    throw new Error(`backup rollback does not attempt every store independently: ${marker}`);
+  }
+}
+if ((rollback.match(/catch \(_error\)/g) ?? []).length < 4) {
+  throw new Error('backup rollback can abandon remaining stores after the first failure');
+}
+NODE
+printf 'recoverable backup restore verification passed\n'
+
 node <<'NODE'
 const fs = require('fs');
 const source = fs.readFileSync('entry/src/main/ets/core/I18n.ets', 'utf8');
