@@ -1,20 +1,19 @@
-// 网络场景自动化 —— 编排单例
+// 网络变化观测与场景自动化 —— 编排单例
 //
-// 监听网络变化 → 防抖 → 读当前网络(NetworkProbe) → 决策(NetworkAutomation) → 驱动连断。
-// 幂等：每个「网络签名」只处理一次，避免网络抖动导致连断风暴，也避免推翻用户手动操作。
+// 始终监听网络变化并刷新实际出口；只有用户开启可信网络自动化时才允许执行断开。
+// 幂等：每个「网络签名」只处理一次，避免网络抖动导致重复检测或连断风暴。
 
 import { common } from '@kit.AbilityKit';
 import { connection } from '@kit.NetworkKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { APP_LANGUAGE_STORAGE_KEY, normalizeLanguage, translate } from '../core/I18n';
-import { AppLanguage, AppSettings } from '../core/Profile';
+import { AppLanguage } from '../core/Profile';
 import {
   NetAutomationConfig,
   NET_ACTION_DISCONNECT,
   decideNetAutomationAction
 } from '../core/NetworkAutomation';
 import { SettingsStore } from '../storage/SettingsStore';
-import { ProfileStore } from '../storage/ProfileStore';
 import { NetSceneStopFlag } from './NetSceneStopFlag';
 import { SHARED_RUNTIME_CONTROLLER } from '../features/runtime/RuntimeController';
 import { NetworkProbe } from './NetworkProbe';
@@ -38,9 +37,11 @@ export class NetworkSceneManager {
   private started: boolean = false;
   private debounceTimer: number = -1;
   private evaluating: boolean = false;
+  private evaluationPending: boolean = false;
+  private pendingForce: boolean = false;
   private lastHandledSignature: string = '';
 
-  /** 启动监听（幂等）。总开关开启 / App 启动 / VPN 启动时调用。 */
+  /** 启动网络变化监听（幂等），生命周期跟随 UIAbility，与自动断开开关无关。 */
   ensureStarted(context: common.Context): void {
     this.context = context;
     if (this.started) {
@@ -66,7 +67,7 @@ export class NetworkSceneManager {
     }
   }
 
-  /** 停止监听。总开关关闭时调用。 */
+  /** UIAbility 销毁时停止监听。 */
   stop(): void {
     if (this.debounceTimer !== -1) {
       clearTimeout(this.debounceTimer);
@@ -86,6 +87,9 @@ export class NetworkSceneManager {
     }
     this.netConnection = undefined;
     this.started = false;
+    this.context = null;
+    this.evaluationPending = false;
+    this.pendingForce = false;
     this.lastHandledSignature = '';
     hilog.info(DOMAIN, TAG, 'listener stopped');
   }
@@ -111,18 +115,22 @@ export class NetworkSceneManager {
 
   private async evaluate(force: boolean): Promise<void> {
     const context = this.context;
-    if (context === null || this.evaluating) {
+    if (context === null) {
+      return;
+    }
+    if (this.evaluating) {
+      // 探测/出口请求在途时合并后续事件，结束后至少再评估一次；force 语义不得丢失。
+      this.evaluationPending = true;
+      this.pendingForce = this.pendingForce || force;
       return;
     }
     this.evaluating = true;
     try {
       const settings = await SettingsStore.load(context);
-      if (!settings.netAutomationEnabled) {
-        this.lastHandledSignature = '';
-        return;
-      }
-      // 连接管线忙（启停中）时不动，等下次事件 / 补判
+      // 启停期间不介入，但保留一次补判；不能假设忙碌结束后系统还会再发网络事件。
       if (SHARED_RUNTIME_CONTROLLER.isBusy()) {
+        this.evaluationPending = true;
+        this.pendingForce = this.pendingForce || force;
         return;
       }
       const ctx = await NetworkProbe.readCurrentNetContext();
@@ -144,15 +152,18 @@ export class NetworkSceneManager {
       // 不应悄悄停止用户正在使用的本地 SOCKS/HTTP 监听器。
       const running = SHARED_RUNTIME_CONTROLLER.isVpnRunning();
       const action = decideNetAutomationAction(ctx, cfg, running);
+      const runtimeRunning = SHARED_RUNTIME_CONTROLLER.isRunning();
       this.lastHandledSignature = signature;
       hilog.info(DOMAIN, TAG, 'evaluate kind=%{public}s running=%{public}s action=%{public}s',
         ctx.kind, running ? '1' : '0', action);
       // 诊断：写进运行日志，便于确认后台是否收到回调、SSID 是否可读。
-      SHARED_RUNTIME_CONTROLLER.appendLog(
-        `[netscene] kind=${ctx.kind}; ssid=${ctx.ssid === undefined ? '<none>' : '<redacted>'}; running=${running}; action=${action}`);
+      if (settings.netAutomationEnabled || runtimeRunning) {
+        SHARED_RUNTIME_CONTROLLER.appendLog(
+          `[netscene] kind=${ctx.kind}; ssid=${ctx.ssid === undefined ? '<none>' : '<redacted>'}; running=${running}; action=${action}`);
+      }
       if (action === NET_ACTION_DISCONNECT) {
         await this.applyDisconnect(context);
-      } else if (SHARED_RUNTIME_CONTROLLER.isRunning()) {
+      } else if (runtimeRunning) {
         // 未断开时数据面会继续使用新的默认承载；立即废弃旧出口并经当前代理复测。
         // 不触发重连，也不改变用户手动启停意图。
         await SHARED_RUNTIME_CONTROLLER.recheckCurrentEgressIp(this.currentLanguage());
@@ -161,6 +172,12 @@ export class NetworkSceneManager {
       hilog.error(DOMAIN, TAG, 'evaluate failed: %{public}s', JSON.stringify(error));
     } finally {
       this.evaluating = false;
+      if (this.evaluationPending && this.context !== null) {
+        const pendingForce = this.pendingForce;
+        this.evaluationPending = false;
+        this.pendingForce = false;
+        this.scheduleEvaluate(pendingForce);
+      }
     }
   }
 

@@ -681,12 +681,10 @@ struct SettingsPage {
       applyColorMode(context, saved.uiModeNight);
       this.applyDraft(SETTINGS_CONTROLLER.toDraft(saved));
       markRuntimeSettingsRestartNeeded();
-      // 网络场景自动化：总开关跟随持久化即时启/停监听（save 已落盘，manager 读到的是最新值）。
-      if (saved.netAutomationEnabled) {
-        NETWORK_SCENE_MANAGER.ensureStarted(context);
-      } else {
-        NETWORK_SCENE_MANAGER.stop();
-      }
+      // 观察底层网络的监听始终保留；开关只控制可信网络是否自动断开。强制补判让设置
+      // 立即生效，同时允许关闭自动化时继续刷新出口状态。
+      NETWORK_SCENE_MANAGER.ensureStarted(context);
+      NETWORK_SCENE_MANAGER.refreshNow(true);
       if (showMessage) {
         SHARED_RUNTIME_CONTROLLER.appendLog(this.t('log.settingsSaved'));
       }
