@@ -1008,6 +1008,20 @@ if (!indexSource.includes('const AUTHORITATIVE_STORAGE_READ_TIMEOUT_MS: number =
   !indexSource.includes('this.releaseNodesLoad(promise)')) {
   throw new Error('authoritative settings or node reads can stall recovery or accumulate queued tasks');
 }
+const totalsLoad = indexSource.slice(totalsAt, settingsAt);
+const totalsInitialAt = initialLoad.indexOf('await this.loadTrafficTotals();');
+const runtimeInitialAt = initialLoad.indexOf('await this.refreshRuntime(true);');
+if (totalsInitialAt < 0 || runtimeInitialAt < 0 || totalsInitialAt > runtimeInitialAt ||
+  !indexSource.includes('private trafficTotalsLoadInFlight: Promise<TrafficTotals> | null = null;') ||
+  !totalsLoad.includes("this.loadTrafficTotalsSingleFlight(context), 'traffic totals read'") ||
+  !totalsLoad.includes('this.applyTrafficTotals(totals);') ||
+  !totalsLoad.includes('this.releaseTrafficTotalsLoad(promise);') ||
+  !totalsLoad.includes('if (this.trafficTotalsLoaded) {') ||
+  !totalsLoad.includes('this.trafficTotalsLoaded = true;\n    // 读取可能') ||
+  !totalsLoad.includes('this.accumulateTraffic();') ||
+  totalsLoad.includes('finally {\n      this.trafficTotalsLoaded = true;')) {
+  throw new Error('stalled traffic-total reads can block recovery or overwrite an unknown persisted baseline');
+}
 const coreConfirmAt = indexSource.indexOf('  private async confirmCoreSwitchAndConnect(): Promise<void>');
 const coreConfirmEnd = indexSource.indexOf('\n  private async startConnection(): Promise<void>', coreConfirmAt);
 const coreConfirm = indexSource.slice(coreConfirmAt, coreConfirmEnd);

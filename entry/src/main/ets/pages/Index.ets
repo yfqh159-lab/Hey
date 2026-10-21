@@ -160,6 +160,8 @@ struct Index {
   private lastSessionDownload: number = 0;
   private lastTrafficPersistAt: number = 0;
   private trafficTotalsLoaded: boolean = false;
+  private trafficTotalsLoadInFlight: Promise<TrafficTotals> | null = null;
+  private trafficTotalsReadWarningLogged: boolean = false;
   @State private speedEnabled: boolean = false;
   @State private groupAllDisplay: boolean = false;
   @State private doubleColumnDisplay: boolean = false;
@@ -2015,16 +2017,57 @@ struct Index {
     }
     try {
       const context = this.getUIContext().getHostContext() as common.Context;
-      const totals = await TrafficTotalsStore.load(context);
-      this.totalUpload = totals.lifetimeUpload;
-      this.totalDownload = totals.lifetimeDownload;
-      this.lastSessionUpload = totals.lastSessionUpload;
-      this.lastSessionDownload = totals.lastSessionDownload;
+      const totals = await withAuthoritativeStorageTimeout(
+        this.loadTrafficTotalsSingleFlight(context), 'traffic totals read');
+      this.applyTrafficTotals(totals);
+      this.trafficTotalsReadWarningLogged = false;
     } catch (error) {
-      // 读失败就从 0 起，不阻断启动
-    } finally {
-      this.trafficTotalsLoaded = true;
+      // 流量统计不是数据面配置，读取超时不能永久阻塞节点和真实 VPN 状态恢复；但在
+      // 原值未知时也绝不能把字段初始值 0 写回。保持 loaded=false，原 Promise 迟到
+      // 成功后会应用基线并补算当前会话增量，再恢复持久化。
+      if (!this.trafficTotalsReadWarningLogged) {
+        this.trafficTotalsReadWarningLogged = true;
+        const detail = error instanceof Error ? error.message : JSON.stringify(error);
+        SHARED_RUNTIME_CONTROLLER.appendLog(`Traffic totals read delayed: ${redactDiagnosticText(detail)}`);
+      }
     }
+  }
+
+  private loadTrafficTotalsSingleFlight(context: common.Context): Promise<TrafficTotals> {
+    if (this.trafficTotalsLoadInFlight !== null) {
+      return this.trafficTotalsLoadInFlight;
+    }
+    const promise = TrafficTotalsStore.load(context);
+    this.trafficTotalsLoadInFlight = promise;
+    promise.then(
+      (totals: TrafficTotals): void => {
+        this.releaseTrafficTotalsLoad(promise);
+        this.applyTrafficTotals(totals);
+        this.trafficTotalsReadWarningLogged = false;
+      },
+      (_error: Object): void => this.releaseTrafficTotalsLoad(promise)
+    );
+    return promise;
+  }
+
+  private releaseTrafficTotalsLoad(promise: Promise<TrafficTotals>): void {
+    if (this.trafficTotalsLoadInFlight === promise) {
+      this.trafficTotalsLoadInFlight = null;
+    }
+  }
+
+  private applyTrafficTotals(totals: TrafficTotals): void {
+    if (this.trafficTotalsLoaded) {
+      return;
+    }
+    this.totalUpload = totals.lifetimeUpload;
+    this.totalDownload = totals.lifetimeDownload;
+    this.lastSessionUpload = totals.lastSessionUpload;
+    this.lastSessionDownload = totals.lastSessionDownload;
+    this.trafficTotalsLoaded = true;
+    // 读取可能在运行态恢复之后才结算；立刻把当前快照相对持久基线的增量补回，避免
+    // 为了不覆盖旧值而反过来漏记整个等待窗口内的流量。
+    this.accumulateTraffic();
   }
 
   private async loadSettings(strict: boolean = false): Promise<void> {
