@@ -568,9 +568,17 @@ if (scannerAppearAt < 0 || scannerShowAt < 0 || routeImmediateAt < 0 ||
 const disappearAt = scanner.indexOf('  aboutToDisappear(): void');
 const buildAt = scanner.indexOf('\n  build()', disappearAt);
 const disappear = scanner.slice(disappearAt, buildAt);
-if (!disappear.includes("this.pendingSensitiveImport = '';" ) ||
-  !disappear.includes('this.hasPendingSensitiveImport = false;')) {
-  throw new Error('scanner keeps external credentials in the page instance after leaving');
+const clearScannerAt = scanner.indexOf('  private clearImportValue(): void');
+const clearScannerEnd = scanner.indexOf('\n  private async loadState(', clearScannerAt);
+const clearScanner = scanner.slice(clearScannerAt, clearScannerEnd);
+if (!disappear.includes('this.clearImportValue();') ||
+  clearScannerAt < 0 || clearScannerEnd < 0 ||
+  !clearScanner.includes("this.pendingSensitiveImport = '';") ||
+  !clearScanner.includes('this.hasPendingSensitiveImport = false;') ||
+  !clearScanner.includes("this.importBuffer = '';") ||
+  !clearScanner.includes("this.lastError = '';") ||
+  !clearScanner.includes("this.updateImportPreview('');")) {
+  throw new Error('scanner keeps credentials, preview, or errors in the page instance after leaving');
 }
 if (!scanner.includes('private pageActive: boolean = false;') ||
   !scanner.includes('private pageGeneration: number = 0;') ||
@@ -600,6 +608,9 @@ if (importAt < 0 || importEnd < 0 ||
 }
 const manualDisappearAt = manualImport.indexOf('  aboutToDisappear(): void');
 const manualBuildAt = manualImport.indexOf('\n  build()', manualDisappearAt);
+const clearManualAt = manualImport.indexOf('  private clearManualImportValue(): void');
+const clearManualEnd = manualImport.indexOf('\n  private t(', clearManualAt);
+const clearManual = manualImport.slice(clearManualAt, clearManualEnd);
 const manualLoadAt = manualImport.indexOf('  private async loadState(pageGeneration: number)');
 const manualImportAt = manualImport.indexOf('  private async importLink(): Promise<void>');
 const manualImportEnd = manualImport.indexOf('\n  private isCurrentPage(', manualImportAt);
@@ -610,6 +621,11 @@ if (!manualImport.includes('private pageActive: boolean = false;') ||
   !manualImport.includes('private pageGeneration: number = 0;') ||
   manualDisappearAt < 0 || manualBuildAt < 0 ||
   !manualImport.slice(manualDisappearAt, manualBuildAt).includes('this.pageGeneration++;') ||
+  !manualImport.slice(manualDisappearAt, manualBuildAt).includes('this.clearManualImportValue();') ||
+  clearManualAt < 0 || clearManualEnd < 0 ||
+  !clearManual.includes("this.importBuffer = '';") ||
+  !clearManual.includes("this.lastError = '';") ||
+  !clearManual.includes('this.clearLinkPreview();') ||
   manualLoadAt < 0 ||
   !manualImport.slice(manualLoadAt, manualImportAt).includes('this.isCurrentPage(pageGeneration)') ||
   manualImportAt < 0 || manualImportEnd < 0 ||

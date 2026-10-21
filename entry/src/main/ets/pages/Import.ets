@@ -39,6 +39,9 @@ struct ImportPage {
   aboutToDisappear(): void {
     this.pageActive = false;
     this.pageGeneration++;
+    // 分享链接的手动输入同样可能包含 UUID、密码或 Token。返回栈可能保留页面实例，
+    // 因此离开时主动清除输入、预览和旧错误，而不是假设组件会立即销毁。
+    this.clearManualImportValue();
   }
 
   build() {

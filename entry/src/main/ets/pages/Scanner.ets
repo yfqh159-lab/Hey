@@ -81,10 +81,9 @@ struct ScannerPage {
       clearTimeout(this.immediateScanTimerId);
       this.immediateScanTimerId = -1;
     }
-    // 相机、相册和剪贴板原文只为本页当前确认动作保留；离开页面即丢弃，避免带
-    // UUID/密码/Token 的内容随返回栈页面实例继续驻留。手动键入区由 ArkUI 生命周期管理。
-    this.pendingSensitiveImport = '';
-    this.hasPendingSensitiveImport = false;
+    // 所有入口都可能携带 UUID、密码或订阅 Token。离开页面时统一清除隐藏原文、
+    // 手动输入、脱敏预览与旧错误，不能依赖返回栈实例一定会被 ArkUI 立即销毁。
+    this.clearImportValue();
   }
 
   build() {
