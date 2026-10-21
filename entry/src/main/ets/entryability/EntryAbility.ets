@@ -56,6 +56,9 @@ export default class EntryAbility extends UIAbility {
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onNewWant');
     this.stashDeepLink(want);
     this.stashSharedTextImport(want);
+    // AUTO_STARTUP 通常发生在冷启动，但系统也可能把新的启动原因投递给仍存活的
+    // Ability。与 onCreate 使用同一待办标志，由首页在恢复权威运行态后串行消费。
+    this.stashAutoStartupLaunch(launchParam);
   }
 
   // Stash a deep-link Want uri (hey://add-source|add-endpoint?url=...) or

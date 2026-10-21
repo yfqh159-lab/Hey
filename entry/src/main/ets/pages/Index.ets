@@ -139,6 +139,7 @@ struct Index {
   @State private allGroupsSelected: boolean = false;
   @StorageLink('pendingDeepLink') @Watch('onPendingExternalIntentChanged') private pendingDeepLinkSignal: string = '';
   @StorageLink('pendingSharedTextImport') @Watch('onPendingExternalIntentChanged') private pendingSharedTextImportSignal: string = '';
+  @StorageLink('pendingAutoStartupLaunch') @Watch('onPendingExternalIntentChanged') private pendingAutoStartupSignal: boolean = false;
   private initialStateLoading: boolean = false;
   private initialStateReady: boolean = false;
 
@@ -200,7 +201,8 @@ struct Index {
   }
 
   private hasPendingExternalIntent(): boolean {
-    return this.pendingDeepLinkSignal.trim().length > 0 || this.pendingSharedTextImportSignal.trim().length > 0;
+    return this.pendingAutoStartupSignal || this.pendingDeepLinkSignal.trim().length > 0 ||
+      this.pendingSharedTextImportSignal.trim().length > 0;
   }
 
   private consumePendingExternalIntentSoon(): void {
@@ -213,6 +215,7 @@ struct Index {
         await this.loadSettings();
         await this.loadNodes();
         await this.refreshRuntime();
+        await this.handlePendingAutoStartupLaunch();
         await this.handlePendingSharedTextImport();
         await this.handlePendingDeepLink();
         await this.syncSubscriptionBackgroundSchedule();

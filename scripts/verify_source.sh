@@ -354,6 +354,31 @@ printf 'optional TUN/runtime mode separation verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');
+const ability = fs.readFileSync('entry/src/main/ets/entryability/EntryAbility.ets', 'utf8');
+const index = fs.readFileSync('entry/src/main/ets/pages/Index.ets', 'utf8');
+const newWantAt = ability.indexOf('  onNewWant(');
+const newWantEnd = ability.indexOf('\n  // Stash a deep-link', newWantAt);
+const newWant = ability.slice(newWantAt, newWantEnd);
+if (newWantAt < 0 || newWantEnd < 0 || !newWant.includes('this.stashAutoStartupLaunch(launchParam);')) {
+  throw new Error('AUTO_STARTUP delivered to an existing UIAbility is not recorded');
+}
+if (!index.includes("@StorageLink('pendingAutoStartupLaunch') @Watch('onPendingExternalIntentChanged')") ||
+  !index.includes('return this.pendingAutoStartupSignal || this.pendingDeepLinkSignal.trim().length > 0')) {
+  throw new Error('warm AUTO_STARTUP delivery cannot wake the serialized pending-work consumer');
+}
+const consumerAt = index.indexOf('  private consumePendingExternalIntentSoon(): void');
+const consumerEnd = index.indexOf('\n  private async handlePendingRuntimeSettingsRestart()', consumerAt);
+const consumer = index.slice(consumerAt, consumerEnd);
+const refreshAt = consumer.indexOf('await this.refreshRuntime();');
+const startupAt = consumer.indexOf('await this.handlePendingAutoStartupLaunch();');
+if (consumerAt < 0 || consumerEnd < 0 || refreshAt < 0 || startupAt < refreshAt) {
+  throw new Error('warm AUTO_STARTUP is not serialized after authoritative runtime recovery');
+}
+NODE
+printf 'warm AUTO_STARTUP delivery verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
 const policy = fs.readFileSync('entry/src/main/ets/core/ConnectionInteraction.ets', 'utf8');
 const index = fs.readFileSync('entry/src/main/ets/pages/Index.ets', 'utf8');
 if (!policy.includes('status === ConnectionStatus.STARTING') ||
