@@ -89,7 +89,7 @@ import { DEFAULT_APP_SETTINGS } from '../main/ets/storage/SettingsStore';
 import { formatBytes, formatDuration } from '../main/ets/utils/Formatters';
 import { formatOne, localizedProfileSavedText, localizeCoreMessage, localizeDiagnosticHeartbeat } from '../main/ets/utils/LocalizationPresenter';
 import { isScanCancelled } from '../main/ets/utils/QrScan';
-import { BUNDLE_NAME, DEFAULT_VPN_DNS_ADDRESSES, createDefaultVpnConfig, normalizeVpnDnsAddresses } from '../main/ets/vpn/VpnConstants';
+import { BUNDLE_NAME, DEFAULT_VPN_DNS_ADDRESSES, createDefaultVpnConfig, isMatchingVpnSessionDetails, isValidVpnSessionId, normalizeVpnDnsAddresses } from '../main/ets/vpn/VpnConstants';
 
 const VLESS_REALITY_OUTBOUND: string =
   '{"protocol":"vless","tag":"proxy","settings":{"vnext":[{"address":"example.com","port":443,"users":[{"id":"00000000-0000-0000-0000-000000000000","encryption":"none","flow":"xtls-rprx-vision"}]}]},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"serverName":"www.example.com","publicKey":"test-public-key","shortId":"abcd","fingerprint":"chrome"}}}';
@@ -2729,6 +2729,18 @@ export default function localUnitTest() {
       expect(shouldCleanupUnhealthyVpnRuntimeState(false, false, firstSeenAt, 13000, 12000)).assertFalse();
       expect(shouldCleanupUnhealthyVpnRuntimeState(true, false, 0, 13000, 12000)).assertFalse();
       expect(shouldCleanupUnhealthyVpnRuntimeState(true, false, firstSeenAt, 999, 12000)).assertFalse();
+    });
+
+    it('matches VPN lifecycle events to the exact runtime session', 0, () => {
+      expect(isValidVpnSessionId('1000-42')).assertTrue();
+      expect(isValidVpnSessionId('bad session')).assertFalse();
+      expect(isValidVpnSessionId('')).assertFalse();
+      expect(isMatchingVpnSessionDetails('session=1000-42', '1000-42')).assertTrue();
+      expect(isMatchingVpnSessionDetails('session=1000-42; error=failed', '1000-42')).assertTrue();
+      expect(isMatchingVpnSessionDetails('session=1000-420', '1000-42')).assertFalse();
+      expect(isMatchingVpnSessionDetails('session=old', '1000-42')).assertFalse();
+      expect(isMatchingVpnSessionDetails(undefined, '1000-42')).assertFalse();
+      expect(isMatchingVpnSessionDetails(undefined, '')).assertTrue();
     });
 
     it('only applies current VPN session diagnostic errors to runtime state', 0, () => {

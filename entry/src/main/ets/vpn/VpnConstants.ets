@@ -16,6 +16,7 @@ export const BUNDLE_NAME: string = 'com.lmlm.hey';
 export const VPN_ABILITY_NAME: string = 'HeyVpnAbility';
 export const VPN_COMMAND_KEY: string = 'command';
 export const VPN_COMMAND_STOP: string = 'stop';
+export const VPN_SESSION_ID_KEY: string = 'sessionId';
 export const VPN_MTU: number = DEFAULT_VPN_MTU;
 export const TUN_IPV4: string = resolveVpnInterfaceAddressConfig().ipv4Client;
 export const TUN_IPV6: string = resolveVpnInterfaceAddressConfig().ipv6Client;
@@ -61,13 +62,30 @@ export const VPN_CORE_TYPE_KEY: string = 'coreType';
 export const VPN_HEALTH_PORT_KEY: string = 'healthPort';
 export const VPN_PROFILE_UPDATED_AT_KEY: string = 'profileUpdatedAt';
 
+export function isValidVpnSessionId(value: string): boolean {
+  return value.length > 0 && value.length <= 96 && /^[A-Za-z0-9_-]+$/.test(value);
+}
+
+export function isMatchingVpnSessionDetails(details: string | undefined, sessionId: string): boolean {
+  // 仅为旧状态文件/旧调用保留无 session 的兼容路径；本版本新会话必须精确匹配。
+  if (sessionId.length === 0) {
+    return true;
+  }
+  if (details === undefined) {
+    return false;
+  }
+  const marker = `session=${sessionId}`;
+  return details === marker || details.startsWith(`${marker};`);
+}
+
 // configJson 是当前内核（Xray 或 sing-box）的完整运行配置；coreType 告诉 VPN 扩展
 // 该调用哪个内核的 native 生命周期（默认 xray）。
 export function createVpnWant(
   configJson: string,
   coreType?: string,
   healthPort?: number,
-  profileUpdatedAt?: number
+  profileUpdatedAt?: number,
+  sessionId?: string
 ): Want {
   return {
     deviceId: '',
@@ -77,7 +95,8 @@ export function createVpnWant(
       xrayConfigJson: configJson as Object,
       coreType: (coreType ?? 'xray') as Object,
       healthPort: (healthPort ?? 0) as Object,
-      profileUpdatedAt: (profileUpdatedAt ?? 0) as Object
+      profileUpdatedAt: (profileUpdatedAt ?? 0) as Object,
+      sessionId: (sessionId ?? '') as Object
     }
   };
 }
@@ -90,13 +109,14 @@ export function createStopVpnWant(): Want {
   };
 }
 
-export function createStopCommandVpnWant(): Want {
+export function createStopCommandVpnWant(sessionId?: string): Want {
   return {
     deviceId: '',
     bundleName: BUNDLE_NAME,
     abilityName: VPN_ABILITY_NAME,
     parameters: {
-      command: VPN_COMMAND_STOP as Object
+      command: VPN_COMMAND_STOP as Object,
+      sessionId: (sessionId ?? '') as Object
     }
   };
 }

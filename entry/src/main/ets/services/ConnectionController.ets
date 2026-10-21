@@ -11,7 +11,7 @@ import { CORE_TYPE_SINGBOX, CORE_TYPE_XRAY, CoreSelectionStore, CoreType, isSing
 import { buildSingboxConfig } from '../core/SingboxConfig';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { SubscriptionStore } from '../storage/SubscriptionStore';
-import { createStopCommandVpnWant, createStopVpnWant, createVpnWant } from '../vpn/VpnConstants';
+import { createStopCommandVpnWant, createStopVpnWant, createVpnWant, isMatchingVpnSessionDetails } from '../vpn/VpnConstants';
 import { getNativeFreePorts, getNativeStats, startNativeXray, stopNativeXray, testNativeXrayConfig } from '../native/HeyNative';
 import { DiagnosticEvent, DiagnosticLog } from './DiagnosticLog';
 import { clearCoreLog, clearSingboxLog } from './CoreLogReader';
@@ -47,6 +47,7 @@ export class ConnectionController {
   private runtimeMode: AppRuntimeMode = APP_MODE_VPN;
   // 本次连接实际使用的内核（anytls/tuic 会强制走 sing-box，与全局开关可能不一致）。
   private effectiveCoreType: CoreType = CORE_TYPE_XRAY;
+  private vpnSessionId: string = '';
 
   getSnapshot(): ConnectionSnapshot {
     return {
@@ -120,11 +121,14 @@ export class ConnectionController {
 
     try {
       if (this.runtimeMode === APP_MODE_PROXY_ONLY) {
+        this.vpnSessionId = '';
         await this.startProxyOnly(context);
         this.status = ConnectionStatus.RUNNING;
         this.startedAt = Date.now();
         return this.getSnapshot();
       }
+      const vpnSessionId = this.createVpnSessionId(requestedAt);
+      this.vpnSessionId = vpnSessionId;
       hilog.info(LOG_DOMAIN, LOG_TAG, 'Calling startVpnExtensionAbility, configBytes=%{public}d',
         this.generatedConfig.configJson.length);
       vpnStartRequested = true;
@@ -132,11 +136,13 @@ export class ConnectionController {
         this.generatedConfig.configJson,
         CORE_TYPE_XRAY,
         this.generatedConfig.runtimeHealthPort ?? VPN_DATA_SOCKS_PORT,
-        profile.updatedAt
+        profile.updatedAt,
+        vpnSessionId
       )), START_VPN_TIMEOUT_MS, '启动 VPN 超时：系统 VPN 授权服务没有响应。若 hilog 中出现 com.huawei.hmos.vpndialog bundle not exist，说明当前系统镜像缺少 VPN 授权组件，请改用真机测试。');
       hilog.info(LOG_DOMAIN, LOG_TAG, 'startVpnExtensionAbility returned.');
       const startEvent = await this.waitForDiagnosticEvent(context, requestedAt, START_VPN_READY_TIMEOUT_MS, (event: DiagnosticEvent) => {
-        return event.source === 'vpn' && (event.message === VPN_STARTED_MESSAGE || event.message === VPN_START_FAILED_MESSAGE);
+        return event.source === 'vpn' && this.matchesVpnSession(event, vpnSessionId) &&
+          (event.message === VPN_STARTED_MESSAGE || event.message === VPN_START_FAILED_MESSAGE);
       });
       if (startEvent === null) {
         throw new Error('启动 VPN 未确认完成：VPN 扩展没有回写启动完成状态。');
@@ -190,6 +196,8 @@ export class ConnectionController {
     this.generatedConfig = { configJson: generated.configJson };
     this.runtimeMode = APP_MODE_VPN;
     const requestedAt = Date.now();
+    const vpnSessionId = this.createVpnSessionId(requestedAt);
+    this.vpnSessionId = vpnSessionId;
     let vpnStartRequested = false;
     try {
       hilog.info(LOG_DOMAIN, LOG_TAG, 'Calling startVpnExtensionAbility (sing-box), configBytes=%{public}d',
@@ -199,10 +207,12 @@ export class ConnectionController {
         generated.configJson,
         CORE_TYPE_SINGBOX,
         VPN_DATA_SOCKS_PORT,
-        profileUpdatedAt
+        profileUpdatedAt,
+        vpnSessionId
       )), START_VPN_TIMEOUT_MS, '启动 VPN 超时：系统 VPN 授权服务没有响应。若为模拟器缺少 VPN 授权组件，请改用真机测试。');
       const startEvent = await this.waitForDiagnosticEvent(context, requestedAt, START_VPN_READY_TIMEOUT_MS, (event: DiagnosticEvent) => {
-        return event.source === 'vpn' && (event.message === VPN_STARTED_MESSAGE || event.message === VPN_START_FAILED_MESSAGE);
+        return event.source === 'vpn' && this.matchesVpnSession(event, vpnSessionId) &&
+          (event.message === VPN_STARTED_MESSAGE || event.message === VPN_START_FAILED_MESSAGE);
       });
       if (startEvent === null) {
         throw new Error('启动 sing-box 未确认完成：VPN 扩展没有回写启动完成状态。');
@@ -306,14 +316,17 @@ export class ConnectionController {
         this.startedAt = 0;
         this.lastError = '';
         this.runtimeMode = APP_MODE_VPN;
+        this.vpnSessionId = '';
         return this.getSnapshot();
       }
       hilog.info(LOG_DOMAIN, LOG_TAG, 'Calling startVpnExtensionAbility with stop command.');
-      await this.withTimeout(vpnExtension.startVpnExtensionAbility(createStopCommandVpnWant()),
+      const targetSessionId = this.vpnSessionId;
+      await this.withTimeout(vpnExtension.startVpnExtensionAbility(createStopCommandVpnWant(targetSessionId)),
         START_VPN_TIMEOUT_MS,
         '停止 VPN 超时：VPN 扩展没有响应停止命令。');
       const cleanupEvent = await this.waitForDiagnosticEvent(context, requestedAt, STOP_VPN_CLEANUP_TIMEOUT_MS, (event: DiagnosticEvent) => {
-        return event.source === 'vpn' && event.message === VPN_CLEANUP_FINISHED_MESSAGE;
+        return event.source === 'vpn' && this.matchesVpnSession(event, targetSessionId) &&
+          event.message === VPN_CLEANUP_FINISHED_MESSAGE;
       });
       if (cleanupEvent === null) {
         throw new Error('停止 VPN 未确认完成：VPN 扩展尚未回写清理完成状态。');
@@ -322,6 +335,7 @@ export class ConnectionController {
       this.status = ConnectionStatus.IDLE;
       this.startedAt = 0;
       this.lastError = '';
+      this.vpnSessionId = '';
       hilog.info(LOG_DOMAIN, LOG_TAG, 'VPN stop command completed.');
     } catch (error) {
       const businessError = error as BusinessError;
@@ -341,19 +355,21 @@ export class ConnectionController {
       this.startedAt = 0;
       this.lastError = '';
       this.runtimeMode = APP_MODE_VPN;
+      this.vpnSessionId = '';
     }
     return this.getSnapshot();
   }
 
   // 主界面进程被系统回收、VPN Extension 仍存活时，根据扩展进程的近期健康状态恢复控制态。
   // 这里只接管已有会话，不启动或重连任何网络组件。
-  reconcileRunning(startedAt: number, coreType: string): ConnectionSnapshot {
+  reconcileRunning(startedAt: number, coreType: string, sessionId: string = ''): ConnectionSnapshot {
     if (this.status === ConnectionStatus.IDLE || this.status === ConnectionStatus.ERROR) {
       this.status = ConnectionStatus.RUNNING;
       this.startedAt = startedAt > 0 ? startedAt : Date.now();
       this.lastError = '';
       this.runtimeMode = APP_MODE_VPN;
       this.effectiveCoreType = isSingboxCore(coreType) ? CORE_TYPE_SINGBOX : CORE_TYPE_XRAY;
+      this.vpnSessionId = sessionId;
     }
     return this.getSnapshot();
   }
@@ -437,6 +453,15 @@ export class ConnectionController {
       return `${event.message} ${event.details}`;
     }
     return event.message;
+  }
+
+  private createVpnSessionId(requestedAt: number): string {
+    const randomSuffix = Math.floor(Math.random() * 1000000000);
+    return `${requestedAt}-${randomSuffix}`;
+  }
+
+  private matchesVpnSession(event: DiagnosticEvent, sessionId: string): boolean {
+    return isMatchingVpnSessionDetails(event.details, sessionId);
   }
 
   private withTimeout<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {

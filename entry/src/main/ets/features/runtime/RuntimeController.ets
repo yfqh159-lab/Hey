@@ -291,7 +291,8 @@ export class RuntimeController {
       // UI 进程刚重建时控制器仍是 IDLE；确认状态持续不健康后先接管该会话，
       // 才能让 cleanupUnhealthyVpn() 向实际 VPN Extension 发送停止命令。
       if (this.status === ConnectionStatus.IDLE) {
-        const snapshot = this.controller.reconcileRunning(persisted.startedAt, persisted.coreType);
+        const snapshot = this.controller.reconcileRunning(
+          persisted.startedAt, persisted.coreType, persisted.sessionId);
         this.applySnapshot(snapshot, language);
         this.runtimeMode = APP_MODE_VPN;
       }
@@ -306,7 +307,8 @@ export class RuntimeController {
       if (await NetSceneStopFlag.wasStopped(context, persisted.startedAt)) {
         return;
       }
-      const snapshot = this.controller.reconcileRunning(persisted.startedAt, persisted.coreType);
+      const snapshot = this.controller.reconcileRunning(
+        persisted.startedAt, persisted.coreType, persisted.sessionId);
       this.applySnapshot(snapshot, language);
       this.runtimeMode = APP_MODE_VPN;
       this.recoveredProfileUpdatedAt = persisted.profileUpdatedAt ?? 0;

@@ -17,7 +17,9 @@ import {
   VPN_COMMAND_KEY,
   VPN_COMMAND_STOP,
   VPN_HEALTH_PORT_KEY,
-  VPN_PROFILE_UPDATED_AT_KEY
+  VPN_PROFILE_UPDATED_AT_KEY,
+  VPN_SESSION_ID_KEY,
+  isValidVpnSessionId
 } from './VpnConstants';
 import { SETTINGS_CONTROLLER } from '../features/settings/SettingsController';
 import {
@@ -104,7 +106,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
 
   onCreate(want: Want): void {
     this.startedAt = Date.now();
-    this.sessionId = this.startedAt.toString();
+    this.sessionId = this.resolveSessionId(want);
     this.activeCoreType = isSingboxCore(this.getStringParameter(want, 'coreType', 'xray')) ? 'singbox' : 'xray';
     this.activeProfileUpdatedAt = this.getNonNegativeIntegerParameter(want, VPN_PROFILE_UPDATED_AT_KEY);
     // 新会话尚未完成核心 + TUN 启动，先覆盖上次可能残留的 active 心跳。只有完整数据面
@@ -129,6 +131,12 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
 
   onRequest(want: Want, startId: number): void {
     if (this.isStopCommand(want)) {
+      const targetSessionId = this.getStringParameter(want, VPN_SESSION_ID_KEY, '');
+      if (targetSessionId.length > 0 && targetSessionId !== this.sessionId) {
+        this.emitInfo('Stale VPN stop command ignored.',
+          `session=${this.sessionId}; targetSession=${targetSessionId}; startId=${startId}`);
+        return;
+      }
       this.requestCleanup('VPN stop command received.', `startId=${startId}`);
       return;
     }
@@ -256,7 +264,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       this.emitInfo('Native VPN bridge started.', `session=${this.sessionId}`);
       this.startNetScenePoll();
     } catch (error) {
-      this.emitError('VPN start failed.', this.errorMessage(error));
+      this.emitError('VPN start failed.', `session=${this.sessionId}; error=${this.errorMessage(error)}`);
       await this.cleanup();
     }
   }
@@ -342,6 +350,14 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       return fallback;
     }
     return value.toString();
+  }
+
+  private resolveSessionId(want: Want): string {
+    const requested = this.getStringParameter(want, VPN_SESSION_ID_KEY, '');
+    if (isValidVpnSessionId(requested)) {
+      return requested;
+    }
+    return this.startedAt.toString();
   }
 
   private getNonNegativeIntegerParameter(want: Want, key: string): number {
