@@ -754,6 +754,12 @@ struct AssetsPage {
           .backgroundColor(AppColor.surfaceAlt)
           .borderRadius(Radius.md)
           .onChange((value: string) => { this.editUrl = value; })
+
+        Text(this.t('assets.geo.updateFromUrl.desc'))
+          .fontSize(FontSz.caption)
+          .fontColor(AppColor.textTertiary)
+          .width('100%')
+          .margin({ top: 6 })
       }
 
       Button(this.t('action.save'))

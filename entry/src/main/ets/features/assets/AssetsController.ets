@@ -252,11 +252,9 @@ export class AssetsController {
 
     try {
       promptAction.showToast({ message: this.t(language, 'assets.downloading').replace('{title}', fileName) });
-      if (BUILTIN_GEO_DATA_FILE_NAMES.includes(fileName)) {
-        await this.downloadVerifiedGeoWithFallback(fileName, url, tempPath, targetPath, proxyPort);
-      } else {
-        await this.downloadToFileWithFallback(url, tempPath, targetPath, proxyPort);
-      }
+      // 内置文件的高级 URL 与自定义 .dat 使用同一条校验路径：远端必须在
+      // 数据文件旁提供 `${url}.sha256sum`，任何失败都不会覆盖现有文件。
+      await this.downloadVerifiedGeoWithFallback(fileName, url, tempPath, targetPath, proxyPort);
       promptAction.showToast({ message: this.t(language, 'assets.downloadSuccess').replace('{title}', fileName) });
       onSuccess();
     } catch (error) {
@@ -328,7 +326,7 @@ export class AssetsController {
     const tempPath = `${context.filesDir}/${fileName}.tmp`;
     const targetPath = `${context.filesDir}/${fileName}`;
     try {
-      await this.downloadToFileWithFallback(url, tempPath, targetPath, proxyPort);
+      await this.downloadVerifiedGeoWithFallback(fileName, url, tempPath, targetPath, proxyPort);
       return true;
     } catch (error) {
       try {
@@ -347,22 +345,6 @@ export class AssetsController {
     } catch (error) {
       return 0;
     }
-  }
-
-  private async downloadToFileWithFallback(url: string, tempPath: string, targetPath: string, proxyPort: number): Promise<void> {
-    const ports = buildAssetDownloadProxyPorts(proxyPort);
-    let lastError = '';
-    for (let index = 0; index < ports.length; index++) {
-      try {
-        const data = await this.requestAssetData(url, ports[index]);
-        this.writeAssetData(tempPath, targetPath, data);
-        return;
-      } catch (error) {
-        lastError = error instanceof Error ? error.message : JSON.stringify(error);
-        this.removeTempFile(tempPath);
-      }
-    }
-    throw new Error(lastError.length > 0 ? lastError : 'download failed');
   }
 
   private async downloadVerifiedGeoWithFallback(
@@ -558,10 +540,6 @@ export class AssetsController {
       this.removeFileIfExists(tempPath);
       throw error;
     }
-  }
-
-  private removeTempFile(tempPath: string): void {
-    this.removeFileIfExists(tempPath);
   }
 
   private async sha256(data: ArrayBuffer): Promise<string> {
@@ -793,8 +771,16 @@ export class AssetsController {
 
       const buf = new ArrayBuffer(8192);
       let readLen = 0;
+      let totalBytes = 0;
       while ((readLen = fs.readSync(srcFile.fd, buf)) > 0) {
-        fs.writeSync(destFile.fd, buf, { length: readLen });
+        totalBytes += readLen;
+        if (totalBytes > MAX_GEO_DATA_BYTES) {
+          throw new Error(`${destFileName}: data file is too large`);
+        }
+        const written = fs.writeSync(destFile.fd, buf, { length: readLen });
+        if (written !== readLen) {
+          throw new Error(`${destFileName}: short write`);
+        }
       }
 
       fs.closeSync(srcFile);
@@ -802,6 +788,10 @@ export class AssetsController {
       srcFile = null;
       destFile = null;
 
+      const importedData = this.readFileData(tempPath);
+      if (importedData === null || !isPlausibleGeoData(importedData)) {
+        throw new Error(`${destFileName}: imported data failed size or format validation`);
+      }
       this.replaceTempFileSafely(tempPath, destPath);
 
       promptAction.showToast({ message: this.t(language, 'assets.action.importLocal.success').replace('{title}', destFileName) });
