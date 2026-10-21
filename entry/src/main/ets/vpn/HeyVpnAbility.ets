@@ -39,8 +39,31 @@ const HEALTH_INTERVAL_MS: number = 5000;
 const RUNTIME_STATE_INTERVAL_MS: number = 4000;
 // 连续两次采样都看不到核心或 TUN 才判定失效，避免单次桥查询抖动误拆连接。
 const UNHEALTHY_SAMPLE_LIMIT: number = 2;
+const PROTECT_PROCESS_TIMEOUT_MS: number = 10000;
 // 网络场景轮询间隔：VPN 扩展进程后台存活，自驱动定时器可跑（区别于后台收不到的 connection.on 事件）。
 const NET_SCENE_POLL_MS: number = 5000;
+
+// protectProcessNet 自 HarmonyOS API 22 提供，而工程仍以 API 21 SDK 为兼容构建基线。
+// 用局部能力接口隔离新增 API，避免仅因静态 SDK 类型缺少该成员而无法构建；低于 API 22
+// 时由 VpnConfig 排除自身 bundle 的既有路径防回环，本地代理模式不经过这里。
+interface ProcessNetworkProtector {
+  protectProcessNet(): Promise<void>;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timerId = setTimeout(() => {
+      reject(new Error(message));
+    }, timeoutMs);
+    promise.then((value: T) => {
+      clearTimeout(timerId);
+      resolve(value);
+    }, (error: Object) => {
+      clearTimeout(timerId);
+      reject(error);
+    });
+  });
+}
 
 export default class HeyVpnAbility extends VpnExtensionAbility {
   private vpnConnection: vpnExtension.VpnConnection | null = null;
@@ -131,6 +154,20 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       this.tunFd = await this.vpnConnection.create(vpnConfig);
       this.ensureStartAllowed('VPN interface creation');
       this.emitInfo('VPN created.', `tunFd=${this.tunFd}, dns=${dnsAddresses.join(',')}, ipv6=${settings.ipv6Enabled}, preferIpv6=${settings.preferIpv6}, mtu=${vpnMtu}, address=${addressConfig.displayName}, bypassLan=${settings.vpnBypassLan}`);
+
+      // API 22+ 再做进程级保护，且必须发生在核心创建任何 outbound / DNS socket 之前。
+      // API 21 及保护调用异常时仍有 VpnConfig 的 blocked/trustedApplications 约束保证
+      // Hey 自身 bundle 不进入 TUN；记录降级原因，便于真机区分系统能力与数据面故障。
+      try {
+        const protector = this.vpnConnection as Object as ProcessNetworkProtector;
+        const protection = protector.protectProcessNet();
+        await withTimeout(protection, PROTECT_PROCESS_TIMEOUT_MS, 'VPN process network protection timed out.');
+        this.emitInfo('VPN process network protection enabled.');
+      } catch (error) {
+        this.emitInfo('VPN process network protection unavailable; self-bundle exclusion remains active.',
+          this.errorMessage(error));
+      }
+      this.ensureStartAllowed('VPN process network protection');
 
       // 两个内核统一走 tun2socks 数据面：内核在 127.0.0.1:VPN_DATA_SOCKS_PORT 起本地
       // SOCKS 入站，再把 Harmony TUN fd 的流量转发进去。sing-box 因此不需要把 tun fd
