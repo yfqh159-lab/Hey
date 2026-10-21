@@ -2,6 +2,7 @@ import { fileIo as fs } from '@kit.CoreFileKit';
 import { LogEntry, normalizeLogLevel } from '../features/logs/LogModel';
 import { XRAY_CORE_LOG_FILE } from '../core/XrayConfig';
 import { SINGBOX_CORE_LOG_FILE } from '../core/SingboxConfig';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 
 const MAX_READ_BYTES: number = 128 * 1024;
 const DEFAULT_LIMIT: number = 200;
@@ -31,8 +32,9 @@ export function parseCoreLog(raw: string, limit: number = DEFAULT_LIMIT): Array<
       // 续行：附加到最近一条核心日志，保持多行错误完整
       if (entries.length > 0) {
         const last = entries[entries.length - 1];
-        last.message = `${last.message}\n${line}`;
-        last.raw = `${last.raw}\n${line}`;
+        const sanitizedContinuation = redactDiagnosticText(line);
+        last.message = `${last.message}\n${sanitizedContinuation}`;
+        last.raw = `${last.raw}\n${sanitizedContinuation}`;
       }
       continue;
     }
@@ -44,13 +46,14 @@ export function parseCoreLog(raw: string, limit: number = DEFAULT_LIMIT): Array<
     const second = parseInt(match[6], 10);
     const at = new Date(year, month - 1, day, hour, minute, second).getTime();
     const time = `${match[4]}:${match[5]}:${match[6]}`;
+    const sanitizedMessage = redactDiagnosticText(match[8]);
     entries.push({
       at: at,
       time: time,
       level: normalizeLogLevel(match[7]),
       source: 'core',
-      message: match[8],
-      raw: line
+      message: sanitizedMessage,
+      raw: `${line.substring(0, line.length - match[8].length)}${sanitizedMessage}`
     });
   }
   if (entries.length > limit) {

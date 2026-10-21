@@ -133,6 +133,18 @@ export default function localUnitTest() {
       const input = 'workId=41; scheduled=true; core=true; tun=true';
       expect(redactDiagnosticText(input)).assertEqual(input);
     });
+
+    it('redacts standalone IP addresses and host-port endpoints', 0, () => {
+      const input = 'egress=203.0.113.42; dial tcp private-node.example:443; peer=[2001:db8::8]:8443; HTTP 502';
+      const output = redactDiagnosticText(input);
+      expect(output).assertContain('egress=[redacted-ip]');
+      expect(output).assertContain('dial tcp [redacted-host]:443');
+      expect(output).assertContain('peer=[redacted-ip]:8443');
+      expect(output).assertContain('HTTP 502');
+      expect(output.includes('203.0.113.42')).assertFalse();
+      expect(output.includes('private-node.example')).assertFalse();
+      expect(output.includes('2001:db8::8')).assertFalse();
+    });
   });
 
   describe('settingsCatalog', () => {

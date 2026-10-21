@@ -16,6 +16,7 @@ import { probeRuntimeSocksHealth } from '../../services/RuntimeHealthProbe';
 import { measureRuntimeProfileDelay, RuntimeDelayResult } from '../../services/RuntimeDelay';
 import { connectionStatusBackground, connectionStatusColor, formatClockTime, formatDuration } from '../../utils/Formatters';
 import { formatOne, localizedConnectionStatus, localizeCoreMessage, localizeDiagnosticHeartbeat } from '../../utils/LocalizationPresenter';
+import { redactDiagnosticText } from '../../core/DiagnosticRedaction';
 
 const EMPTY_STATS: RuntimeStats = {
   uploadBytes: 0,
@@ -296,7 +297,8 @@ export class RuntimeController {
   private static makeAppEntry(message: string): LogEntry {
     const at = Date.now();
     const time = formatClockTime(at);
-    return { at, time, level: 'info', source: '', message, raw: `${time}  ${message}` };
+    const sanitized = redactDiagnosticText(message);
+    return { at, time, level: 'info', source: '', message: sanitized, raw: `${time}  ${sanitized}` };
   }
 
   private static buildReadyLogs(): Array<LogEntry> {

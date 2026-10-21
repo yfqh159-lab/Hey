@@ -35,7 +35,10 @@ export function redactDiagnosticText(value: string): string {
   for (let index = 0; index < SENSITIVE_VALUE_MARKERS.length; index++) {
     redacted = redactMarkedValues(redacted, SENSITIVE_VALUE_MARKERS[index]);
   }
-  return redactUuidCredentials(redacted);
+  redacted = redactUuidCredentials(redacted);
+  redacted = redactHostPortEndpoints(redacted);
+  redacted = redactIpv6Addresses(redacted);
+  return redactIpv4Addresses(redacted);
 }
 
 function redactUrls(value: string): string {
@@ -145,4 +148,147 @@ function isUuidAt(value: string, start: number): boolean {
 function isHexCharacter(character: string): boolean {
   const code = character.charCodeAt(0);
   return (code >= 48 && code <= 57) || (code >= 65 && code <= 70) || (code >= 97 && code <= 102);
+}
+
+function redactHostPortEndpoints(value: string): string {
+  let result = '';
+  let index = 0;
+  while (index < value.length) {
+    const end = hostPortEnd(value, index);
+    if (end > index) {
+      const colon = value.lastIndexOf(':', end - 1);
+      result += `[redacted-host]${value.substring(colon, end)}`;
+      index = end;
+    } else {
+      result += value.charAt(index);
+      index++;
+    }
+  }
+  return result;
+}
+
+function hostPortEnd(value: string, start: number): number {
+  if (start > 0 && isHostCharacter(value.charAt(start - 1))) {
+    return -1;
+  }
+  let colon = start;
+  while (colon < value.length && isHostCharacter(value.charAt(colon))) {
+    colon++;
+  }
+  if (colon <= start || colon >= value.length || value.charAt(colon) !== ':') {
+    return -1;
+  }
+  const host = value.substring(start, colon);
+  if (host.indexOf('.') < 0 || host.startsWith('.') || host.endsWith('.')) {
+    return -1;
+  }
+  let end = colon + 1;
+  while (end < value.length && isDigit(value.charAt(end))) {
+    end++;
+  }
+  if (end === colon + 1 || (end < value.length && isHostCharacter(value.charAt(end)))) {
+    return -1;
+  }
+  const port = Number(value.substring(colon + 1, end));
+  return port >= 1 && port <= 65535 ? end : -1;
+}
+
+function isHostCharacter(character: string): boolean {
+  const code = character.charCodeAt(0);
+  return isDigit(character) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122) ||
+    character === '.' || character === '-';
+}
+
+function redactIpv4Addresses(value: string): string {
+  let result = '';
+  let index = 0;
+  while (index < value.length) {
+    const end = ipv4End(value, index);
+    if (end > index) {
+      result += '[redacted-ip]';
+      index = end;
+    } else {
+      result += value.charAt(index);
+      index++;
+    }
+  }
+  return result;
+}
+
+function redactIpv6Addresses(value: string): string {
+  let result = '';
+  let index = 0;
+  while (index < value.length) {
+    if (value.charAt(index) === '[') {
+      const close = value.indexOf(']', index + 1);
+      if (close > index && looksLikeIpv6(value.substring(index + 1, close))) {
+        result += '[redacted-ip]';
+        index = close + 1;
+        continue;
+      }
+    }
+    if (index === 0 || !isIpv6TokenCharacter(value.charAt(index - 1))) {
+      let end = index;
+      while (end < value.length && isIpv6TokenCharacter(value.charAt(end))) {
+        end++;
+      }
+      if (end > index && looksLikeIpv6(value.substring(index, end))) {
+        result += '[redacted-ip]';
+        index = end;
+        continue;
+      }
+    }
+    result += value.charAt(index);
+    index++;
+  }
+  return result;
+}
+
+function looksLikeIpv6(value: string): boolean {
+  let colonCount = 0;
+  let hasHex = false;
+  for (let index = 0; index < value.length; index++) {
+    const character = value.charAt(index);
+    if (character === ':') {
+      colonCount++;
+    } else if (isHexCharacter(character)) {
+      hasHex = true;
+    }
+  }
+  return hasHex && (value.indexOf('::') >= 0 || colonCount >= 4);
+}
+
+function isIpv6TokenCharacter(character: string): boolean {
+  return isHexCharacter(character) || character === ':' || character === '.' || character === '%';
+}
+
+function ipv4End(value: string, start: number): number {
+  if (start > 0 && (isDigit(value.charAt(start - 1)) || value.charAt(start - 1) === '.')) {
+    return -1;
+  }
+  let cursor = start;
+  for (let part = 0; part < 4; part++) {
+    const numberStart = cursor;
+    while (cursor < value.length && isDigit(value.charAt(cursor)) && cursor - numberStart < 3) {
+      cursor++;
+    }
+    if (cursor === numberStart || Number(value.substring(numberStart, cursor)) > 255) {
+      return -1;
+    }
+    if (part < 3) {
+      if (cursor >= value.length || value.charAt(cursor) !== '.') {
+        return -1;
+      }
+      cursor++;
+    }
+  }
+  if (cursor < value.length && (isDigit(value.charAt(cursor)) || value.charAt(cursor) === '.')) {
+    return -1;
+  }
+  return cursor;
+}
+
+function isDigit(character: string): boolean {
+  const code = character.charCodeAt(0);
+  return code >= 48 && code <= 57;
 }
