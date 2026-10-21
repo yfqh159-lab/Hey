@@ -1184,6 +1184,29 @@ if (!runtime.includes('private runtimeRefreshBusy: boolean = false;') ||
   !refreshWrapper.includes('if (this.runtimeRefreshTail === settled) {')) {
   throw new Error('cross-page runtime refreshes are not single-flight or authoritative reads are not serialized');
 }
+const persistedReconcileAt = runtime.indexOf('  private async reconcilePersistedVpnState(');
+const persistedReconcileEnd = runtime.indexOf('\n  private resetUnhealthyVpnStateConfirmation()', persistedReconcileAt);
+const persistedReconcile = runtime.slice(persistedReconcileAt, persistedReconcileEnd);
+const recoveredProbeAt = persistedReconcile.indexOf('await probeRuntimeSocksHealth(VPN_DATA_SOCKS_PORT)');
+const firstCandidateCheckAt = persistedReconcile.indexOf(
+  'this.isCurrentRecoveredVpnCandidate(context, recoveredSessionId, recoveredStartedAt)', recoveredProbeAt);
+const stopFlagAt = persistedReconcile.indexOf(
+  'await NetSceneStopFlag.wasStopped(context, recoveredStartedAt)', firstCandidateCheckAt);
+const secondCandidateCheckAt = persistedReconcile.indexOf(
+  'this.isCurrentRecoveredVpnCandidate(context, recoveredSessionId, recoveredStartedAt)', stopFlagAt);
+const recoveredApplyAt = persistedReconcile.indexOf(
+  'this.controller.reconcileRunning(\n        recoveredStartedAt, persisted.coreType, recoveredSessionId)', stopFlagAt);
+if (persistedReconcileAt < 0 || persistedReconcileEnd < 0 ||
+  !runtime.includes("import { LOCAL_HTTP_PROXY_PORT, VPN_DATA_SOCKS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT }") ||
+  recoveredProbeAt < 0 || firstCandidateCheckAt < recoveredProbeAt ||
+  stopFlagAt < firstCandidateCheckAt || secondCandidateCheckAt < stopFlagAt ||
+  recoveredApplyAt < secondCandidateCheckAt ||
+  !persistedReconcile.includes('await this.cleanupUnhealthyVpn(context, language);') ||
+  !runtime.includes('private isCurrentRecoveredVpnCandidate(') ||
+  !runtime.includes('current.sessionId === expectedSessionId') ||
+  !runtime.includes('current.startedAt === expectedStartedAt')) {
+  throw new Error('persisted VPN recovery can trust a stale active file or overwrite a newer session');
+}
 if (!vpn.includes("this.emitInfo('VPN runtime state heartbeat write failed; retrying.'") ||
   !vpn.includes("`session=${this.sessionId}; error=${this.errorMessage(error)}`") ||
   !vpn.includes("`session=${this.sessionId}; ${details}`")) {

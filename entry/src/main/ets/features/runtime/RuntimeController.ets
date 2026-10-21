@@ -9,7 +9,7 @@ import {
   shouldCleanupUnhealthyVpnRuntimeState
 } from '../../core/RuntimeHealth';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppLanguage, AppRuntimeMode, AppSettings, ConnectionStatus, normalizeAppRuntimeMode, ProxyProfile, RuntimeStats } from '../../core/Profile';
-import { LOCAL_HTTP_PROXY_PORT, VPN_INTERNAL_HTTP_PROXY_PORT } from '../../core/XrayConfig';
+import { LOCAL_HTTP_PROXY_PORT, VPN_DATA_SOCKS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT } from '../../core/XrayConfig';
 import { CoreSelectionStore, isSingboxCore } from '../../core/CoreSelection';
 import { ConnectionController, ConnectionSnapshot } from '../../services/ConnectionController';
 import { NetSceneStopFlag } from '../../services/NetSceneStopFlag';
@@ -424,19 +424,69 @@ export class RuntimeController {
       return;
     }
 
-    this.resetUnhealthyVpnStateConfirmation();
     if (this.status === ConnectionStatus.IDLE) {
-      if (await NetSceneStopFlag.wasStopped(context, persisted.startedAt)) {
+      const recoveredSessionId = persisted.sessionId;
+      const recoveredStartedAt = persisted.startedAt;
+      const dataPlane = await probeRuntimeSocksHealth(VPN_DATA_SOCKS_PORT);
+      if (!this.isCurrentRecoveredVpnCandidate(context, recoveredSessionId, recoveredStartedAt)) {
+        return;
+      }
+      if (!dataPlane.ok) {
+        const probeNow = Date.now();
+        if (this.unhealthyVpnStateSessionId !== recoveredSessionId || this.unhealthyVpnStateFirstSeenAt <= 0) {
+          this.unhealthyVpnStateSessionId = recoveredSessionId;
+          this.unhealthyVpnStateFirstSeenAt = probeNow;
+        }
+        if (!shouldCleanupUnhealthyVpnRuntimeState(
+          true,
+          false,
+          this.unhealthyVpnStateFirstSeenAt,
+          probeNow
+        )) {
+          return;
+        }
+        // 状态文件仍声称 active，但固定数据入口持续不可达。先接管同一会话只为了
+        // 向 Extension 下发幂等清理；绝不在该路径启动或恢复核心。
+        const snapshot = this.controller.reconcileRunning(
+          recoveredStartedAt, persisted.coreType, recoveredSessionId);
+        this.applySnapshot(snapshot, language);
+        this.runtimeMode = APP_MODE_VPN;
+        await this.cleanupUnhealthyVpn(context, language);
+        return;
+      }
+      this.resetUnhealthyVpnStateConfirmation();
+      const sceneStopped = await NetSceneStopFlag.wasStopped(context, recoveredStartedAt);
+      // 探针或停止标志读取期间，用户可能已经启动另一模式或 Extension 已换会话。
+      // 迟到结果不得把新的 STARTING/本地代理状态覆盖成旧 VPN 会话。
+      if (!this.isCurrentRecoveredVpnCandidate(context, recoveredSessionId, recoveredStartedAt)) {
+        return;
+      }
+      if (sceneStopped) {
         return;
       }
       const snapshot = this.controller.reconcileRunning(
-        persisted.startedAt, persisted.coreType, persisted.sessionId);
+        recoveredStartedAt, persisted.coreType, recoveredSessionId);
       this.applySnapshot(snapshot, language);
       this.runtimeMode = APP_MODE_VPN;
       this.recoveredProfileUpdatedAt = persisted.profileUpdatedAt ?? 0;
       this.recoveredProfileMismatch = false;
       this.appendLog(translate(language, 'runtime.vpnSessionRecovered'));
+      return;
     }
+    this.resetUnhealthyVpnStateConfirmation();
+  }
+
+  private isCurrentRecoveredVpnCandidate(
+    context: common.Context,
+    expectedSessionId: string,
+    expectedStartedAt: number
+  ): boolean {
+    if (this.status !== ConnectionStatus.IDLE) {
+      return false;
+    }
+    const current = VpnRuntimeStateStore.read(context);
+    return current !== null && current.sessionId === expectedSessionId &&
+      current.startedAt === expectedStartedAt && isPersistedVpnRuntimeHealthy(current, Date.now());
   }
 
   private resetUnhealthyVpnStateConfirmation(): void {
