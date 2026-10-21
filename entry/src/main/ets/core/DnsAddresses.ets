@@ -33,13 +33,18 @@ export function normalizeDnsServers(value: string | undefined, fallback: string,
 
 export function normalizeVpnDnsServers(value?: string, fallback: string = DNS_VPN): Array<string> {
   if (value === undefined || value.trim().length === 0) {
-    return [fallback];
+    return [stripIpAddressBrackets(fallback.trim())];
   }
-  const result = filterDnsServers(value, false);
-  if (result.length === 0) {
-    return [fallback];
+  const filtered = filterDnsServers(value, false);
+  const result = new Array<string>();
+  for (let index = 0; index < filtered.length; index++) {
+    // 方括号只属于 URL authority 语法；VpnConfig.dnsAddresses 接收的是裸网络地址。
+    const address = stripIpAddressBrackets(filtered[index]);
+    if (result.indexOf(address) < 0) {
+      result.push(address);
+    }
   }
-  return result;
+  return result.length > 0 ? result : [stripIpAddressBrackets(fallback.trim())];
 }
 
 function filterDnsServers(value: string, allowCoreDns: boolean): Array<string> {

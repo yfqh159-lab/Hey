@@ -2544,8 +2544,12 @@ export default function localUnitTest() {
 
       const filtered = normalizeVpnDnsAddresses('dns.google, https://dns.google/dns-query, [2606:4700:4700::1111],9.9.9.9');
       expect(filtered.length).assertEqual(2);
-      expect(filtered[0]).assertEqual('[2606:4700:4700::1111]');
+      expect(filtered[0]).assertEqual('2606:4700:4700::1111');
       expect(filtered[1]).assertEqual('9.9.9.9');
+
+      const duplicateIpv6 = normalizeVpnDnsAddresses('[2606:4700:4700::1111],2606:4700:4700::1111');
+      expect(duplicateIpv6.length).assertEqual(1);
+      expect(duplicateIpv6[0]).assertEqual('2606:4700:4700::1111');
 
       const config = createDefaultVpnConfig(false, false, [], '');
       const dnsAddresses = config.dnsAddresses ?? [];

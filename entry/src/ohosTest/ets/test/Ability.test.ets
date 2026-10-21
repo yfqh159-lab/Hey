@@ -45,8 +45,10 @@ export default function abilityTest() {
     });
 
     it('normalizes vpn dns settings for the vpn interface', 0, () => {
-      expect(normalizeVpnDnsAddresses('').join('|')).assertEqual('1.1.1.1|8.8.8.8');
+      expect(normalizeVpnDnsAddresses('').join('|')).assertEqual('10.10.14.2');
       expect(normalizeVpnDnsAddresses('9.9.9.9, 1.0.0.1, 9.9.9.9').join('|')).assertEqual('9.9.9.9|1.0.0.1');
+      expect(normalizeVpnDnsAddresses('[2606:4700:4700::1111],2606:4700:4700::1111').join('|'))
+        .assertEqual('2606:4700:4700::1111');
 
       const config = createDefaultVpnConfig(false, true, [], '9.9.9.9, 1.0.0.1');
       const dnsAddresses = config.dnsAddresses === undefined ? [] : config.dnsAddresses;
