@@ -216,6 +216,16 @@ if (pageStateAt < 0 || pageStateEnd < 0 ||
   !pageState.includes('this.isStateLoaded = true;')) {
   throw new Error('Geo one-tap update page can still be blocked by unrelated full settings reads');
 }
+const customLoadAt = page.indexOf('  private async loadCustomAssets(pageGeneration: number): Promise<void>');
+const customLoadEnd = page.indexOf('\n  private async loadState(', customLoadAt);
+const customLoad = page.slice(customLoadAt, customLoadEnd);
+if (customLoadAt < 0 || customLoadEnd < 0 ||
+  !customLoad.includes('this.customAssets = [];') ||
+  !customLoad.includes('this.customFileStatuses = {};') ||
+  customLoad.includes('this.geoAssetHashes = {};') ||
+  customLoad.includes("this.geoUpdateSummary = this.t('assets.geo.defaultSource');")) {
+  throw new Error('custom Geo source load failures can corrupt built-in Geo verification display');
+}
 const updateAt = page.indexOf('  private async checkGeoUpdate(): Promise<void>');
 const updateEnd = page.indexOf('\n  private deleteAsset(', updateAt);
 const update = page.slice(updateAt, updateEnd);

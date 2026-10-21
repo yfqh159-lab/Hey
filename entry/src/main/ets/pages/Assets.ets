@@ -1298,8 +1298,10 @@ struct AssetsPage {
       }
     } catch (error) {
       if (this.isCurrentPage(pageGeneration)) {
-        this.geoAssetHashes = {};
-        this.geoUpdateSummary = this.t('assets.geo.defaultSource');
+        // 自定义来源列表与内置 Geo 校验元数据是两块独立状态。来源读取失败时清掉
+        // 可能过期的自定义列表，但不能抹掉 loadState 已经核对过的内置版本与 SHA。
+        this.customAssets = [];
+        this.customFileStatuses = {};
         const detail = error instanceof Error ? error.message : JSON.stringify(error);
         this.toast(this.f1('assets.loadFailed', 'error', redactDiagnosticText(detail)));
       }
