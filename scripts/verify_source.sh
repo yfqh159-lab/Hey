@@ -1411,6 +1411,7 @@ const inboundAt = config.indexOf("const proxyOnlyHttpInboundTag = 'proxy-app-htt
 const inboundEnd = config.indexOf('\n  if (appendHttpProxy)', inboundAt);
 const inbound = config.slice(inboundAt, inboundEnd);
 if (!config.includes('export const PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT: number = 18084;') ||
+  config.split('if (username.trim().length > 0 || password.trim().length > 0)').length - 1 !== 2 ||
   inboundAt < 0 || inboundEnd < 0 ||
   !inbound.includes('listen: LOCAL_HTTP_PROXY_HOST') ||
   !inbound.includes('port: PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT') ||
@@ -1419,7 +1420,7 @@ if (!config.includes('export const PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT: number =
   !assets.includes('isProxyOnlyRuntimeMode(mode) ? PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT') ||
   !subscriptions.includes('isProxyOnlyRuntimeMode(mode) ? PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT') ||
   !runtime.includes('return PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT;')) {
-  throw new Error('app-owned proxy-only HTTP traffic is not isolated from the authenticated user listener');
+  throw new Error('proxy-only HTTP isolation or partial-credential authentication regressed');
 }
 NODE
 printf 'proxy-only internal HTTP isolation verification passed\n'

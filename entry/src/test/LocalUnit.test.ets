@@ -1790,6 +1790,30 @@ export default function localUnitTest() {
       expect(result.configJson).assertContain(`"listen": "${LOCAL_HTTP_PROXY_LAN_HOST}"`);
     });
 
+    it('never downgrades partially configured local proxy credentials to noauth', 0, () => {
+      const settings = buildSettingsFixture();
+      settings.mode = APP_MODE_PROXY_ONLY;
+      settings.proxySharingEnabled = true;
+      settings.localSocksUsername = 'user-only';
+      settings.localSocksPassword = '';
+      let result = buildXrayConfigWithSettings(VLESS_REALITY_OUTBOUND, settings);
+      let socksSettings = inboundSettingsFromConfig(result.configJson, 'socks-in');
+      let httpSettings = inboundSettingsFromConfig(result.configJson, 'http-in');
+      const appSettings = inboundSettingsFromConfig(result.configJson, 'proxy-app-http-in');
+      expect(socksSettings['auth'] as string).assertEqual('password');
+      expect(Array.isArray(socksSettings['accounts'])).assertTrue();
+      expect(Array.isArray(httpSettings['users'])).assertTrue();
+      expect(appSettings['users'] === undefined).assertTrue();
+
+      settings.localSocksUsername = '';
+      settings.localSocksPassword = 'password-only';
+      result = buildXrayConfigWithSettings(VLESS_REALITY_OUTBOUND, settings);
+      socksSettings = inboundSettingsFromConfig(result.configJson, 'socks-in');
+      httpSettings = inboundSettingsFromConfig(result.configJson, 'http-in');
+      expect(socksSettings['auth'] as string).assertEqual('password');
+      expect(Array.isArray(httpSettings['users'])).assertTrue();
+    });
+
     it('enables local socks proxy by default', 0, () => {
       expect(DEFAULT_APP_SETTINGS.localSocksEnabled).assertTrue();
       expect(DEFAULT_APP_SETTINGS.localSocksPort).assertEqual(18080);
@@ -5430,6 +5454,20 @@ function routingRulesFromConfig(configJson: string): Array<Record<string, Object
     return new Array<Record<string, Object>>();
   }
   return rules;
+}
+
+function inboundSettingsFromConfig(configJson: string, inboundTag: string): Record<string, Object> {
+  const config = JSON.parse(configJson) as Record<string, Object>;
+  const inbounds = config.inbounds as Array<Record<string, Object>>;
+  if (!Array.isArray(inbounds)) {
+    return {};
+  }
+  for (let index = 0; index < inbounds.length; index++) {
+    if ((inbounds[index].tag as string) === inboundTag) {
+      return inbounds[index].settings as Record<string, Object>;
+    }
+  }
+  return {};
 }
 
 function hasRoutingInboundTag(rule: Record<string, Object>, inboundTag: string): boolean {

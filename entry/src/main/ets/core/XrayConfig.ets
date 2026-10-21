@@ -318,7 +318,9 @@ class SocksInboundSettings {
 
   constructor(udp: boolean = true, username: string = '', password: string = '') {
     this.udp = udp;
-    if (username.trim().length > 0 && password.trim().length > 0) {
+    // 只要任一字段被配置就必须启用认证。不能因为用户名或密码漏填一个字段而
+    // 静默退化成 noauth，尤其在局域网共享开启时会把原本以为受保护的端口暴露出去。
+    if (username.trim().length > 0 || password.trim().length > 0) {
       this.auth = 'password';
       this.accounts = [{
         user: username.trim(),
@@ -338,7 +340,8 @@ class HttpInboundSettings {
     // Xray HTTP inbound uses `users` for Basic Authentication. Reuse the same optional
     // credentials as the visible SOCKS listener so enabling LAN sharing never leaves HTTP
     // unintentionally unauthenticated while SOCKS is protected.
-    if (username.trim().length > 0 && password.trim().length > 0) {
+    // 与 SOCKS 保持相同边界：部分填写仍启用 Basic Auth，绝不静默变成无认证。
+    if (username.trim().length > 0 || password.trim().length > 0) {
       this.users = [{
         user: username.trim(),
         pass: password.trim()
