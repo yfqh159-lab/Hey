@@ -97,11 +97,17 @@ ArkTS 的截止时间能结束上层等待，但不能强制终止已经卡死�
 - `bash scripts/compliance_scan.sh`：通过；未发现私人节点、签名材料、地区策略或未批准用途。
 - Windows DevEco Studio DS-243.24978.46.36.611280 / Hvigor 6.24.2：在独立 Windows 工作树完成 ArkTS、CMake、Ninja、资源及 PackageHap 构建；`bea8c69` 对应验证提交生成 85,965,499 字节无签名 HAP，`unzip -t` 通过且五个关键 arm64 库齐全。
 - ArkTS LocalUnit 曾在较早实现点全量通过 243/243；当前实现点重跑受 DevEco 预览运行时 `arkTheme` panda file 加载失败阻断，没有产生新的 Hypium 汇总，因此不把历史结果写成当前提交的单测通过。
-- Windows `hdc list targets` 返回 `[Empty]`；项目没有签名配置，故安装、模拟器和真机检查均未执行。
+- 初次 Windows 构建时 `hdc list targets` 返回 `[Empty]`；后续设备验证结果见下方模拟器复核，
+  项目仍未配置用户本地签名。
 
 ## 下一阶段入口
 
-静态审计和无签名完整构建到此闭环。下一步需要 Windows DevEco 启动模拟器或连接真机，并配置只保留在本地的签名；随后先检查页面、导入和存储恢复，再严格按 [`device-acceptance.md`](device-acceptance.md) 验证 VPN/TUN、DNS/IPv6、防回环、锁屏后台、承载切换、原生阻塞故障、出口以及 AI 应用流量。所有未执行项继续标为未执行，不能用静态检查替代。
+静态审计和无签名完整构建到此闭环。后续启动的 HarmonyOS 6.1.1(24) Phone 模拟器为
+`x86_64`，实际安装当前仅含 `arm64-v8a` 原生库的 HAP 时以错误码 `9568347` 被拒绝，且镜像缺少
+`com.huawei.hmos.vpndialog`。下一步需要连接兼容 ARM64 且具备 VPN 授权组件的真机，并配置只保留
+在本地的签名；随后先检查页面、导入和存储恢复，再严格按
+[`device-acceptance.md`](device-acceptance.md) 验证 VPN/TUN、DNS/IPv6、防回环、锁屏后台、承载切换、
+原生阻塞故障、出口以及 AI 应用流量。所有未执行项继续标为未执行，不能用静态检查替代。
 
 ## 后续 DevEco 编译复核（2026-10-22）
 

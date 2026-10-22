@@ -225,6 +225,19 @@ function Assert-Hdc {
   }
 }
 
+function Assert-TargetAbi {
+  $abiLines = @(& $Hdc shell 'param get const.product.cpu.abilist' 2>&1)
+  $abiExitCode = $LASTEXITCODE
+  $abiOutput = ($abiLines | ForEach-Object { $_.ToString() }) -join "`n"
+  if ($abiExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($abiOutput)) {
+    throw 'Connected target did not return const.product.cpu.abilist.'
+  }
+  Write-Host "Target CPU ABI: $($abiOutput.Trim())"
+  if ($abiOutput.Trim() -notmatch '(?i)(^|,)\s*arm64-v8a\s*(,|$)') {
+    throw "Target ABI is incompatible with the packaged arm64-v8a native cores: $($abiOutput.Trim())"
+  }
+}
+
 Push-Location $ProjectRoot
 try {
   switch ($Action) {
@@ -279,6 +292,13 @@ try {
           & $Hdc shell 'param get const.product.model; param get const.product.software.version; param get const.ohos.apiversion'
           if ($LASTEXITCODE -ne 0) {
             Write-Host 'MISSING: connected target did not return system information.'
+            $failed = $true
+          }
+          Write-Host 'CPU ABI:'
+          try {
+            Assert-TargetAbi
+          } catch {
+            Write-Host "MISSING: $($_.Exception.Message)"
             $failed = $true
           }
           Write-Host 'VPN dialog package:'
@@ -342,6 +362,7 @@ try {
     }
     'install' {
       Assert-Hdc
+      Assert-TargetAbi
       Assert-SignedHap $Hap $Java $HapSignTool
       Invoke-ExternalTool $Hdc @('install', '-r', $Hap)
     }

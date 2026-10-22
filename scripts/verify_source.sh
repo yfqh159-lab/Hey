@@ -3476,6 +3476,8 @@ const acceptance = fs.readFileSync('docs/device-acceptance.md', 'utf8');
 for (const required of [
   'MISSING: no connected hdc target.',
   'com.huawei.hmos.vpndialog',
+  'const.product.cpu.abilist',
+  'arm64-v8a native cores',
   'param get const.product.model',
   '$targetExitCode -ne 0',
   "'verify-app'",
@@ -3486,13 +3488,21 @@ for (const required of [
     throw new Error(`Windows device doctor lost required target check: ${required}`);
   }
 }
-for (const required of ['verify-app', 'verify-hap)', 'HAP_SIGN_TOOL', 'hap-sign-tool.jar']) {
+for (const required of [
+  'verify-app',
+  'verify-hap)',
+  'HAP_SIGN_TOOL',
+  'hap-sign-tool.jar',
+  'const.product.cpu.abilist',
+  'arm64-v8a native cores'
+]) {
   if (!shellSmoke.includes(required)) {
     throw new Error(`Unix HAP installation lost signature verification: ${required}`);
   }
 }
 if (!acceptance.includes('device_vpn_smoke_test.ps1 doctor') ||
-  !acceptance.includes('com.huawei.hmos.vpndialog')) {
+  !acceptance.includes('com.huawei.hmos.vpndialog') ||
+  !acceptance.includes('arm64-v8a')) {
   throw new Error('device acceptance guide lost the Windows VPN preflight');
 }
 NODE

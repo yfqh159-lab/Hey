@@ -197,6 +197,21 @@ require_hdc() {
   fi
 }
 
+assert_target_abi() {
+  local abi_output
+  if ! abi_output="$("${HDC}" shell 'param get const.product.cpu.abilist' 2>&1)" || \
+    [[ -z "${abi_output//[[:space:]]/}" ]]; then
+    printf 'Connected target did not return const.product.cpu.abilist.\n' >&2
+    exit 1
+  fi
+  printf 'Target CPU ABI: %s\n' "${abi_output}"
+  if ! grep -qiE '(^|,)[[:space:]]*arm64-v8a[[:space:]]*(,|$)' <<<"${abi_output}"; then
+    printf 'Target ABI is incompatible with the packaged arm64-v8a native cores: %s\n' \
+      "${abi_output}" >&2
+    exit 1
+  fi
+}
+
 case "${1:-}" in
   build)
     require_hvigor
@@ -236,6 +251,7 @@ case "${1:-}" in
     ;;
   install)
     require_hdc
+    assert_target_abi
     require_hap_signature_verifier
     verify_hap_native_libs
     "${HDC}" install -r "${HAP}"
@@ -318,6 +334,19 @@ case "${1:-}" in
       else
         printf '\nSystem:\n'
         "${HDC}" shell 'param get const.product.model; param get const.product.software.version; param get const.ohos.apiversion'
+        printf '\nCPU ABI:\n'
+        abi_status=0
+        abi_output="$("${HDC}" shell 'param get const.product.cpu.abilist' 2>&1)" || abi_status=$?
+        if [[ "${abi_status}" -ne 0 || -z "${abi_output//[[:space:]]/}" ]]; then
+          printf 'MISSING: connected target did not return const.product.cpu.abilist.\n'
+          doctor_failed=1
+        else
+          printf '%s\n' "${abi_output}"
+          if ! grep -qiE '(^|,)[[:space:]]*arm64-v8a[[:space:]]*(,|$)' <<<"${abi_output}"; then
+            printf 'MISSING: target ABI is incompatible with the packaged arm64-v8a native cores.\n'
+            doctor_failed=1
+          fi
+        fi
         printf '\nVPN dialog package:\n'
         vpn_dialog_dump="$("${HDC}" shell 'bm dump -n com.huawei.hmos.vpndialog 2>&1' || true)"
         if grep -qiE 'failed|not exist|no bundle|no valid extension' <<<"${vpn_dialog_dump}"; then

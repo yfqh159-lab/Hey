@@ -3,6 +3,11 @@
 > 当前状态：**未在本轮 Codex 环境执行真机验收**。本文件是交付时必须逐项填写的证据表，
 > 不能用静态检查、模拟器结果或“连接按钮变色”代替。
 
+2026-10-22 已完成一次模拟器负向预检：HarmonyOS 6.1.1(24) Phone 模拟器通过 `hdc` 上线，
+但设备 ABI 为 `x86_64`，当前 HAP 的五个关键原生库仅提供 `arm64-v8a`；真实安装以错误码
+`9568347` 被系统拒绝。该镜像也未安装 `com.huawei.hmos.vpndialog`。因此没有任何功能矩阵项
+由此次模拟器检查改为“通过”，后续目标必须同时支持 `arm64-v8a` 并具备系统 VPN 授权组件。
+
 ## 1. 测试条件
 
 记录以下信息，但不要粘贴节点链接、UUID、密码、订阅 Token 或签名材料：
@@ -36,7 +41,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\device_vpn_smoke_test.ps1 log
 ```
 
 `doctor` 必须同时确认签名配置、已连接目标及目标系统内的
-`com.huawei.hmos.vpndialog`；模拟器镜像缺少该组件时不能执行系统 VPN 验收。
+`com.huawei.hmos.vpndialog`，并确认目标 ABI 包含 `arm64-v8a`；ABI 不匹配时不能安装当前 HAP，
+模拟器镜像缺少 VPN 授权组件时不能执行系统 VPN 验收。
 
 ## 2. 必须通过的功能矩阵
 

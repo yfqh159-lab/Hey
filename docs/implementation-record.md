@@ -405,6 +405,14 @@ arm64 库；已用当前无签名产物执行负向测试，验证器按预期�
 同一动作仍拒绝原无签名包。测试包、证书、Profile 和临时 keystore 随后全部删除，未进入仓库，
 也不把此测试签名当作设备安装或用户发布签名。
 
+2026-10-22 随后启动 DevEco `Mate 80 RS` Phone 模拟器并由 `hdc` 识别为
+`127.0.0.1:5555`；系统为 HarmonyOS 6.1.1(24)、API 24，CPU ABI 为 `x86_64`。当前 HAP
+只包含 `arm64-v8a` 的 Xray、sing-box、tun2socks 和 N-API 原生库，实际执行
+`hdc install -r entry-default-unsigned.hap` 在解析原生库阶段以错误码 `9568347` 拒绝安装：目标 ABI
+与 C++ 工程 ABI 不匹配。该镜像同时缺少 `com.huawei.hmos.vpndialog`，不能完成系统 VPN 授权。
+这两个结论来自设备侧预检和真实安装尝试，不是推测；也意味着本模拟器不能用于页面运行、Xray
+或 VPN/TUN 验收。设备脚本现会在安装前检查 `const.product.cpu.abilist`，对不兼容目标给出明确错误。
+
 2026-10-21 还直接核对了
 [`Loyalsoldier/v2ray-rules-dat` 最新 Release API](https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest)：
 版本 `202610202206` 同时提供 `geoip.dat`、`geosite.dat` 及对应 `.sha256sum`；临时目录中下载的
@@ -413,7 +421,8 @@ arm64 库；已用当前无签名产物执行负向测试，验证器按预期�
 
 仍未执行且不得写成已通过：
 
-- HAP 签名、安装及设备侧 `hdc` 诊断；当前环境没有用户签名和目标设备。
+- 使用用户本地调试签名在兼容的 ARM64 目标上安装并启动应用；当前模拟器已完成 `hdc` 诊断和
+  负向安装验证，但其 `x86_64` ABI 与缺失的 VPN 授权组件构成确定阻断。
 - VPN 出口、DNS/IPv6、锁屏、后台、网络切换、ChatGPT 网页及应用流量等真机矩阵。
 - 普通手机系统是否授予 Hey 开机自启动。代码只处理系统实际提供的 `AUTO_STARTUP` 启动原因；
   不调用仅限企业设备管理/特定设备类型的自启动特权接口，也不保证所有设备都会触发。
