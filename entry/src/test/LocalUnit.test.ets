@@ -42,6 +42,7 @@ import {
   isMissingVpnRuntimeStateUnhealthy,
   isProxyOnlyRuntimeUnhealthy,
   isVpnCleanupComplete,
+  canConfirmVpnReleasedAfterSystemStop,
   runtimeMayOwnNetwork,
   shouldApplyVpnDiagnosticError,
   shouldApplyVpnDiagnosticStats,
@@ -3781,6 +3782,17 @@ export default function localUnitTest() {
       expect(isVpnCleanupComplete(true, false, true, true)).assertFalse();
       expect(isVpnCleanupComplete(true, true, false, true)).assertFalse();
       expect(isVpnCleanupComplete(true, true, true, false)).assertFalse();
+    });
+
+    it('reconciles a mismatched cleanup session only after an explicit completed system stop', 0, () => {
+      expect(canConfirmVpnReleasedAfterSystemStop(true, true, false, false, false, false, true)).assertTrue();
+      expect(canConfirmVpnReleasedAfterSystemStop(false, true, false, false, false, false, true)).assertFalse();
+      expect(canConfirmVpnReleasedAfterSystemStop(true, false, false, false, false, false, true)).assertFalse();
+      expect(canConfirmVpnReleasedAfterSystemStop(true, true, true, false, false, false, true)).assertFalse();
+      expect(canConfirmVpnReleasedAfterSystemStop(true, true, false, true, false, false, true)).assertFalse();
+      expect(canConfirmVpnReleasedAfterSystemStop(true, true, false, false, true, false, true)).assertFalse();
+      expect(canConfirmVpnReleasedAfterSystemStop(true, true, false, false, false, true, true)).assertFalse();
+      expect(canConfirmVpnReleasedAfterSystemStop(true, true, false, false, false, false, false)).assertFalse();
     });
 
     it('retains recent cancelled VPN start sessions across marker upgrades', 0, () => {

@@ -11,7 +11,7 @@ import { CORE_TYPE_SINGBOX, CORE_TYPE_XRAY, CoreSelectionStore, CoreType, isSing
 import { buildSingboxConfig, GeneratedSingboxConfig } from '../core/SingboxConfig';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { SubscriptionStore } from '../storage/SubscriptionStore';
-import { createStopCommandVpnWant, createStopVpnWant, createVpnWant, isMatchingVpnSessionDetails } from '../vpn/VpnConstants';
+import { createStopCommandVpnWant, createStopVpnWant, createVpnWant, isMatchingVpnSessionDetails, isValidVpnSessionId } from '../vpn/VpnConstants';
 import { getNativeFreePorts, getNativeStats, nativeXrayAssetReadiness, startNativeXray, stopNativeXray, testNativeXrayConfig } from '../native/HeyNative';
 import { DiagnosticEvent, DiagnosticLog } from './DiagnosticLog';
 import { clearCoreLog, clearSingboxLog } from './CoreLogReader';
@@ -20,6 +20,7 @@ import { waitForRuntimeSocksHealth } from './RuntimeHealthProbe';
 import { assertGeoAssetsStableForCore } from './GeoCoreReadiness';
 import { VpnStartCancellationStore } from './VpnStartCancellationStore';
 import { VpnStartRequestStore } from './VpnStartRequestStore';
+import { canConfirmVpnReleasedAfterSystemStop } from '../core/RuntimeHealth';
 import {
   VpnRuntimeStateStore,
   isPersistedVpnRuntimeSessionReady,
@@ -649,6 +650,8 @@ export class ConnectionController {
     this.status = ConnectionStatus.STOPPING;
     const requestedAt = Date.now();
     let systemStopAttempted = false;
+    let fallbackSystemStopSucceeded = false;
+    const targetSessionId = this.vpnSessionId;
     try {
       if (this.runtimeMode === APP_MODE_PROXY_ONLY) {
         this.stopProxyOnly(context);
@@ -662,7 +665,6 @@ export class ConnectionController {
         return this.getSnapshot();
       }
       hilog.info(LOG_DOMAIN, LOG_TAG, 'Calling startVpnExtensionAbility with stop command.');
-      const targetSessionId = this.vpnSessionId;
       const cancellationPersisted = targetSessionId.length > 0 &&
         VpnStartCancellationStore.markCancelled(context, targetSessionId);
       VpnStartRequestStore.clear(context, targetSessionId);
@@ -719,10 +721,23 @@ export class ConnectionController {
           systemStopAttempted = true;
           await this.withTimeout(vpnExtension.stopVpnExtensionAbility(createStopVpnWant()),
             START_VPN_TIMEOUT_MS, 'Fallback VPN Extension stop timed out.');
+          fallbackSystemStopSucceeded = true;
         } catch (stopError) {
           hilog.error(LOG_DOMAIN, LOG_TAG, 'fallback VPN extension stop failed: %{public}s',
             redactDiagnosticText(JSON.stringify(stopError)));
         }
+      }
+      if (this.confirmReleasedVpnAfterSystemStop(context, targetSessionId, fallbackSystemStopSucceeded)) {
+        this.status = ConnectionStatus.IDLE;
+        this.startedAt = 0;
+        this.lastError = '';
+        this.runtimeMode = APP_MODE_VPN;
+        this.vpnSessionId = '';
+        this.clearProxyReloadState();
+        this.cleanupRequired = false;
+        hilog.info(LOG_DOMAIN, LOG_TAG,
+          'VPN cleanup reconciled after explicit system stop and inactive persisted data plane.');
+        return this.getSnapshot();
       }
       const businessError = error as BusinessError;
       this.status = ConnectionStatus.ERROR;
@@ -732,6 +747,35 @@ export class ConnectionController {
       hilog.error(LOG_DOMAIN, LOG_TAG, 'connection stop failed: %{public}s', this.lastError);
     }
     return this.getSnapshot();
+  }
+
+  private confirmReleasedVpnAfterSystemStop(
+    context: common.Context,
+    targetSessionId: string,
+    systemStopSucceeded: boolean
+  ): boolean {
+    const persisted = VpnRuntimeStateStore.readWithEvidence(context);
+    const state = persisted.state;
+    if (!canConfirmVpnReleasedAfterSystemStop(
+      systemStopSucceeded,
+      state !== null,
+      persisted.authoritativeArtifactInvalid,
+      state?.active ?? true,
+      state?.xrayRunning ?? true,
+      state?.tunRunning ?? true,
+      state?.cleanupAttempted === true
+    ) || state === null) {
+      return false;
+    }
+    const reconciledSessionId = isValidVpnSessionId(targetSessionId) ? targetSessionId : state.sessionId;
+    return VpnRuntimeStateStore.write(context, VpnRuntimeStateStore.stopped(
+      reconciledSessionId,
+      state.startedAt,
+      state.coreType,
+      state.profileUpdatedAt ?? 0,
+      true,
+      true
+    ));
   }
 
   // 隧道已被 VPN 扩展在后台自动断开（网络场景），本进程状态滞留「运行中」时校正为空闲。

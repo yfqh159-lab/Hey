@@ -40,6 +40,25 @@ export function isVpnCleanupComplete(
 }
 
 /**
+ * An older/parameterless Extension instance can record cleanup under a fallback session ID,
+ * leaving the UI unable to match its terminal event. An explicit system stop may repair that
+ * control-plane mismatch only when the persisted owner already reports every data-plane
+ * component inactive and confirms that cleanup was attempted.
+ */
+export function canConfirmVpnReleasedAfterSystemStop(
+  systemStopSucceeded: boolean,
+  stateExists: boolean,
+  authoritativeArtifactInvalid: boolean,
+  active: boolean,
+  xrayRunning: boolean,
+  tunRunning: boolean,
+  cleanupAttempted: boolean
+): boolean {
+  return systemStopSucceeded && stateExists && !authoritativeArtifactInvalid && !active &&
+    !xrayRunning && !tunRunning && cleanupAttempted;
+}
+
+/**
  * 本地代理与 UI 位于同一进程，native bridge 明确报告停止时可立即判定异常；
  * bridge 的运行标志本身不代表监听器一定仍存活，后续还需 SOCKS 端口探测。
  * VPN 模式的核心在扩展进程中，必须使用跨进程心跳判断，不能走这里。
