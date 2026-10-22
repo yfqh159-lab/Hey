@@ -6,6 +6,8 @@ const CANCELLATION_FILE: string = 'hey-vpn-start-cancelled';
 const CANCELLATION_TEMP_FILE: string = 'hey-vpn-start-cancelled.tmp';
 const CANCELLATION_BACKUP_FILE: string = 'hey-vpn-start-cancelled.bak';
 const CANCELLATION_HISTORY_VERSION: number = 1;
+export const MAX_VPN_START_CANCELLATION_HISTORY: number = 128;
+const MAX_VPN_START_CANCELLATION_FILE_BYTES: number = 64 * 1024;
 
 interface StoredVpnStartCancellationHistory {
   version: number;
@@ -42,6 +44,9 @@ export function parseVpnStartCancellationHistory(raw: string): string[] | null {
       }
       if (!result.includes(sessionId)) {
         result.push(sessionId);
+        if (result.length > MAX_VPN_START_CANCELLATION_HISTORY) {
+          result.shift();
+        }
       }
     }
     return result;
@@ -63,13 +68,14 @@ export function appendVpnStartCancellation(
     if (!isValidVpnSessionId(existing)) {
       return null;
     }
-    if (!result.includes(existing)) {
+    if (existing !== sessionId && !result.includes(existing)) {
       result.push(existing);
+      if (result.length >= MAX_VPN_START_CANCELLATION_HISTORY) {
+        result.shift();
+      }
     }
   }
-  if (!result.includes(sessionId)) {
-    result.push(sessionId);
-  }
+  result.push(sessionId);
   return result;
 }
 
@@ -91,7 +97,8 @@ export class VpnStartCancellationStore {
       VpnStartCancellationStore.recover(targetPath, tempPath, backupPath);
       let history = new Array<string>();
       if (fs.accessSync(targetPath)) {
-        const parsed = parseVpnStartCancellationHistory(fs.readTextSync(targetPath));
+        const parsed = parseVpnStartCancellationHistory(
+          VpnStartCancellationStore.readBoundedFile(targetPath));
         if (parsed === null) {
           return false;
         }
@@ -153,7 +160,8 @@ export class VpnStartCancellationStore {
         if (!fs.accessSync(paths[index])) {
           continue;
         }
-        const stored = parseVpnStartCancellationHistory(fs.readTextSync(paths[index]));
+        const stored = parseVpnStartCancellationHistory(
+          VpnStartCancellationStore.readBoundedFile(paths[index]));
         if (stored === null) {
           return { cancelled: false, reliable: false };
         }
@@ -169,7 +177,8 @@ export class VpnStartCancellationStore {
 
   private static recover(targetPath: string, tempPath: string, backupPath: string): void {
     if (fs.accessSync(tempPath)) {
-      const temp = parseVpnStartCancellationHistory(fs.readTextSync(tempPath));
+      const temp = parseVpnStartCancellationHistory(
+        VpnStartCancellationStore.readBoundedFile(tempPath));
       if (temp !== null) {
         VpnStartCancellationStore.removeIfExists(backupPath);
         if (fs.accessSync(targetPath)) {
@@ -189,6 +198,15 @@ export class VpnStartCancellationStore {
     if (fs.accessSync(path)) {
       fs.unlinkSync(path);
     }
+  }
+
+  private static readBoundedFile(path: string): string {
+    const stat = fs.statSync(path);
+    if (!Number.isFinite(stat.size) || stat.size < 0 ||
+      stat.size > MAX_VPN_START_CANCELLATION_FILE_BYTES) {
+      throw new Error('VPN start cancellation marker is too large.');
+    }
+    return fs.readTextSync(path);
   }
 
   private static removeIfExistsSafely(path: string): void {

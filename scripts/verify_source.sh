@@ -2566,6 +2566,10 @@ if [[ ! -f "$vpn_cancel_store" ]] || \
   ! grep -Fq "static check(context: common.Context, sessionId: string): VpnStartCancellationCheck" "$vpn_cancel_store" || \
   ! grep -Fq "export function parseVpnStartCancellationHistory(raw: string): string[] | null" "$vpn_cancel_store" || \
   ! grep -Fq "export function appendVpnStartCancellation(" "$vpn_cancel_store" || \
+  ! grep -Fq "MAX_VPN_START_CANCELLATION_HISTORY: number = 128" "$vpn_cancel_store" || \
+  ! grep -Fq "MAX_VPN_START_CANCELLATION_FILE_BYTES: number = 64 * 1024" "$vpn_cancel_store" || \
+  ! grep -Fq "VpnStartCancellationStore.readBoundedFile(" "$vpn_cancel_store" || \
+  ! grep -Fq "result.length > MAX_VPN_START_CANCELLATION_HISTORY" "$vpn_cancel_store" || \
   ! grep -Fq "sessionIds: nextHistory" "$vpn_cancel_store" || \
   ! grep -Fq "stored.includes(sessionId)" "$vpn_cancel_store" || \
   grep -Fq "return { cancelled: stored === sessionId" "$vpn_cancel_store" || \
