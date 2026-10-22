@@ -7,6 +7,7 @@ import { isSupportedShareLink, isWireguardConfigFile, parseShareLinkToOutboundJs
 import { DEFAULT_CORE_LOG_LEVEL, normalizeCoreLogLevel, normalizeFragmentPackets, normalizeHysteria2Security, normalizeMuxXudpQuic, normalizeStreamAlpnWithFallback, normalizeXhttpMode } from './ProtocolOptions';
 import { isSingboxOnlyProtocol } from './CoreSelection';
 import { coerceRealitySafeFingerprint } from './RealityFingerprint';
+import { IMPORT_TEXT_TOO_LARGE_MESSAGE, isExternalImportTextTooLarge } from './ExternalInput';
 
 interface XrayOutbound {
   protocol?: string;
@@ -632,6 +633,15 @@ export function validatePolicyGroupConfigJson(configJson: string): ValidationRes
 }
 
 export function normalizeConfigInput(input: string, preferredType?: XrayConfigType): ValidationResult {
+  if (isExternalImportTextTooLarge(input)) {
+    return {
+      valid: false,
+      message: IMPORT_TEXT_TOO_LARGE_MESSAGE,
+      protocol: '',
+      normalizedJson: '',
+      configType: preferredType ?? 'outbound'
+    };
+  }
   const trimmed = input.trim();
   if (preferredType === 'full') {
     return validateFullConfigJson(trimmed);

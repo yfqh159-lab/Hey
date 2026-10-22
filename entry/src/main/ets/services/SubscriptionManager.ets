@@ -6,6 +6,7 @@ import { ProxyNode, isProxyOnlyRuntimeMode } from '../core/Profile';
 import { decodeBase64ToUtf8, encodeUtf8ToBase64 } from '../core/Encoding';
 import { isLoopbackOrPrivateHttpUrl } from '../core/PrivateNetwork';
 import { parseHttpRedirectLocation, resolveHttpRedirectUrl } from '../core/HttpRedirect';
+import { SUBSCRIPTION_URL_TOO_LONG_MESSAGE, isExternalUriTooLarge } from '../core/ExternalInput';
 import {
   isSupportedShareLink,
   parseShareLinkToOutboundJson,
@@ -382,6 +383,9 @@ export class SubscriptionManager {
 
   static validateSubscriptionUrl(url: string, allowInsecureUrl: boolean): string {
     const trimmedUrl = url.trim();
+    if (isExternalUriTooLarge(trimmedUrl)) {
+      return SUBSCRIPTION_URL_TOO_LONG_MESSAGE;
+    }
     if (!SubscriptionManager.isHttpUrl(trimmedUrl)) {
       return '订阅链接必须是 http:// 或 https://。';
     }
@@ -442,6 +446,9 @@ export class SubscriptionManager {
   }
 
   static parseSubscriptionContentDetailed(content: string, sourceUrl: string): SubscriptionParseOutcome {
+    if (content.length > MAX_SUBSCRIPTION_RESPONSE_BYTES) {
+      return { nodes: [], skipped: 0 };
+    }
     const raw = SubscriptionManager.normalizeSubscriptionPayload(content);
     const rawOutcome = SubscriptionManager.parseTextDetailed(raw, sourceUrl);
     if (rawOutcome.nodes.length > 0) {

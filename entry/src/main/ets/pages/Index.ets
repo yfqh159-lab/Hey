@@ -9,6 +9,7 @@ import { CoreSelectionStore, CoreType, requiredCoreForProtocol, CORE_TYPE_SINGBO
 import { DELAY_TEST_BATCH_PORT_BASE, normalizeOutboundInput } from '../core/XrayConfig';
 import { DeepLinkControlAction, DeepLinkIntent, parseDeepLink, subscriptionNameFromDeepLink } from '../core/DeepLink';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
+import { isExternalImportTextTooLarge } from '../core/ExternalInput';
 import {
   consumeRuntimeSettingsRestartDecision,
   RUNTIME_SETTINGS_RESTART_PENDING_KEY
@@ -577,6 +578,9 @@ struct Index {
   }
 
   private safeSharedImportSummary(payload: string): string {
+    if (isExternalImportTextTooLarge(payload)) {
+      return this.t('core.importTooLarge');
+    }
     const lines = this.uniqueImportLines(payload);
     const configLines = new Array<string>();
     let firstSubscription = '';

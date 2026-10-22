@@ -212,9 +212,9 @@ function statusBackground(running: boolean, busy: boolean, error: boolean): stri
   return '#FED7AA';
 }
 
-function nonEmpty(value: string | undefined, fallback: string): string {
-  if (value === undefined || value.length === 0) {
+function nonEmpty(value: Object | undefined | null, fallback: string): string {
+  if (typeof value !== 'string' || (value as string).length === 0) {
     return fallback;
   }
-  return value;
+  return value as string;
 }

@@ -9,6 +9,7 @@ import { isIpv4InCidr, isLoopbackOrPrivateHttpUrl, isLoopbackOrPrivateIpv4Host, 
 import { buildH2HttpSettings, splitH2Hosts } from '../main/ets/core/H2Transport';
 import { toIdnDomain, toIdnUrl } from '../main/ets/core/IdnUrl';
 import { resolveHttpRedirectUrl } from '../main/ets/core/HttpRedirect';
+import { IMPORT_TEXT_TOO_LARGE_MESSAGE, MAX_EXTERNAL_IMPORT_TEXT_CHARS } from '../main/ets/core/ExternalInput';
 import { formatTranslation, missingTranslationKeys, normalizeLanguage, resolveLanguage, resolveSystemLanguage, translate } from '../main/ets/core/I18n';
 import { resolveImportedNodeName } from '../main/ets/core/ImportedNodeNames';
 import { AutoAction, NetAutomationConfig, NetContext, decideNetAutomationAction, isTrustedNetwork, networkContextSignature, networkTransportSignature, selectUnderlyingNetworkCandidate, shouldReloadActiveCoreAfterNetworkChange } from '../main/ets/core/NetworkAutomation';
@@ -22,7 +23,7 @@ import { canCancelStartingConnection, shouldDeferBusyControlAction, shouldOfferC
 import { shouldStartScannerImmediately } from '../main/ets/core/ScannerLaunch';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppSettings, ConnectionStatus, DEFAULT_DELAY_TEST_URL, DEFAULT_HEV_TUN_LOG_LEVEL, DEFAULT_HEV_TUN_RW_TIMEOUT, DEFAULT_IP_API_URL, DEFAULT_VPN_MTU, DELAY_STATUS_CORE_UNAVAILABLE, DELAY_STATUS_UDP_ONLY, DELAY_STATUS_UNAVAILABLE, OUTBOUND_DOMAIN_RESOLVE_DNS_HOSTS, OUTBOUND_DOMAIN_RESOLVE_NONE, OUTBOUND_DOMAIN_RESOLVE_REPLACE, OutboundDomainResolveMethod, normalizeAppRuntimeMode, normalizeHevTunLogLevel, normalizeHevTunRwTimeout, normalizeRealPingConcurrency, normalizeRoutingDomainStrategy, normalizeUiModeNight, ProxyNode, resolveDelayTestUrl, RoutingRule, RuntimeStats, SubscriptionGroup } from '../main/ets/core/Profile';
 import { BUILTIN_GEO_DATA_FILE_NAMES, DEFAULT_GEO_RELEASE_API, DEFAULT_GEO_RELEASE_DOWNLOAD_PREFIX, GEOIP_FILE_NAME, GEOSITE_FILE_NAME, areAllowedGeoAssetRedirects, buildAssetDownloadUrl, buildGeoChecksumUrl, encodeGeoTransactionState, hasPendingGeoReplacementArtifacts, isAllowedGeoAssetRedirect, isPlausibleGeoData, isValidGeoCommitMarker, normalizeGeoAssetDownloadUrl, parseDefaultGeoRelease, parseGeoTransactionState, parseHttpRedirectLocation, parseSha256Checksum, resolveGeoRecoveryAction, resolveGeoUpdateNotice, resolveStandaloneAssetRecoveryAction } from '../main/ets/core/GeoAssets';
-import { DEFAULT_SOCKS_HOST, DELAY_TEST_SOCKS_PORT, LOCAL_HTTP_PROXY_LAN_HOST, LOCAL_HTTP_PROXY_PORT, LOCAL_SOCKS_PROXY_PORT, PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT, UNIDENTIFIED_PROCESS_PACKAGE, VPN_DATA_SOCKS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT, appReservedRuntimePorts, buildDelayTestConfig, buildRuntimeXrayConfig, buildXrayConfig, buildXrayConfigWithSettings, canUseProcessRouting, collectOutboundDomainPreResolveHosts, normalizeFullConfigRoutingProcesses, normalizeOutboundInput, normalizeRoutingRuleProcesses, validateFullConfigJson, validateOutboundJson, validatePolicyGroupConfigJson, validateProxyChainConfigJson, withOutboundDomainResolvedHosts, injectXrayLogFile, isReservedAppRuntimePort } from '../main/ets/core/XrayConfig';
+import { DEFAULT_SOCKS_HOST, DELAY_TEST_SOCKS_PORT, LOCAL_HTTP_PROXY_LAN_HOST, LOCAL_HTTP_PROXY_PORT, LOCAL_SOCKS_PROXY_PORT, PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT, UNIDENTIFIED_PROCESS_PACKAGE, VPN_DATA_SOCKS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT, appReservedRuntimePorts, buildDelayTestConfig, buildRuntimeXrayConfig, buildXrayConfig, buildXrayConfigWithSettings, canUseProcessRouting, collectOutboundDomainPreResolveHosts, normalizeConfigInput, normalizeFullConfigRoutingProcesses, normalizeOutboundInput, normalizeRoutingRuleProcesses, validateFullConfigJson, validateOutboundJson, validatePolicyGroupConfigJson, validateProxyChainConfigJson, withOutboundDomainResolvedHosts, injectXrayLogFile, isReservedAppRuntimePort } from '../main/ets/core/XrayConfig';
 import { CONTROL_SHORTCUT_ACTION_PARAM, CONTROL_SHORTCUT_GUID_PARAM, CONTROL_SHORTCUT_NODE_ID_PARAM, CONTROL_SHORTCUT_URI_PARAM, TASKER_EXTRA_BUNDLE_GUID_PARAM, TASKER_EXTRA_BUNDLE_SWITCH_PARAM, controlUriFromShortcutParameters, deepLinkUriFromWant, parseDeepLink, subscriptionNameFromDeepLink } from '../main/ets/core/DeepLink';
 import { HARMONY_SEND_DATA_ACTION, HARMONY_SHARE_ABSTRACT_KEY, HARMONY_SHARE_URL_KEY, HARMONY_TEXT_MIME_TYPE, SharedTextWantLike, extractSharedTextFromWant, isSharedTextWant } from '../main/ets/core/SharedTextImport';
 import { extractOutboundsFromXrayConfig } from '../main/ets/core/XrayOutbounds';
@@ -612,6 +613,23 @@ export default function localUnitTest() {
       const empty = ControlCardStore.selectStoredState('', '');
       expect(empty.source).assertEqual('empty');
       expect(empty.state?.runtimeStatus ?? ConnectionStatus.ERROR).assertEqual(ConnectionStatus.IDLE);
+    });
+
+    it('does not retain wrong runtime types in persisted control-card presentation fields', 0, () => {
+      const malformed = JSON.stringify({
+        primaryActionUri: 42,
+        runtimeStatus: 'idle',
+        runtimeMode: APP_MODE_PROXY_ONLY,
+        appName: false,
+        statusLabel: {},
+        primaryColor: ['red']
+      });
+      const selected = ControlCardStore.selectStoredState(malformed, '');
+      expect(selected.source).assertEqual('primary');
+      expect(selected.state?.primaryActionUri ?? '').assertEqual(CONTROL_CARD_START_URI);
+      expect(selected.state?.appName ?? '').assertEqual('Hey');
+      expect(selected.state?.statusLabel ?? '').assertEqual(buildControlCardFormData().statusLabel);
+      expect(selected.state?.primaryColor ?? '').assertEqual('#F97316');
     });
 
     it('recovers and validates persisted control-card identifiers', 0, () => {
@@ -5169,6 +5187,8 @@ export default function localUnitTest() {
       expect(SubscriptionManager.validateSubscriptionUrl('https://sub.example:abc/list', false)).assertContain('主机名或端口');
       expect(SubscriptionManager.validateSubscriptionUrl('https://2001:db8::1/list', false)).assertContain('主机名或端口');
       expect(SubscriptionManager.validateSubscriptionUrl('https://sub.example\\@evil.example/list', false)).assertContain('主机名或端口');
+      expect(SubscriptionManager.validateSubscriptionUrl(`https://sub.example/${'a'.repeat(8192)}`, false))
+        .assertContain('过长');
       expect(SubscriptionManager.validateSubscriptionRedirectChain(
         'https://sub.example/list', ['https://cdn.example/list'], false)).assertEqual('');
       expect(SubscriptionManager.validateSubscriptionRedirectChain(
@@ -5387,6 +5407,14 @@ export default function localUnitTest() {
       expect(subscriptionNameFromDeepLink('')).assertEqual('Subscription');
       expect(parseDeepLink('hey://add-source-evil?url=https%3A%2F%2Fexample.com').kind).assertEqual('none');
       expect(parseDeepLink('hey://add-endpoint.evil?url=vmess%3A%2F%2Fpayload').kind).assertEqual('none');
+    });
+
+    it('rejects oversized external config text before expensive parsing', 0, () => {
+      const oversized = 'x'.repeat(MAX_EXTERNAL_IMPORT_TEXT_CHARS + 1);
+      const validation = normalizeConfigInput(oversized);
+      expect(validation.valid).assertFalse();
+      expect(validation.message).assertEqual(IMPORT_TEXT_TOO_LARGE_MESSAGE);
+      expect(parseDeepLink(`hey://add-endpoint?url=${oversized}`).kind).assertEqual('none');
     });
 
     it('extracts Harmony sendData text imports ACTION_SEND', 0, () => {

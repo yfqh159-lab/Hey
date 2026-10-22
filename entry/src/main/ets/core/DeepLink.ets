@@ -7,6 +7,8 @@
 // EntryAbility stashes the raw Want uri or shortcut parameters; the Index page
 // parses and handles it.
 
+import { isExternalImportTextTooLarge } from './ExternalInput';
+
 export type DeepLinkKind = 'sub' | 'config' | 'control' | 'none';
 export type DeepLinkControlAction = 'start' | 'stop' | 'toggle' | 'scan' | '';
 
@@ -32,6 +34,9 @@ export interface DeepLinkIntent {
 const CONTROL_PREFIX: string = 'hey://control';
 
 export function parseDeepLink(uri: string): DeepLinkIntent {
+  if (isExternalImportTextTooLarge(uri)) {
+    return { kind: 'none', payload: '' };
+  }
   const trimmed = uri.trim();
   if (trimmed.length === 0) {
     return { kind: 'none', payload: '' };

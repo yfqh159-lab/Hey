@@ -1,4 +1,5 @@
 import { common } from '@kit.AbilityKit';
+import { util } from '@kit.ArkTS';
 import { fileIo as fs } from '@kit.CoreFileKit';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 
@@ -6,6 +7,9 @@ const LOG_FILE_NAME: string = 'hey-vpn-diagnostics.jsonl';
 const MAX_FILE_BYTES: number = 256 * 1024;
 const TRIMMED_FILE_BYTES: number = 160 * 1024;
 const DIAGNOSTIC_READ_TIMEOUT_MS: number = 2000;
+const MAX_DIAGNOSTIC_MESSAGE_CHARS: number = 4096;
+const MAX_DIAGNOSTIC_DETAILS_CHARS: number = 8192;
+const MAX_DIAGNOSTIC_SESSION_CHARS: number = 256;
 
 function withDiagnosticReadTimeout(promise: Promise<string>): Promise<string> {
   return new Promise<string>((resolve, reject) => {
@@ -43,7 +47,7 @@ export class DiagnosticLog {
     try {
       DiagnosticLog.rotateIfNeeded(path);
       file = fs.openSync(path, fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE | fs.OpenMode.APPEND);
-      fs.writeSync(file.fd, `${JSON.stringify(DiagnosticLog.redact(event))}\n`);
+      DiagnosticLog.writeComplete(file.fd, `${JSON.stringify(DiagnosticLog.redact(event))}\n`);
     } catch (error) {
       console.error(`Diagnostic append failed: ${redactDiagnosticText(JSON.stringify(error))}`);
     } finally {
@@ -57,6 +61,7 @@ export class DiagnosticLog {
       if (!fs.accessSync(path)) {
         return [];
       }
+      DiagnosticLog.rotateIfNeeded(path);
       if (DiagnosticLog.readInFlight !== null) {
         return [];
       }
@@ -115,13 +120,19 @@ export class DiagnosticLog {
       at: event.at,
       level: event.level,
       source: event.source,
-      message: redactDiagnosticText(event.message)
+      message: DiagnosticLog.boundedText(redactDiagnosticText(event.message), MAX_DIAGNOSTIC_MESSAGE_CHARS)
     };
     if (event.details !== undefined) {
-      sanitized.details = redactDiagnosticText(event.details);
+      sanitized.details = DiagnosticLog.boundedText(
+        redactDiagnosticText(event.details),
+        MAX_DIAGNOSTIC_DETAILS_CHARS
+      );
     }
     if (event.sessionId !== undefined) {
-      sanitized.sessionId = redactDiagnosticText(event.sessionId);
+      sanitized.sessionId = DiagnosticLog.boundedText(
+        redactDiagnosticText(event.sessionId),
+        MAX_DIAGNOSTIC_SESSION_CHARS
+      );
     }
     sanitized.uploadBytes = event.uploadBytes;
     sanitized.downloadBytes = event.downloadBytes;
@@ -141,10 +152,14 @@ export class DiagnosticLog {
         return;
       }
 
-      const raw = fs.readTextSync(path);
-      const trimmed = raw.length > TRIMMED_FILE_BYTES ? raw.slice(raw.length - TRIMMED_FILE_BYTES) : raw;
+      const start = Math.max(0, stat.size - TRIMMED_FILE_BYTES);
+      const raw = fs.readTextSync(path, { offset: start, length: stat.size - start });
+      // A tail read can begin in the middle of a UTF-8 code point or JSONL record. Drop
+      // that partial first line so the retained diagnostic file remains parseable.
+      const firstNewline = start > 0 ? raw.indexOf('\n') : -1;
+      const trimmed = start === 0 ? raw : (firstNewline >= 0 ? raw.substring(firstNewline + 1) : '');
       file = fs.openSync(path, fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
-      fs.writeSync(file.fd, trimmed);
+      DiagnosticLog.writeComplete(file.fd, trimmed);
     } catch (error) {
       console.error(`Diagnostic rotate failed: ${redactDiagnosticText(JSON.stringify(error))}`);
     } finally {
@@ -169,6 +184,18 @@ export class DiagnosticLog {
       }
     }
     return events;
+  }
+
+  private static writeComplete(fd: number, content: string): void {
+    const bytes = new util.TextEncoder().encodeInto(content);
+    const written = fs.writeSync(fd, bytes.buffer);
+    if (written !== bytes.byteLength) {
+      throw new Error('short diagnostic log write');
+    }
+  }
+
+  private static boundedText(value: string, maxChars: number): string {
+    return value.length <= maxChars ? value : `${value.substring(0, maxChars)}…`;
   }
 
   private static closeFile(file: fs.File | null, operation: string): void {

@@ -1130,6 +1130,49 @@ if (!settings.includes("return typeof value === 'boolean' ? value as boolean : f
 NODE
 printf 'restored configuration runtime type verification passed\n'
 
+node <<'NODE'
+const fs = require('fs');
+const card = fs.readFileSync('entry/src/main/ets/core/ControlCard.ets', 'utf8');
+const diagnostics = fs.readFileSync('entry/src/main/ets/services/DiagnosticLog.ets', 'utf8');
+const tests = fs.readFileSync('entry/src/test/LocalUnit.test.ets', 'utf8');
+if (!card.includes("typeof value !== 'string' || (value as string).length === 0") ||
+  !tests.includes('does not retain wrong runtime types in persisted control-card presentation fields') ||
+  !diagnostics.includes('const MAX_DIAGNOSTIC_MESSAGE_CHARS: number = 4096;') ||
+  !diagnostics.includes("const start = Math.max(0, stat.size - TRIMMED_FILE_BYTES);") ||
+  !diagnostics.includes("firstNewline >= 0 ? raw.substring(firstNewline + 1) : ''") ||
+  !diagnostics.includes('DiagnosticLog.writeComplete(file.fd,') ||
+  !diagnostics.includes('if (written !== bytes.byteLength)')) {
+  throw new Error('control-card fields or diagnostic log persistence are not runtime-safe and bounded');
+}
+NODE
+printf 'control-card and diagnostic persistence verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
+const limits = fs.readFileSync('entry/src/main/ets/core/ExternalInput.ets', 'utf8');
+const config = fs.readFileSync('entry/src/main/ets/core/XrayConfig.ets', 'utf8');
+const nativeShare = fs.readFileSync('entry/src/main/ets/services/NativeShareConverter.ets', 'utf8');
+const subscriptions = fs.readFileSync('entry/src/main/ets/services/SubscriptionManager.ets', 'utf8');
+const deepLink = fs.readFileSync('entry/src/main/ets/core/DeepLink.ets', 'utf8');
+const sharedText = fs.readFileSync('entry/src/main/ets/core/SharedTextImport.ets', 'utf8');
+const index = fs.readFileSync('entry/src/main/ets/pages/Index.ets', 'utf8');
+const tests = fs.readFileSync('entry/src/test/LocalUnit.test.ets', 'utf8');
+if (!limits.includes('MAX_EXTERNAL_IMPORT_TEXT_CHARS: number = 2 * 1024 * 1024') ||
+  !limits.includes('MAX_EXTERNAL_URI_CHARS: number = 8192') ||
+  !config.includes('if (isExternalImportTextTooLarge(input))') ||
+  !nativeShare.includes('if (isExternalImportTextTooLarge(text))') ||
+  !subscriptions.includes('if (isExternalUriTooLarge(trimmedUrl))') ||
+  !subscriptions.includes('if (content.length > MAX_SUBSCRIPTION_RESPONSE_BYTES)') ||
+  !deepLink.includes('if (isExternalImportTextTooLarge(uri))') ||
+  !sharedText.includes('if (depth >= 8)') ||
+  !sharedText.includes('const count = Math.min(values.length, 256);') ||
+  !index.includes('if (isExternalImportTextTooLarge(payload))') ||
+  !tests.includes('rejects oversized external config text before expensive parsing')) {
+  throw new Error('external config/share/deep-link parsing is not size bounded');
+}
+NODE
+printf 'bounded external configuration input verification passed\n'
+
 # Keep the everyday node-add surface deliberately small. Existing full-config,
 # proxy-chain, and policy-group records remain editable from NodeDetail for
 # compatibility, but the normal Add page must not offer creation routes for
@@ -2142,7 +2185,8 @@ if (!health.includes('export function shouldApplyVpnDiagnosticStats(') ||
   !health.includes('eventSessionId === expectedSessionId') ||
   health.includes('eventAt >= startedAt') ||
   !diagnosticLog.includes('sessionId?: string;') ||
-  !diagnosticLog.includes('sanitized.sessionId = redactDiagnosticText(event.sessionId);') ||
+  !diagnosticLog.includes('redactDiagnosticText(event.sessionId),') ||
+  !diagnosticLog.includes('MAX_DIAGNOSTIC_SESSION_CHARS') ||
   !vpn.includes('sessionId: this.sessionId,') ||
   !runtime.includes('shouldApplyVpnDiagnosticStats(') ||
   !runtime.includes('connection.vpnSessionId,') ||

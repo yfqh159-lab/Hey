@@ -2,6 +2,7 @@ import { AppLanguage, ConnectionStatus } from '../core/Profile';
 import { formatTranslation, translate } from '../core/I18n';
 import { buildUnsupportedShareLinkMessage } from '../core/ShareLinkParser';
 import { formatBytes, formatClockTime } from './Formatters';
+import { IMPORT_TEXT_TOO_LARGE_MESSAGE, SUBSCRIPTION_URL_TOO_LONG_MESSAGE } from '../core/ExternalInput';
 
 export function formatOne(language: AppLanguage, key: string, name: string, value: string): string {
   const names = new Array<string>();
@@ -98,6 +99,9 @@ export function localizeCoreMessage(language: AppLanguage, message: string): str
   if (message === '请先粘贴 Xray outbound JSON。') {
     return translate(language, 'core.emptyOutbound');
   }
+  if (message === IMPORT_TEXT_TOO_LARGE_MESSAGE) {
+    return translate(language, 'core.importTooLarge');
+  }
   if (message === 'outbound 缺少 protocol 字段。') {
     return translate(language, 'core.missingProtocol');
   }
@@ -187,6 +191,9 @@ export function localizeCoreMessage(language: AppLanguage, message: string): str
   }
   if (message === '订阅链接必须是 http:// 或 https://。') {
     return translate(language, 'subscription.urlMustHttp');
+  }
+  if (message === SUBSCRIPTION_URL_TOO_LONG_MESSAGE) {
+    return translate(language, 'subscription.urlTooLong');
   }
   if (message === '订阅链接缺少有效的主机名或端口。') {
     return translate(language, 'subscription.invalidUrl');

@@ -2,6 +2,7 @@ import { extractOutboundsFromXrayConfig } from '../core/XrayOutbounds';
 import { normalizeConfigInput } from '../core/XrayConfig';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { convertNativeShareLinksToXrayJson, nativeXrayAssetReadiness } from '../native/HeyNative';
+import { IMPORT_TEXT_TOO_LARGE_MESSAGE, isExternalImportTextTooLarge } from '../core/ExternalInput';
 
 export interface NativeShareOutbound {
   name: string;
@@ -16,6 +17,9 @@ export interface NativeShareConversionResult {
 }
 
 export function convertNativeShareTextToOutbounds(text: string): NativeShareConversionResult {
+  if (isExternalImportTextTooLarge(text)) {
+    return { ok: false, outbounds: [], message: IMPORT_TEXT_TOO_LARGE_MESSAGE };
+  }
   try {
     const readiness = nativeXrayAssetReadiness();
     if (!readiness.ready) {

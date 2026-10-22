@@ -52,7 +52,7 @@ function isTextMimeType(type: string | undefined): boolean {
   return normalized === HARMONY_TEXT_MIME_TYPE || normalized.startsWith(`${HARMONY_TEXT_MIME_TYPE};`);
 }
 
-function sharedTextValue(value: Object | undefined): string {
+function sharedTextValue(value: Object | undefined, depth: number = 0): string {
   if (value === undefined || value === null) {
     return '';
   }
@@ -60,10 +60,17 @@ function sharedTextValue(value: Object | undefined): string {
     return value.trim();
   }
   if (Array.isArray(value)) {
+    // Want parameters are untrusted runtime objects. Bound recursive array flattening so
+    // deeply nested or extremely wide structures cannot exhaust the UI stack before the
+    // ordinary external-text size check runs.
+    if (depth >= 8) {
+      return '';
+    }
     const parts = new Array<string>();
     const values = value as Array<Object>;
-    for (let index = 0; index < values.length; index++) {
-      const text = sharedTextValue(values[index]);
+    const count = Math.min(values.length, 256);
+    for (let index = 0; index < count; index++) {
+      const text = sharedTextValue(values[index], depth + 1);
       if (text.length > 0) {
         parts.push(text);
       }
