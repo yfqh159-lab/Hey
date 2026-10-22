@@ -192,6 +192,17 @@ entry/build/default/outputs/default/entry-default-signed.hap
 ./scripts/device_vpn_smoke_test.sh test
 ```
 
+在没有 Harmony SDK 时，也可以使用标准 Go 1.23.4 或更高版本检查 sing-box wrapper 的代表性
+配置和 tun2socks 适配器包：
+
+```bash
+./scripts/device_vpn_smoke_test.sh go-test
+```
+
+该命令以只读模块模式运行，不会重建或覆盖随包 `.so`。它只验证平台无关 Go 代码，不能替代
+OpenHarmony cgo/TLSDESC 交叉编译或真机 TUN 测试。Go 不在 `PATH` 时可传入
+`GO_BIN=/绝对路径/go`。
+
 `build` 和 `test` 会先运行 `verify_source.sh` 的完整源码门禁（包括工程骨架、合规、原生产物、
 网络调用点、运行模式隔离、VPN 自包排除和翻译资源）；`build` 随后还会确认签名 HAP 内确实包含
 `libheyvpn.so`、Xray、sing-box 和两套 TUN 适配器。若本机签名配置生成了不同路径的

@@ -390,5 +390,6 @@ OpenHarmony 原生交叉编译、HAP 构建、安装或 VPN 真机行为写成�
 ## 构建与验收入口
 
 - 构建、单测、安装和日志命令：仓库根目录 [`README.zh-CN.md`](../README.zh-CN.md#构建与安装)。
+- 平台无关 Go wrapper/适配器测试：`./scripts/device_vpn_smoke_test.sh go-test`；只读依赖且不覆盖随包原生库。
 - 原生核心重建：[`building-native-cores.md`](building-native-cores.md)。
 - 真机逐项证据表：[`device-acceptance.md`](device-acceptance.md)。

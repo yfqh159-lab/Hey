@@ -29,7 +29,7 @@ fi
 HAP="${HAP:-${ROOT_DIR}/entry/build/default/outputs/default/entry-default-signed.hap}"
 
 usage() {
-  printf 'Usage: %s {build|test|install|logs|targets|doctor}\n' "$0"
+  printf 'Usage: %s {build|test|go-test|install|logs|targets|doctor}\n' "$0"
 }
 
 require_hvigor() {
@@ -102,6 +102,9 @@ case "${1:-}" in
     "${ROOT_DIR}/scripts/verify_source.sh"
     run_hvigor --mode module \
       -p module=entry@default -p isLocalTest=true test --no-daemon --stacktrace
+    ;;
+  go-test)
+    "${ROOT_DIR}/scripts/test_go_components.sh"
     ;;
   install)
     require_hdc

@@ -249,6 +249,19 @@ Run the unit tests:
 ./scripts/device_vpn_smoke_test.sh test
 ```
 
+Without a Harmony SDK, standard Go 1.23.4 or newer can still validate the
+representative sing-box wrapper configurations and compile/test the tun2socks
+adapter package:
+
+```bash
+./scripts/device_vpn_smoke_test.sh go-test
+```
+
+This command keeps module files read-only and never rebuilds or overwrites the
+packaged `.so` files. It only checks platform-independent Go code and does not
+replace the OpenHarmony cgo/TLSDESC cross-build or a device TUN test. Set
+`GO_BIN=/absolute/path/to/go` when Go is not on `PATH`.
+
 The `build` and `test` commands first run the complete `verify_source.sh` gate
 (project skeleton, compliance, native artifacts, network call sites, runtime
 mode separation, VPN self-exclusion, and translations). The `build` command
