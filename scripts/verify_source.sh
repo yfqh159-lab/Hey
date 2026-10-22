@@ -1598,6 +1598,7 @@ const config = fs.readFileSync('entry/src/main/ets/core/XrayConfig.ets', 'utf8')
 const routing = fs.readFileSync('entry/src/main/ets/pages/Routing.ets', 'utf8');
 const tests = fs.readFileSync('entry/src/test/LocalUnit.test.ets', 'utf8');
 const singbox = fs.readFileSync('entry/src/main/ets/core/SingboxConfig.ets', 'utf8');
+const presenter = fs.readFileSync('entry/src/main/ets/utils/LocalizationPresenter.ets', 'utf8');
 const helperAt = config.indexOf('function activeCustomRoutingRules(settings: AppSettings)');
 const helperEnd = config.indexOf('\n}', helperAt);
 const helper = config.slice(helperAt, helperEnd);
@@ -1617,6 +1618,10 @@ if (singbox.includes("routeRules.push({ ip_is_private: true, outbound: 'direct' 
   !singbox.includes("final: settings?.trafficMode === 'direct' ? 'direct' : 'proxy'") ||
   !singbox.includes("settings?.trafficMode === 'rules' && hasEffectiveCustomRoutingRules(settings)")) {
   throw new Error('sing-box preview silently diverges from the selected global/direct/rules mode');
+}
+if (!presenter.includes("translate(language, 'core.singboxCustomRoutingUnsupported')") ||
+  !tests.includes("The sing-box preview does not translate custom routing rules yet.")) {
+  throw new Error('sing-box custom-routing rejection is not localized for the active UI language');
 }
 NODE
 printf 'traffic mode routing isolation verification passed\n'

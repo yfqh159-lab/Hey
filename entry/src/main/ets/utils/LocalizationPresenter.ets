@@ -116,6 +116,9 @@ export function localizeCoreMessage(language: AppLanguage, message: string): str
   if (message === '完整 Xray 配置校验通过。') {
     return translate(language, 'core.validFullConfig');
   }
+  if (message === 'sing-box 预览暂不转换自定义分流规则；请选择全局/直连模式，或使用 Xray 支持的节点。') {
+    return translate(language, 'core.singboxCustomRoutingUnsupported');
+  }
   if (message === '请先粘贴代理链 JSON。') {
     return translate(language, 'core.emptyProxyChainConfig');
   }

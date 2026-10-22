@@ -2421,6 +2421,7 @@ export default function localUnitTest() {
       expect(formatOne('zh-rCN', 'subscription.updateComplete', 'count', '3')).assertContain('3');
       expect(localizedProfileSavedText('en', 0)).assertEqual('Not saved');
       expect(localizeCoreMessage('en', '请先粘贴 Xray outbound JSON。')).assertEqual('Paste Xray outbound JSON first.');
+      expect(localizeCoreMessage('en', 'sing-box 预览暂不转换自定义分流规则；请选择全局/直连模式，或使用 Xray 支持的节点。')).assertEqual('The sing-box preview does not translate custom routing rules yet. Choose Global/Direct, or use a node supported by Xray.');
       expect(localizeCoreMessage('zh-rCN', 'Xray is running in proxy-only mode.')).assertEqual('Xray 正在本地代理模式下运行。');
       expect(localizeCoreMessage('en', '启动 VPN 未确认完成：VPN 扩展没有回写启动完成状态。')).assertEqual('VPN start was not confirmed: the VPN extension did not report startup completion.');
       expect(localizeCoreMessage('en', '停止 VPN 超时：VPN 扩展没有响应停止命令。')).assertEqual('VPN stop timed out: the VPN extension did not respond to the stop command.');
