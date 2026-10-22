@@ -15,9 +15,10 @@ import { SubscriptionStore } from '../storage/SubscriptionStore';
 import { SectionHeader } from '../components/SectionHeader';
 import { PageHeader } from '../shell/PageHeader';
 import { ensureReadPasteboardPermission } from '../utils/ClipboardPermission';
-import { formatOne } from '../utils/LocalizationPresenter';
+import { formatOne, localizeCoreMessage } from '../utils/LocalizationPresenter';
 import { BOTTOM_SAFE_HEIGHT_KEY } from '../core/Immersive';
 import { AppColor, FontSz, Radius, Space } from '../theme/Theme';
+import { IMPORT_TEXT_TOO_LARGE_MESSAGE, isExternalImportTextTooLarge } from '../core/ExternalInput';
 
 const MAX_IMPORT_FILE_BYTES: number = 2 * 1024 * 1024;
 
@@ -136,6 +137,13 @@ struct JsonImportPage {
                 .borderRadius(0)
                 .padding(Space.lg)
                 .onChange((value: string) => {
+                  if (isExternalImportTextTooLarge(value)) {
+                    this.outboundJson = '';
+                    this.validationOk = false;
+                    this.validationMessage = localizeCoreMessage(this.language, IMPORT_TEXT_TOO_LARGE_MESSAGE);
+                    this.lastError = this.validationMessage;
+                    return;
+                  }
                   this.outboundJson = value;
                   this.validateConfig();
                 })
@@ -377,6 +385,12 @@ struct JsonImportPage {
         const pasteData = await systemPasteboard.getData();
         const text = pasteData.getPrimaryText();
         if (text && text.trim().length > 0) {
+          if (isExternalImportTextTooLarge(text)) {
+            this.outboundJson = '';
+            this.validationOk = false;
+            this.lastError = localizeCoreMessage(this.language, IMPORT_TEXT_TOO_LARGE_MESSAGE);
+            return;
+          }
           this.outboundJson = text.trim();
           this.validateConfig();
           promptAction.showToast({ message: this.t('prompt.pastedJsonConfig') });

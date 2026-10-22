@@ -16,6 +16,7 @@ import { formatOne, formatTwo } from '../utils/LocalizationPresenter';
 import { router, promptAction } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { AppColor, FontSz, Radius, Space } from '../theme/Theme';
+import { isExternalUriTooLarge } from '../core/ExternalInput';
 
 @Entry
 @Component
@@ -148,6 +149,13 @@ struct SubscriptionEditPage {
                   .placeholderColor(AppColor.textTertiary)
                   .backgroundColor(Color.Transparent)
                   .onChange((value: string) => {
+                    if (isExternalUriTooLarge(value)) {
+                      this.subscriptionUrl = '';
+                      this.getUIContext().getPromptAction().showToast({
+                        message: this.t('subscription.urlTooLong')
+                      });
+                      return;
+                    }
                     this.subscriptionUrl = value;
                   })
 
@@ -516,6 +524,10 @@ struct SubscriptionEditPage {
         const pasteData = await systemPasteboard.getData();
         const text = pasteData.getPrimaryText();
         if (text && text.trim().length > 0) {
+          if (isExternalUriTooLarge(text)) {
+            this.getUIContext().getPromptAction().showToast({ message: this.t('subscription.urlTooLong') });
+            return;
+          }
           this.subscriptionUrl = text.trim();
           try {
             this.getUIContext().getPromptAction().showToast({ message: this.t('prompt.pastedSubscriptionUrl') });
@@ -555,6 +567,10 @@ struct SubscriptionEditPage {
       }
       const value = await scanQrCode(context);
       if (value.length > 0) {
+        if (isExternalUriTooLarge(value)) {
+          this.getUIContext().getPromptAction().showToast({ message: this.t('subscription.urlTooLong') });
+          return;
+        }
         this.subscriptionUrl = value;
       }
     } catch (error) {

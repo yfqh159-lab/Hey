@@ -70,4 +70,8 @@ require_symbol "${HEV}" hev_socks5_tunnel_main_from_str
 require_symbol "${HEV}" hev_socks5_tunnel_quit
 require_symbol "${HEV}" hev_socks5_tunnel_stats
 
+grep -Fq 'export const startHevTun:' \
+  "${ROOT_DIR}/entry/src/main/cpp/types/libheyvpn/Index.d.ts" ||
+  fail "native type declarations do not expose startHevTun"
+
 echo "native prebuilt verification passed: AArch64 libraries, bridge symbols, Go TLSDESC"

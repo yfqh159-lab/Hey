@@ -102,7 +102,7 @@ import { canMeasureRuntimeDelayProfile, resolveRuntimeDelayTestUrls } from '../m
 import { SubscriptionManager } from '../main/ets/services/SubscriptionManager';
 import { SubscriptionBackgroundScheduler } from '../main/ets/services/SubscriptionBackgroundScheduler';
 import { buildTextShareWant } from '../main/ets/services/SystemShare';
-import { DEFAULT_APP_SETTINGS, SettingsStore } from '../main/ets/storage/SettingsStore';
+import { DEFAULT_APP_SETTINGS, MAX_SETTINGS_JSON_CHARS, SettingsStore } from '../main/ets/storage/SettingsStore';
 import { formatBytes, formatDuration } from '../main/ets/utils/Formatters';
 import { formatOne, localizedProfileSavedText, localizeCoreMessage, localizeDiagnosticHeartbeat } from '../main/ets/utils/LocalizationPresenter';
 import { isScanCancelled } from '../main/ets/utils/QrScan';
@@ -492,6 +492,10 @@ export default function localUnitTest() {
       expect(recovered.source).assertEqual('backup');
       expect(recovered.profile?.updatedAt ?? 0).assertEqual(101);
       expect(ProfileStore.selectStoredProfile('{}', '{broken').source).assertEqual('invalid');
+      expect(ProfileStore.selectStoredProfile(JSON.stringify({
+        id: 'default-profile',
+        outboundJson: 'x'.repeat(MAX_EXTERNAL_IMPORT_TEXT_CHARS + 1)
+      }), raw).source).assertEqual('backup');
       expect(ProfileStore.selectStoredProfile('', '').source).assertEqual('empty');
     });
 
@@ -518,6 +522,8 @@ export default function localUnitTest() {
       const empty = SettingsStore.selectStoredSettings('', '');
       expect(empty.source).assertEqual('empty');
       expect(empty.settings?.mode ?? '').assertEqual(APP_MODE_VPN);
+      expect(SettingsStore.selectStoredSettings('x'.repeat(MAX_SETTINGS_JSON_CHARS + 1), raw).source)
+        .assertEqual('backup');
     });
 
     it('sanitizes wrong runtime types inside restored settings instead of retaining or throwing', 0, () => {
@@ -705,6 +711,11 @@ export default function localUnitTest() {
       expect(recoveredCustom.source).assertEqual('backup');
       expect(recoveredCustom.assets?.[0].name ?? '').assertEqual('private.dat');
       expect(AssetStore.selectStoredCustomAssets('{}', '{broken').source).assertEqual('invalid');
+      expect(AssetStore.selectStoredCustomAssets('[{"id":"broken"}]', customRaw).source)
+        .assertEqual('backup');
+      expect(AssetStore.selectStoredCustomAssets(
+        '[{"id":"a","name":"one","url":"https://example.com/one.dat"},{"id":"a","name":"two","url":"https://example.com/two.dat"}]',
+        customRaw).source).assertEqual('backup');
 
       const sha256 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
       const metadata: GeoUpdateMetadata = {
@@ -720,6 +731,9 @@ export default function localUnitTest() {
       expect(recoveredMetadata.source).assertEqual('backup');
       expect(recoveredMetadata.metadata?.assets[0].sha256 ?? '').assertEqual(sha256);
       expect(AssetStore.selectStoredGeoMetadata('{}', '{broken').source).assertEqual('invalid');
+      expect(AssetStore.selectStoredGeoMetadata(
+        '{"version":"bad","source":"builtin","checkedAt":1,"result":"updated","assets":[{"fileName":"geoip.dat","sha256":"bad","size":1,"updatedAt":1}]}',
+        metadataRaw).source).assertEqual('backup');
       expect(AssetStore.selectStoredGeoMetadata('', '').source).assertEqual('empty');
     });
   });
@@ -2444,6 +2458,8 @@ export default function localUnitTest() {
       expect(importRoutingRulesJson([], '   ').failure).assertEqual('empty');
       expect(importRoutingRulesJson([], '[{"domain":').failure).assertEqual('invalidJson');
       expect(importRoutingRulesJson([], '{"bad":true}').failure).assertEqual('notArray');
+      expect(importRoutingRulesJson([], 'x'.repeat(MAX_EXTERNAL_IMPORT_TEXT_CHARS + 1)).failure)
+        .assertEqual('tooLarge');
 
       const noMatcher = importRoutingRulesJson([], '[{"remarks":"A","outboundTag":"proxy"},{"remarks":"B","outboundTag":"block"}]');
       expect(noMatcher.success).assertFalse();
@@ -2466,6 +2482,22 @@ export default function localUnitTest() {
       expect(result.success).assertTrue();
       expect(result.rules.length).assertEqual(MAX_ROUTING_RULE_COUNT);
       expect(result.count).assertEqual(MAX_ROUTING_RULE_COUNT);
+    });
+
+    it('does not report success when locked routing rules fill capacity', 0, () => {
+      const locked = new Array<RoutingRule>();
+      for (let index = 0; index < MAX_ROUTING_RULE_COUNT; index++) {
+        const rule = buildRoutingRuleFixture(`locked-${index}`, `Locked ${index}`, 'direct');
+        rule.locked = true;
+        locked.push(rule);
+      }
+      const result = importRoutingRulesJson(
+        locked,
+        '[{"remarks":"Imported","domain":["domain:import.example"],"outboundTag":"proxy"}]'
+      );
+      expect(result.success).assertFalse();
+      expect(result.failure).assertEqual('capacity');
+      expect(result.count).assertEqual(0);
     });
 
     it('imports routing rules json from QR code payload format', 0, () => {
@@ -2598,6 +2630,7 @@ export default function localUnitTest() {
       expect(normalizeGeoAssetDownloadUrl(' https://example.com/geoip.dat ')).assertEqual('https://example.com/geoip.dat');
       expect(normalizeGeoAssetDownloadUrl('HTTPS://example.com/geoip.dat')).assertEqual('https://example.com/geoip.dat');
       expect(normalizeGeoAssetDownloadUrl('http://example.com/geoip.dat')).assertEqual('');
+      expect(normalizeGeoAssetDownloadUrl(`https://example.com/${'a'.repeat(8192)}`)).assertEqual('');
       expect(buildGeoChecksumUrl('https://example.com/geoip.dat?token=secret#download'))
         .assertEqual('https://example.com/geoip.dat.sha256sum?token=secret#download');
     });

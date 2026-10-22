@@ -373,7 +373,11 @@ for (const name of ['load', 'save', 'loadGeoUpdateMetadata', 'saveGeoUpdateMetad
 if (!assetStore.includes('private static operationTail: Promise<void> = Promise.resolve();') ||
   !assetStore.includes('AssetStore.operationTail = task.then(') ||
   !assetStore.includes('const assetsSnapshot = AssetStore.normalizeCustomAssets(assets);') ||
-  !assetStore.includes('const metadataSnapshot = AssetStore.copyGeoUpdateMetadata(metadata);')) {
+  !assetStore.includes('const metadataSnapshot = AssetStore.copyGeoUpdateMetadata(metadata);') ||
+  !assetStore.includes('MAX_CUSTOM_ASSET_COUNT: number = 64') ||
+  !assetStore.includes('normalized.length === parsed.length && AssetStore.hasUniqueCustomAssets(normalized)') ||
+  !assetStore.includes('MAX_GEO_METADATA_RAW_CHARS') ||
+  !assetStore.includes("!\/^[0-9a-f]{64}$\/.test(asset.sha256)")) {
   throw new Error('Geo/custom asset storage queue or input snapshots are missing');
 }
 NODE
@@ -1149,10 +1153,13 @@ const tests = fs.readFileSync('entry/src/test/LocalUnit.test.ets', 'utf8');
 if (!routing.includes('MAX_ROUTING_RULE_COUNT: number = 2048') ||
   !routing.includes('MAX_ROUTING_MATCHER_COUNT: number = 2048') ||
   !routing.includes('imported.length < MAX_ROUTING_RULE_COUNT') ||
+  !routing.includes('if (isExternalImportTextTooLarge(trimmed))') ||
+  !routing.includes("return failedImport('capacity', skipped)") ||
   !perApp.includes('MAX_PER_APP_PACKAGE_COUNT: number = 4096') ||
   !perApp.includes('content.length > MAX_PER_APP_IMPORT_CHARS') ||
   !perApp.includes('value.length > 255') ||
   !settings.includes('rules.length < MAX_ROUTING_RULE_COUNT') ||
+  !settings.includes('MAX_SETTINGS_JSON_CHARS: number = 2 * 1024 * 1024') ||
   !settings.includes('normalizePerAppPackageList(') ||
   !tests.includes('bounds imported routing rule cardinality')) {
   throw new Error('routing and per-app configuration collections are not bounded');
@@ -1224,6 +1231,10 @@ const subscriptions = fs.readFileSync('entry/src/main/ets/services/SubscriptionM
 const deepLink = fs.readFileSync('entry/src/main/ets/core/DeepLink.ets', 'utf8');
 const sharedText = fs.readFileSync('entry/src/main/ets/core/SharedTextImport.ets', 'utf8');
 const index = fs.readFileSync('entry/src/main/ets/pages/Index.ets', 'utf8');
+const scanner = fs.readFileSync('entry/src/main/ets/pages/Scanner.ets', 'utf8');
+const jsonImport = fs.readFileSync('entry/src/main/ets/pages/JsonImport.ets', 'utf8');
+const profileStore = fs.readFileSync('entry/src/main/ets/storage/ProfileStore.ets', 'utf8');
+const settingsStore = fs.readFileSync('entry/src/main/ets/storage/SettingsStore.ets', 'utf8');
 const tests = fs.readFileSync('entry/src/test/LocalUnit.test.ets', 'utf8');
 if (!limits.includes('MAX_EXTERNAL_IMPORT_TEXT_CHARS: number = 2 * 1024 * 1024') ||
   !limits.includes('MAX_EXTERNAL_URI_CHARS: number = 8192') ||
@@ -1235,6 +1246,11 @@ if (!limits.includes('MAX_EXTERNAL_IMPORT_TEXT_CHARS: number = 2 * 1024 * 1024')
   !sharedText.includes('if (depth >= 8)') ||
   !sharedText.includes('const count = Math.min(values.length, 256);') ||
   !index.includes('if (isExternalImportTextTooLarge(payload))') ||
+  !scanner.includes('if (isExternalImportTextTooLarge(value))') ||
+  !scanner.includes('if (isExternalImportTextTooLarge(input))') ||
+  !jsonImport.includes('if (isExternalImportTextTooLarge(text))') ||
+  !profileStore.includes('outboundJson.length > MAX_EXTERNAL_IMPORT_TEXT_CHARS') ||
+  !settingsStore.includes('if (nextRaw.length > MAX_SETTINGS_JSON_CHARS)') ||
   !tests.includes('rejects oversized external config text before expensive parsing')) {
   throw new Error('external config/share/deep-link parsing is not size bounded');
 }

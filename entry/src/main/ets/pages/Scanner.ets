@@ -23,6 +23,10 @@ import { SubscriptionManager } from '../services/SubscriptionManager';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { shouldStartScannerImmediately } from '../core/ScannerLaunch';
 import { AppColor } from '../theme/Theme';
+import {
+  IMPORT_TEXT_TOO_LARGE_MESSAGE,
+  isExternalImportTextTooLarge
+} from '../core/ExternalInput';
 
 @Entry
 @Component
@@ -253,6 +257,15 @@ struct ScannerPage {
               .padding(12)
               .onChange((value: string) => {
                 if (this.hasPendingSensitiveImport) {
+                  return;
+                }
+                if (isExternalImportTextTooLarge(value)) {
+                  this.importBuffer = '';
+                  this.previewedImportValue = '';
+                  this.previewValid = false;
+                  this.previewTitle = this.t('scanner.previewInvalid');
+                  this.previewDetail = localizeCoreMessage(this.language, IMPORT_TEXT_TOO_LARGE_MESSAGE);
+                  this.lastError = this.previewDetail;
                   return;
                 }
                 this.importBuffer = value;
@@ -530,6 +543,11 @@ struct ScannerPage {
       }
       return;
     }
+    if (isExternalImportTextTooLarge(value)) {
+      this.clearImportValue();
+      this.lastError = localizeCoreMessage(this.language, IMPORT_TEXT_TOO_LARGE_MESSAGE);
+      return;
+    }
     this.setSensitiveImportValue(value);
     this.lastError = '';
     // A completed camera/photo result is stable input, so it is safe to run the
@@ -565,6 +583,11 @@ struct ScannerPage {
         }
         const text = pasteData.getPrimaryText();
         if (text && text.trim().length > 0) {
+          if (isExternalImportTextTooLarge(text)) {
+            this.clearImportValue();
+            this.lastError = localizeCoreMessage(this.language, IMPORT_TEXT_TOO_LARGE_MESSAGE);
+            return;
+          }
           this.setSensitiveImportValue(text);
           this.lastError = '';
           this.updateImportPreview(this.pendingSensitiveImport, true);
@@ -598,6 +621,11 @@ struct ScannerPage {
     if (value.length === 0) {
       this.lastError = this.t('error.emptyImport');
       SHARED_RUNTIME_CONTROLLER.appendLog(this.lastError);
+      return;
+    }
+    if (isExternalImportTextTooLarge(value)) {
+      this.clearImportValue();
+      this.lastError = localizeCoreMessage(this.language, IMPORT_TEXT_TOO_LARGE_MESSAGE);
       return;
     }
 
@@ -822,6 +850,12 @@ struct ScannerPage {
     if (input.length === 0) {
       this.previewTitle = '';
       this.previewDetail = '';
+      this.previewValid = false;
+      return;
+    }
+    if (isExternalImportTextTooLarge(input)) {
+      this.previewTitle = this.t('scanner.previewInvalid');
+      this.previewDetail = localizeCoreMessage(this.language, IMPORT_TEXT_TOO_LARGE_MESSAGE);
       this.previewValid = false;
       return;
     }

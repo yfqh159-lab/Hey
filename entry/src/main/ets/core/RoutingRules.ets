@@ -1,4 +1,5 @@
 import { RoutingRule } from './Profile';
+import { isExternalImportTextTooLarge } from './ExternalInput';
 
 export const MAX_ROUTING_RULE_COUNT: number = 2048;
 export const MAX_ROUTING_MATCHER_COUNT: number = 2048;
@@ -7,7 +8,7 @@ const MAX_ROUTING_SKIP_DETAILS: number = 256;
 
 // 导入失败原因。出厂不带任何规则，导入是用户建立规则表的主路径，
 // 因此失败必须能说清是哪一步出的问题，而不是只报一个"失败"。
-export type RoutingImportFailure = 'none' | 'empty' | 'invalidJson' | 'notArray' | 'noValidRule';
+export type RoutingImportFailure = 'none' | 'empty' | 'tooLarge' | 'invalidJson' | 'notArray' | 'noValidRule' | 'capacity';
 
 // 被跳过的单条规则：index 为 1 起的原始下标，便于直接告诉用户第几条有问题。
 export interface RoutingRuleSkip {
@@ -31,6 +32,9 @@ export function importRoutingRulesJson(existing: Array<RoutingRule>, content: st
   const trimmed = content.trim();
   if (trimmed.length === 0) {
     return failedImport('empty');
+  }
+  if (isExternalImportTextTooLarge(trimmed)) {
+    return failedImport('tooLarge');
   }
 
   let rawRules: Array<RoutingRule>;
@@ -69,6 +73,9 @@ export function importRoutingRulesJson(existing: Array<RoutingRule>, content: st
   for (let index = 0; index < imported.length && combined.length < MAX_ROUTING_RULE_COUNT; index++) {
     combined.push(imported[index]);
     accepted.push(imported[index]);
+  }
+  if (accepted.length === 0) {
+    return failedImport('capacity', skipped);
   }
   return {
     success: true,

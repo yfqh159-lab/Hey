@@ -16,6 +16,7 @@ import { router, promptAction } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { scanCore } from '@kit.ScanKit';
 import { SubscriptionManager } from '../services/SubscriptionManager';
+import { isExternalUriTooLarge } from '../core/ExternalInput';
 
 interface SubscriptionNodeRowModel {
   node: ProxyNode;
@@ -241,6 +242,12 @@ struct SubscriptionDetailPage {
   }
 
   private onSubscriptionUrlChanged(value: string): void {
+    if (isExternalUriTooLarge(value)) {
+      this.subscriptionUrl = '';
+      this.subscriptionMessage = this.t('subscription.urlTooLong');
+      this.onMessageChange();
+      return;
+    }
     this.subscriptionUrl = value;
   }
 
@@ -360,6 +367,10 @@ struct SubscriptionDetailPage {
         const pasteData = await systemPasteboard.getData();
         const text = pasteData.getPrimaryText();
         if (text && text.trim().length > 0) {
+          if (isExternalUriTooLarge(text)) {
+            this.getUIContext().getPromptAction().showToast({ message: this.t('subscription.urlTooLong') });
+            return;
+          }
           this.subscriptionUrl = text.trim();
           try {
             this.getUIContext().getPromptAction().showToast({ message: this.t('prompt.pastedSubscriptionUrl') });
@@ -399,6 +410,10 @@ struct SubscriptionDetailPage {
       }
       const value = await scanQrCode(context);
       if (value.length > 0) {
+        if (isExternalUriTooLarge(value)) {
+          this.getUIContext().getPromptAction().showToast({ message: this.t('subscription.urlTooLong') });
+          return;
+        }
         this.subscriptionUrl = value;
       }
     } catch (error) {

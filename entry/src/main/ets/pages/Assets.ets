@@ -8,7 +8,7 @@ import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { AppLanguage } from '../core/Profile';
 import { SHARED_RUNTIME_CONTROLLER } from '../features/runtime/RuntimeController';
 import { PageHeader } from '../shell/PageHeader';
-import { AssetStore, CustomAssetUrl, GeoUpdateMetadata } from '../storage/AssetStore';
+import { AssetStore, CustomAssetUrl, GeoUpdateMetadata, MAX_CUSTOM_ASSET_COUNT } from '../storage/AssetStore';
 import { ASSETS_CONTROLLER, BuiltinGeoUpdateResult } from '../features/assets/AssetsController';
 import { BOTTOM_SAFE_HEIGHT_KEY } from '../core/Immersive';
 import { AppColor, FontSz, Radius, Space } from '../theme/Theme';
@@ -1142,6 +1142,11 @@ struct AssetsPage {
   private async saveCustomAsset(): Promise<void> {
     let trimmedName = this.editName.trim();
     const trimmedUrl = this.editUrl.trim();
+
+    if (this.editId.length === 0 && this.customAssets.length >= MAX_CUSTOM_ASSET_COUNT) {
+      this.toast(this.t('assets.sourceLimitReached'));
+      return;
+    }
 
     if (this.editId.length > 0) {
       let existingName = '';

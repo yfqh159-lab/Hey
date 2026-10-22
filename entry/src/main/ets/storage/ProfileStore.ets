@@ -1,10 +1,13 @@
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { DEFAULT_PROFILE_ID, ProxyProfile, XrayConfigType } from '../core/Profile';
+import { MAX_EXTERNAL_IMPORT_TEXT_CHARS } from '../core/ExternalInput';
 
 const PREFERENCES_NAME: string = 'hey_vpn_profile';
 const PROFILE_KEY: string = 'default_profile';
 const PROFILE_BACKUP_KEY: string = 'default_profile_backup';
+const MAX_PROFILE_RECORD_CHARS: number = MAX_EXTERNAL_IMPORT_TEXT_CHARS + 4096;
+const MAX_PROFILE_TEXT_CHARS: number = 256;
 
 export interface StoredProfileSelection {
   profile: ProxyProfile | null;
@@ -52,8 +55,8 @@ export class ProfileStore {
   }
 
   static save(context: common.Context, outboundJson: string, configType: XrayConfigType = 'outbound'): Promise<ProxyProfile> {
-    if (typeof outboundJson !== 'string') {
-      return Promise.reject(new Error('Selected profile payload must be a string.'));
+    if (typeof outboundJson !== 'string' || outboundJson.length > MAX_EXTERNAL_IMPORT_TEXT_CHARS) {
+      return Promise.reject(new Error('Selected profile payload must be a string no larger than 2 MB.'));
     }
     const profile: ProxyProfile = {
       id: DEFAULT_PROFILE_ID,
@@ -96,13 +99,16 @@ export class ProfileStore {
   }
 
   private static parseStoredProfile(raw: string): ProxyProfile | null {
-    if (raw.length === 0) {
+    if (raw.length === 0 || raw.length > MAX_PROFILE_RECORD_CHARS) {
       return null;
     }
     try {
       const profile = JSON.parse(raw) as ProxyProfile;
       if (profile === null || typeof profile !== 'object' || typeof profile.id !== 'string' || profile.id.length === 0 ||
-        (profile.outboundJson !== undefined && typeof profile.outboundJson !== 'string')) {
+        profile.id.length > MAX_PROFILE_TEXT_CHARS ||
+        (profile.name !== undefined && (typeof profile.name !== 'string' || profile.name.length > MAX_PROFILE_TEXT_CHARS)) ||
+        (profile.outboundJson !== undefined && (typeof profile.outboundJson !== 'string' ||
+          profile.outboundJson.length > MAX_EXTERNAL_IMPORT_TEXT_CHARS))) {
         return null;
       }
       return {

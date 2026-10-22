@@ -41,6 +41,7 @@ import {
 const PREFERENCES_NAME: string = 'hey_vpn_settings';
 const SETTINGS_KEY: string = 'app_settings';
 const SETTINGS_BACKUP_KEY: string = 'app_settings_backup';
+export const MAX_SETTINGS_JSON_CHARS: number = 2 * 1024 * 1024;
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   language: DEFAULT_LANGUAGE,
@@ -169,6 +170,9 @@ export class SettingsStore {
   private static async saveNow(context: common.Context, normalized: AppSettings): Promise<AppSettings> {
     const store = await preferences.getPreferences(context, PREFERENCES_NAME);
     const nextRaw = JSON.stringify(normalized);
+    if (nextRaw.length > MAX_SETTINGS_JSON_CHARS) {
+      throw new Error('Application settings exceed the 2 MB storage limit.');
+    }
     const currentRaw = (await store.get(SETTINGS_KEY, '')).toString();
     if (SettingsStore.parseStoredSettings(currentRaw) !== null) {
       await store.put(SETTINGS_BACKUP_KEY, currentRaw);
@@ -204,7 +208,7 @@ export class SettingsStore {
   }
 
   private static parseStoredSettings(raw: string): AppSettings | null {
-    if (raw.length === 0) {
+    if (raw.length === 0 || raw.length > MAX_SETTINGS_JSON_CHARS) {
       return null;
     }
     try {

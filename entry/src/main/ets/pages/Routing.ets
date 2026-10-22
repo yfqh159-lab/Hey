@@ -705,8 +705,14 @@ struct RoutingPage {
     if (failure === 'invalidJson') {
       return this.t('routing.rule.import.err.invalidJson');
     }
+    if (failure === 'tooLarge') {
+      return this.t('core.importTooLarge');
+    }
     if (failure === 'notArray') {
       return this.t('routing.rule.import.err.notArray');
+    }
+    if (failure === 'capacity') {
+      return this.t('routing.rule.import.err.capacity');
     }
     // noValidRule：逐条说明前几条为什么被跳过，比一句"格式错误"有用得多。
     const lines = new Array<string>();

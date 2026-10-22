@@ -355,7 +355,8 @@ export class AssetsController {
 
         const targetPath = `${context.filesDir}/${releaseFile.fileName}`;
         const existing = this.readFileData(targetPath);
-        const existingSha256 = existing === null ? '' : await this.sha256(existing);
+        const existingSha256 = existing === null || !isPlausibleGeoData(existing, releaseFile.declaredSize) ?
+          '' : await this.sha256(existing);
         if (existingSha256 === expectedSha256) {
           metadata.push(this.geoMetadataForExisting(targetPath, releaseFile.fileName, expectedSha256));
           continue;

@@ -1,6 +1,15 @@
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { isSafeCustomAssetName } from '../core/AssetUrls';
+import { MAX_GEO_DATA_BYTES, normalizeGeoAssetDownloadUrl } from '../core/GeoAssets';
+
+export const MAX_CUSTOM_ASSET_COUNT: number = 64;
+const MAX_ASSET_ID_CHARS: number = 128;
+const MAX_GEO_METADATA_TEXT_CHARS: number = 256;
+const MAX_GEO_METADATA_ASSET_COUNT: number = 2;
+const MAX_CUSTOM_ASSETS_RAW_CHARS: number = 1024 * 1024;
+const MAX_GEO_METADATA_RAW_CHARS: number = 16 * 1024;
+const GEO_METADATA_RESULTS: Array<string> = ['updated', 'latest', 'failed'];
 
 export interface CustomAssetUrl {
   id: string;
@@ -91,6 +100,10 @@ export class AssetStore {
 
   static save(context: common.Context, assets: Array<CustomAssetUrl>): Promise<void> {
     const assetsSnapshot = AssetStore.normalizeCustomAssets(assets);
+    if (assets.length > MAX_CUSTOM_ASSET_COUNT || assetsSnapshot.length !== assets.length ||
+      !AssetStore.hasUniqueCustomAssets(assetsSnapshot)) {
+      return Promise.reject(new Error('Custom Geo source list is invalid or exceeds the 64-source limit.'));
+    }
     return AssetStore.enqueueOperation(async (): Promise<void> => {
       const store = await preferences.getPreferences(context, PREFERENCES_NAME);
       const nextRaw = JSON.stringify(assetsSnapshot);
@@ -186,13 +199,118 @@ export class AssetStore {
   }
 
   private static copyGeoUpdateMetadata(metadata: GeoUpdateMetadata): GeoUpdateMetadata {
+    const normalized = AssetStore.normalizeGeoUpdateMetadata(metadata);
+    if (normalized === null) {
+      throw new Error('Geo update metadata is invalid.');
+    }
+    const assets = new Array<GeoAssetMetadata>();
+    for (let index = 0; index < normalized.assets.length; index++) {
+      assets.push({
+        fileName: normalized.assets[index].fileName,
+        sha256: normalized.assets[index].sha256,
+        size: normalized.assets[index].size,
+        updatedAt: normalized.assets[index].updatedAt
+      });
+    }
+    return {
+      version: normalized.version,
+      source: normalized.source,
+      checkedAt: normalized.checkedAt,
+      result: normalized.result,
+      assets
+    };
+  }
+
+  private static parseStoredCustomAssets(raw: string): Array<CustomAssetUrl> | null {
+    if (raw.length === 0 || raw.length > MAX_CUSTOM_ASSETS_RAW_CHARS) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(raw) as Object;
+      if (!Array.isArray(parsed) || parsed.length > MAX_CUSTOM_ASSET_COUNT) {
+        return null;
+      }
+      const normalized = AssetStore.normalizeCustomAssets(parsed);
+      return normalized.length === parsed.length && AssetStore.hasUniqueCustomAssets(normalized) ? normalized : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  private static parseStoredGeoMetadata(raw: string): GeoUpdateMetadata | null {
+    if (raw.length === 0 || raw.length > MAX_GEO_METADATA_RAW_CHARS) {
+      return null;
+    }
+    try {
+      return AssetStore.normalizeGeoUpdateMetadata(JSON.parse(raw) as GeoUpdateMetadata);
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  private static normalizeCustomAssets(assets: Object): Array<CustomAssetUrl> {
+    if (!Array.isArray(assets)) {
+      return [];
+    }
+    const normalized = new Array<CustomAssetUrl>();
+    for (let index = 0; index < assets.length && normalized.length < MAX_CUSTOM_ASSET_COUNT; index++) {
+      const raw = assets[index];
+      if (raw === undefined || raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+        continue;
+      }
+      const item = raw as CustomAssetUrl;
+      if (typeof item.id !== 'string' || item.id.length === 0 || item.id.length > MAX_ASSET_ID_CHARS ||
+        typeof item.name !== 'string' || typeof item.url !== 'string' || !isSafeCustomAssetName(item.name)) {
+        continue;
+      }
+      const normalizedUrl = AssetStore.normalizeCustomAssetUrl(item.url);
+      if (normalizedUrl.length === 0) {
+        continue;
+      }
+      normalized.push({ id: item.id, name: item.name.trim(), url: normalizedUrl });
+    }
+    return normalized;
+  }
+
+  private static normalizeCustomAssetUrl(value: string): string {
+    const trimmed = value.trim();
+    if (trimmed.startsWith('local://')) {
+      return trimmed.length <= MAX_GEO_METADATA_TEXT_CHARS ? trimmed : '';
+    }
+    return normalizeGeoAssetDownloadUrl(trimmed);
+  }
+
+  private static normalizeGeoUpdateMetadata(metadata: GeoUpdateMetadata): GeoUpdateMetadata | null {
+    if (metadata === null || typeof metadata !== 'object' || !Array.isArray(metadata.assets) ||
+      typeof metadata.version !== 'string' || metadata.version.length > MAX_GEO_METADATA_TEXT_CHARS ||
+      typeof metadata.source !== 'string' || metadata.source.length > MAX_GEO_METADATA_TEXT_CHARS ||
+      typeof metadata.result !== 'string' || metadata.result.length > MAX_GEO_METADATA_TEXT_CHARS ||
+      !Number.isFinite(metadata.checkedAt) || metadata.checkedAt < 0 ||
+      metadata.assets.length > MAX_GEO_METADATA_ASSET_COUNT ||
+      (metadata.result.length > 0 && GEO_METADATA_RESULTS.indexOf(metadata.result) < 0)) {
+      return null;
+    }
     const assets = new Array<GeoAssetMetadata>();
     for (let index = 0; index < metadata.assets.length; index++) {
+      const asset = metadata.assets[index];
+      if (asset === null || typeof asset !== 'object' ||
+        (asset.fileName !== 'geoip.dat' && asset.fileName !== 'geosite.dat') ||
+        typeof asset.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(asset.sha256) ||
+        !Number.isFinite(asset.size) || Math.floor(asset.size) !== asset.size ||
+        asset.size <= 0 || asset.size > MAX_GEO_DATA_BYTES ||
+        !Number.isFinite(asset.updatedAt) || asset.updatedAt < 0) {
+        return null;
+      }
+      for (let duplicateIndex = 0; duplicateIndex < assets.length; duplicateIndex++) {
+        if (assets[duplicateIndex].fileName === asset.fileName) {
+          return null;
+        }
+      }
       assets.push({
-        fileName: metadata.assets[index].fileName,
-        sha256: metadata.assets[index].sha256,
-        size: metadata.assets[index].size,
-        updatedAt: metadata.assets[index].updatedAt
+        fileName: asset.fileName,
+        sha256: asset.sha256,
+        size: asset.size,
+        updatedAt: asset.updatedAt
       });
     }
     return {
@@ -204,70 +322,14 @@ export class AssetStore {
     };
   }
 
-  private static parseStoredCustomAssets(raw: string): Array<CustomAssetUrl> | null {
-    if (raw.length === 0) {
-      return null;
-    }
-    try {
-      const parsed = JSON.parse(raw) as Object;
-      return Array.isArray(parsed) ? AssetStore.normalizeCustomAssets(parsed) : null;
-    } catch (_error) {
-      return null;
-    }
-  }
-
-  private static parseStoredGeoMetadata(raw: string): GeoUpdateMetadata | null {
-    if (raw.length === 0) {
-      return null;
-    }
-    try {
-      const parsed = JSON.parse(raw) as GeoUpdateMetadata;
-      if (parsed === null || typeof parsed !== 'object' || !Array.isArray(parsed.assets)) {
-        return null;
-      }
-      const assets = new Array<GeoAssetMetadata>();
-      for (let index = 0; index < parsed.assets.length; index++) {
-        const asset = parsed.assets[index];
-        if (asset === null || typeof asset !== 'object' || typeof asset.fileName !== 'string' ||
-          typeof asset.sha256 !== 'string' || typeof asset.size !== 'number' || typeof asset.updatedAt !== 'number') {
-          continue;
-        }
-        assets.push({
-          fileName: asset.fileName,
-          sha256: asset.sha256,
-          size: asset.size,
-          updatedAt: asset.updatedAt
-        });
-      }
-      return {
-        version: typeof parsed.version === 'string' ? parsed.version : '',
-        source: typeof parsed.source === 'string' ? parsed.source : '',
-        checkedAt: typeof parsed.checkedAt === 'number' ? parsed.checkedAt : 0,
-        result: typeof parsed.result === 'string' ? parsed.result : '',
-        assets
-      };
-    } catch (_error) {
-      return null;
-    }
-  }
-
-  private static normalizeCustomAssets(assets: Object): Array<CustomAssetUrl> {
-    if (!Array.isArray(assets)) {
-      return [];
-    }
-    const normalized = new Array<CustomAssetUrl>();
+  private static hasUniqueCustomAssets(assets: Array<CustomAssetUrl>): boolean {
     for (let index = 0; index < assets.length; index++) {
-      const raw = assets[index];
-      if (raw === undefined || raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-        continue;
+      for (let otherIndex = 0; otherIndex < index; otherIndex++) {
+        if (assets[otherIndex].id === assets[index].id || assets[otherIndex].name === assets[index].name) {
+          return false;
+        }
       }
-      const item = raw as CustomAssetUrl;
-      if (typeof item.id !== 'string' || typeof item.name !== 'string' ||
-        typeof item.url !== 'string' || !isSafeCustomAssetName(item.name)) {
-        continue;
-      }
-      normalized.push({ id: item.id, name: item.name.trim(), url: item.url.trim() });
     }
-    return normalized;
+    return true;
   }
 }
