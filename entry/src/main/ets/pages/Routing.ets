@@ -104,23 +104,25 @@ struct RoutingPage {
               .borderRadius(Radius.lg)
               .clip(true)
 
-              SectionHeader({ title: this.t('routing.customRulesets.title'), sidePadding: 0 })
-              Column() {
-                this.CustomRulesHeader()
-                if (this.routingRules.length === 0) {
-                  this.RowDivider()
-                  this.EmptyCustomRulesRow()
-                } else {
-                  ForEach(this.routingRules, (rule: RoutingRule, index: number) => {
+              if (this.trafficMode === 'rules') {
+                SectionHeader({ title: this.t('routing.customRulesets.title'), sidePadding: 0 })
+                Column() {
+                  this.CustomRulesHeader()
+                  if (this.routingRules.length === 0) {
                     this.RowDivider()
-                    this.CustomRuleRow(rule, index)
-                  }, (rule: RoutingRule) => rule.id)
+                    this.EmptyCustomRulesRow()
+                  } else {
+                    ForEach(this.routingRules, (rule: RoutingRule, index: number) => {
+                      this.RowDivider()
+                      this.CustomRuleRow(rule, index)
+                    }, (rule: RoutingRule) => rule.id)
+                  }
                 }
+                .width('100%')
+                .backgroundColor(AppColor.surface)
+                .borderRadius(Radius.lg)
+                .clip(true)
               }
-              .width('100%')
-              .backgroundColor(AppColor.surface)
-              .borderRadius(Radius.lg)
-              .clip(true)
 
             }
             .width('100%')

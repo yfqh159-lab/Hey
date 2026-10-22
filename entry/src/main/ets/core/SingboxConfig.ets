@@ -8,7 +8,7 @@ import { coerceRealitySafeFingerprint } from './RealityFingerprint';
  * 把单个节点的 Xray outbound JSON 转换成 sing-box 的完整运行配置：
  *   本地 SOCKS(mixed) 入站（监听 VPN_DATA_SOCKS 端口，由 libheytun2socks.so 把 Harmony
  *   TUN fd 的流量转发进来——与 Xray 统一走 tun2socks 数据面，不用 tun 入站/OpenTun）+
- *   代理出站 + direct/dns 出站 + 基础路由（DNS 劫持、私网直连、其余走代理）+ 基础 DNS。
+ *   代理出站 + direct/dns 出站 + 基础路由（DNS 劫持、全局代理或全局直连）+ 基础 DNS。
  *
  * 覆盖最常见协议：VLESS / VMess / Trojan / Shadowsocks / AnyTLS，传输 tcp/ws/grpc/http(upgrade)，
  * 安全 none/tls/reality。不支持的协议返回 ok=false（不抛异常），由调用方提示。
@@ -118,7 +118,6 @@ interface SbRouteRule {
   inbound?: Array<string>;
   protocol?: string;
   outbound?: string;
-  ip_is_private?: boolean;
   ip_version?: number;
 }
 
@@ -548,6 +547,13 @@ export function buildSingboxConfig(outboundJson: string, settings?: AppSettings,
   if (proxy.server === undefined || proxy.server.length === 0 || (proxy.server_port ?? 0) <= 0) {
     return { ok: false, message: 'sing-box: 节点缺少有效的地址或端口。', configJson: '' };
   }
+  if (settings?.trafficMode === 'rules' && hasEffectiveCustomRoutingRules(settings)) {
+    return {
+      ok: false,
+      message: 'sing-box 预览暂不转换自定义分流规则；请选择全局/直连模式，或使用 Xray 支持的节点。',
+      configJson: ''
+    };
+  }
 
   const remoteDns = normalizeSingboxProxyDns((settings?.remoteDns ?? '').trim());
   // 用户未填直连 DNS 时回落到系统 DNS，不预置任何具体服务商。
@@ -608,10 +614,9 @@ export function buildSingboxConfig(outboundJson: string, settings?: AppSettings,
     // 应用自带 DoH/缓存得到的 IPv6 目标，而不只是让内置 DNS 返回 A 记录。
     routeRules.push({ ip_version: 6, outbound: 'block' });
   }
-  routeRules.push({ ip_is_private: true, outbound: 'direct' });
   const route: SbRoute = {
     rules: routeRules,
-    final: 'proxy',
+    final: settings?.trafficMode === 'direct' ? 'direct' : 'proxy',
     auto_detect_interface: false
   };
 
@@ -630,6 +635,20 @@ export function buildSingboxConfig(outboundJson: string, settings?: AppSettings,
   };
 
   return { ok: true, message: 'ok', configJson: JSON.stringify(config) };
+}
+
+function hasEffectiveCustomRoutingRules(settings: AppSettings): boolean {
+  for (let index = 0; index < settings.routingRules.length; index++) {
+    const rule = settings.routingRules[index];
+    if (!rule.enabled) {
+      continue;
+    }
+    if (rule.domain.length > 0 || rule.ip.length > 0 || rule.process.length > 0 ||
+      rule.port.trim().length > 0 || rule.protocol.length > 0 || rule.network.trim().length > 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // sing-box 经代理的「远程 DNS」规范化。

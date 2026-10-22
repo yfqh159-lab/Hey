@@ -677,6 +677,44 @@ export default function localUnitTest() {
       expect(internalRuleIndex < directAllRuleIndex).assertTrue();
     });
 
+    it('applies custom routing and its dns projections only in rules mode', 0, () => {
+      const settings = buildSettingsFixture();
+      settings.domesticDns = '223.5.5.5';
+      settings.fakeDnsEnabled = true;
+      settings.routingRules = [
+        {
+          id: 'mode-direct',
+          remarks: 'Mode direct',
+          domain: ['domain:mode-only.example'],
+          ip: [],
+          process: [],
+          outboundTag: 'direct',
+          port: '',
+          network: '',
+          protocol: [],
+          enabled: true,
+          locked: false
+        }
+      ];
+
+      settings.trafficMode = 'rules';
+      const rulesMode = buildXrayConfigWithSettings(VLESS_REALITY_OUTBOUND, settings);
+      expect(rulesMode.configJson).assertContain('domain:mode-only.example');
+      expect(rulesMode.configJson).assertContain('domestic-dns-0');
+
+      settings.trafficMode = 'global';
+      const globalMode = buildXrayConfigWithSettings(VLESS_REALITY_OUTBOUND, settings);
+      expect(globalMode.configJson.indexOf('domain:mode-only.example')).assertEqual(-1);
+      expect(globalMode.configJson.indexOf('domestic-dns-0')).assertEqual(-1);
+
+      settings.trafficMode = 'direct';
+      const directMode = buildXrayConfigWithSettings(VLESS_REALITY_OUTBOUND, settings);
+      expect(directMode.configJson.indexOf('domain:mode-only.example')).assertEqual(-1);
+      expect(directMode.configJson.indexOf('domestic-dns-0')).assertEqual(-1);
+      expect(directMode.configJson).assertContain('"outboundTag": "direct"');
+      expect(directMode.configJson).assertContain('"network": "tcp,udp"');
+    });
+
     it('validates full custom xray config json', 0, () => {
       const directValidation = validateFullConfigJson(FULL_XRAY_CONFIG);
       expect(directValidation.valid).assertTrue();
@@ -4593,6 +4631,41 @@ export default function localUnitTest() {
       const ipv6Route = ipv6Config.route as Record<string, Object>;
       const ipv6Rules = ipv6Route.rules as Array<Record<string, Object>>;
       expect(ipv6Rules.some((item: Record<string, Object>): boolean => item.ip_version === 6)).assertFalse();
+    });
+
+    it('keeps sing-box global and direct modes distinct without silently dropping custom rules', 0, () => {
+      const imported = normalizeOutboundInput('anytls://pwd@example.com:443?sni=a.example#A');
+      expect(imported.valid).assertTrue();
+      const settings = buildSettingsFixture();
+
+      settings.trafficMode = 'global';
+      settings.routingRules = [buildRoutingRuleFixture('ignored-global', 'Ignored global', 'direct')];
+      settings.routingRules[0].domain = ['domain:global.example'];
+      const globalGenerated = buildSingboxConfig(imported.normalizedJson, settings);
+      expect(globalGenerated.ok).assertTrue();
+      const globalConfig = JSON.parse(globalGenerated.configJson) as Record<string, Object>;
+      const globalRoute = globalConfig.route as Record<string, Object>;
+      expect(globalRoute.final as string).assertEqual('proxy');
+      expect(globalGenerated.configJson.indexOf('ip_is_private')).assertEqual(-1);
+
+      settings.trafficMode = 'direct';
+      const directGenerated = buildSingboxConfig(imported.normalizedJson, settings);
+      expect(directGenerated.ok).assertTrue();
+      const directConfig = JSON.parse(directGenerated.configJson) as Record<string, Object>;
+      const directRoute = directConfig.route as Record<string, Object>;
+      expect(directRoute.final as string).assertEqual('direct');
+
+      settings.trafficMode = 'rules';
+      const unsupportedRules = buildSingboxConfig(imported.normalizedJson, settings);
+      expect(unsupportedRules.ok).assertFalse();
+      expect(unsupportedRules.message).assertContain('暂不转换自定义分流规则');
+
+      settings.routingRules[0].enabled = false;
+      const emptyRules = buildSingboxConfig(imported.normalizedJson, settings);
+      expect(emptyRules.ok).assertTrue();
+      const emptyRulesConfig = JSON.parse(emptyRules.configJson) as Record<string, Object>;
+      const emptyRulesRoute = emptyRulesConfig.route as Record<string, Object>;
+      expect(emptyRulesRoute.final as string).assertEqual('proxy');
     });
 
     it('flags anytls/tuic as sing-box-only so the Xray core path forces a switch', 0, () => {

@@ -2529,8 +2529,9 @@ function collectDomesticDnsTags(dns: XrayDnsConfig): Array<string> {
 
 function collectDnsRuleDomains(settings: AppSettings, outboundTags: Array<string>): Array<string> {
   const domains = new Array<string>();
-  for (let index = 0; index < settings.routingRules.length; index++) {
-    const rule = settings.routingRules[index];
+  const activeRules = activeCustomRoutingRules(settings);
+  for (let index = 0; index < activeRules.length; index++) {
+    const rule = activeRules[index];
     if (!rule.enabled || outboundTags.indexOf(rule.outboundTag) < 0) {
       continue;
     }
@@ -2969,8 +2970,9 @@ function buildTunSniffing(settings: AppSettings | undefined): XraySniffingConfig
 
 function buildFakeDnsDomains(settings: AppSettings): Array<string> {
   const domains = new Array<string>();
-  for (let index = 0; index < settings.routingRules.length; index++) {
-    const rule = settings.routingRules[index];
+  const activeRules = activeCustomRoutingRules(settings);
+  for (let index = 0; index < activeRules.length; index++) {
+    const rule = activeRules[index];
     if (!rule.enabled || (rule.outboundTag !== 'direct' && rule.outboundTag !== 'proxy')) {
       continue;
     }
@@ -3033,9 +3035,16 @@ function buildRoutingRules(settings: AppSettings | undefined, proxyBalancerTag?:
     return rules;
   }
 
-  appendCustomRoutingRules(rules, settings.routingRules, canUseProcessRouting(settings), proxyBalancerTag);
+  appendCustomRoutingRules(rules, activeCustomRoutingRules(settings), canUseProcessRouting(settings), proxyBalancerTag);
 
   return rules;
+}
+
+function activeCustomRoutingRules(settings: AppSettings): Array<RoutingRule> {
+  // Global means every user flow falls through to the selected proxy; direct means every
+  // user flow falls through to freedom. Custom direct/block/proxy rules, including their
+  // DNS and FakeDNS domain projections, are active only in the explicit rules mode.
+  return settings.trafficMode === 'rules' ? settings.routingRules : new Array<RoutingRule>();
 }
 
 export function canUseProcessRouting(settings: AppSettings | undefined): boolean {

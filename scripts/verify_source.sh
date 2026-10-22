@@ -187,11 +187,11 @@ node <<'NODE'
 const fs = require('fs');
 const singbox = fs.readFileSync('entry/src/main/ets/core/SingboxConfig.ets', 'utf8');
 const blockGuardAt = singbox.indexOf('if (!ipv6Enabled) {');
-const privateRuleAt = singbox.indexOf("routeRules.push({ ip_is_private: true, outbound: 'direct' });");
+const routeAt = singbox.indexOf('const route: SbRoute = {', blockGuardAt);
 if (!singbox.includes('ip_version?: number;') ||
   !singbox.includes("const blockOut: SbOutbound = { type: 'block', tag: 'block' };") ||
-  blockGuardAt < 0 || privateRuleAt < blockGuardAt ||
-  !singbox.slice(blockGuardAt, privateRuleAt).includes("routeRules.push({ ip_version: 6, outbound: 'block' });") ||
+  blockGuardAt < 0 || routeAt < blockGuardAt ||
+  !singbox.slice(blockGuardAt, routeAt).includes("routeRules.push({ ip_version: 6, outbound: 'block' });") ||
   !singbox.includes('outbounds: [proxy, directOut, blockOut, dnsOut],')) {
   throw new Error('sing-box can forward IPv6 targets while the VPN IPv6 setting is disabled');
 }
@@ -1591,6 +1591,35 @@ if (!config.includes('if (vpnMode) {\n    inbounds.push(tunInbound);') ||
 }
 NODE
 printf 'optional TUN/runtime mode separation verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
+const config = fs.readFileSync('entry/src/main/ets/core/XrayConfig.ets', 'utf8');
+const routing = fs.readFileSync('entry/src/main/ets/pages/Routing.ets', 'utf8');
+const tests = fs.readFileSync('entry/src/test/LocalUnit.test.ets', 'utf8');
+const singbox = fs.readFileSync('entry/src/main/ets/core/SingboxConfig.ets', 'utf8');
+const helperAt = config.indexOf('function activeCustomRoutingRules(settings: AppSettings)');
+const helperEnd = config.indexOf('\n}', helperAt);
+const helper = config.slice(helperAt, helperEnd);
+if (helperAt < 0 ||
+  !helper.includes("settings.trafficMode === 'rules' ? settings.routingRules") ||
+  !config.includes('const activeRules = activeCustomRoutingRules(settings);') ||
+  !config.includes('appendCustomRoutingRules(rules, activeCustomRoutingRules(settings),')) {
+  throw new Error('global/direct modes can still apply custom routing or DNS projections');
+}
+if (!routing.includes("if (this.trafficMode === 'rules') {\n                SectionHeader({ title: this.t('routing.customRulesets.title')")) {
+  throw new Error('custom-rule editor remains visible while its rules are inactive');
+}
+if (!tests.includes("it('applies custom routing and its dns projections only in rules mode'")) {
+  throw new Error('traffic mode routing isolation lacks a LocalUnit regression');
+}
+if (singbox.includes("routeRules.push({ ip_is_private: true, outbound: 'direct' });") ||
+  !singbox.includes("final: settings?.trafficMode === 'direct' ? 'direct' : 'proxy'") ||
+  !singbox.includes("settings?.trafficMode === 'rules' && hasEffectiveCustomRoutingRules(settings)")) {
+  throw new Error('sing-box preview silently diverges from the selected global/direct/rules mode');
+}
+NODE
+printf 'traffic mode routing isolation verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');
