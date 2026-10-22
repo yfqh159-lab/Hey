@@ -711,10 +711,13 @@ printf 'bounded external Want staging verification passed\n'
 
 # Camera, photo, and clipboard results are often complete share links containing UUIDs,
 # passwords, or subscription tokens. Keep the raw value only in page memory for the
-# explicit confirmation action; the screenshot-visible TextArea and preview receive no
-# unredacted external payload.
+# explicit confirmation action; @State preserves that memory across the system scanner's
+# ArkUI component reconstruction, while the screenshot-visible TextArea and preview receive
+# no unredacted external payload.
 scanner_source='entry/src/main/ets/pages/Scanner.ets'
-if ! grep -Fq "private pendingSensitiveImport: string = '';" "${scanner_source}" ||
+if ! grep -Fq "@State private pendingSensitiveImport: string = '';" "${scanner_source}" ||
+  ! grep -Fq "@State private previewMatchesImport: boolean = false;" "${scanner_source}" ||
+  grep -Fq 'this.hasPendingSensitiveImport ?' "${scanner_source}" ||
   ! grep -Fq 'this.setSensitiveImportValue(value);' "${scanner_source}" ||
   ! grep -Fq 'this.setSensitiveImportValue(text);' "${scanner_source}" ||
   ! grep -Fq "'scanner.previewEndpoint', 'endpoint', redactDiagnosticText(endpointText)" "${scanner_source}" ||
@@ -768,7 +771,7 @@ if (!disappear.includes('this.clearImportValue();') ||
   !disappear.includes('this.routeStartScanImmediate = false;') ||
   clearScannerAt < 0 || clearScannerEnd < 0 ||
   !clearScanner.includes("this.pendingSensitiveImport = '';") ||
-  !clearScanner.includes('this.hasPendingSensitiveImport = false;') ||
+  !clearScanner.includes('this.previewMatchesImport = false;') ||
   !clearScanner.includes("this.importBuffer = '';") ||
   !clearScanner.includes("this.lastError = '';") ||
   !clearScanner.includes("this.updateImportPreview('');")) {
@@ -1689,7 +1692,7 @@ if ! grep -F "'scanner.supportedPayloads':" entry/src/main/ets/core/I18n.ets | g
 fi
 printf 'primary scanner protocol guidance verification passed\n'
 
-if ! grep -Fq '(!this.hasPendingSensitiveImport || this.previewValid)' \
+if ! grep -Fq '(!this.hasPendingSensitiveImport() || this.previewValid)' \
   "entry/src/main/ets/pages/Scanner.ets" || \
   ! grep -Fq 'this.updateImportPreview(this.pendingSensitiveImport, true);' \
   "entry/src/main/ets/pages/Scanner.ets"; then
@@ -1756,7 +1759,8 @@ if (!source.includes("this.hasCurrentValidPreview() ? 'action.importResult' : 'i
   guardAt < 0 || busyAt < 0 || guardAt > busyAt ||
   !importBody.includes('this.updateImportPreview(value, true);') ||
   !importBody.includes("this.toast(this.t('scanner.reviewBeforeImport'));") ||
-  !previewBody.includes("this.previewedImportValue = input;")) {
+  !previewBody.includes('this.previewMatchesImport = true;') ||
+  !previewBody.includes('return value.length > 0 && this.previewValid && this.previewMatchesImport;')) {
   throw new Error('manual Scanner native fallback can bypass preview confirmation');
 }
 NODE

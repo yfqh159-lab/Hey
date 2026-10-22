@@ -32,11 +32,15 @@ import {
 struct ScannerPage {
   @StorageProp('appLanguage') private language: AppLanguage = DEFAULT_LANGUAGE;
   @State private importBuffer: string = '';
-  @State private hasPendingSensitiveImport: boolean = false;
+  // 系统扫码/相册面板返回时 ArkUI 可能重建页面组件。原文仍只保存在当前页面内存，
+  // 不绑定任何可截图控件，但必须由 @State 接管重建恢复，否则会留下“预览存在、
+  // 确认按钮不可用”的分裂状态。
+  @State private pendingSensitiveImport: string = '';
   @State private lastError: string = '';
   @State private previewTitle: string = '';
   @State private previewDetail: string = '';
   @State private previewValid: boolean = false;
+  @State private previewMatchesImport: boolean = false;
   @State private isBusy: boolean = false;
   @State private hasAutoScanned: boolean = false;
   @State private isPressedScanCard: boolean = false;
@@ -47,12 +51,6 @@ struct ScannerPage {
   private immediateScanTimerId: number = -1;
   private pageActive: boolean = false;
   private pageGeneration: number = 0;
-  // 只有与当前原文完全一致的有效预览才能进入保存。这个值不展示，
-  // 离页时与其他敏感导入状态一起清除。
-  private previewedImportValue: string = '';
-  // 相机、相册和剪贴板内容可能包含 UUID、密码或订阅 Token。原文只保存在页面实例内，
-  // 默认不绑定到可截图的 TextArea；确认导入仍使用这份原始值。
-  private pendingSensitiveImport: string = '';
 
   aboutToAppear(): void {
     this.pageActive = true;
@@ -246,7 +244,7 @@ struct ScannerPage {
             .alignItems(VerticalAlign.Center)
 
             TextArea({
-              placeholder: this.hasPendingSensitiveImport ?
+              placeholder: this.hasPendingSensitiveImport() ?
                 this.t('scanner.reviewBeforeImport') : this.t('placeholder.scannerPayload'),
               text: this.importBuffer
             })
@@ -254,17 +252,17 @@ struct ScannerPage {
               .fontSize(13)
               .fontColor(AppColor.textPrimary)
               .backgroundColor(AppColor.surfaceAlt)
-              .enabled(!this.hasPendingSensitiveImport)
-              .opacity(this.hasPendingSensitiveImport ? 0.72 : 1.0)
+              .enabled(!this.hasPendingSensitiveImport())
+              .opacity(this.hasPendingSensitiveImport() ? 0.72 : 1.0)
               .borderRadius(10)
               .padding(12)
               .onChange((value: string) => {
-                if (this.hasPendingSensitiveImport) {
+                if (this.hasPendingSensitiveImport()) {
                   return;
                 }
                 if (isExternalImportTextTooLarge(value)) {
                   this.importBuffer = '';
-                  this.previewedImportValue = '';
+                  this.previewMatchesImport = false;
                   this.previewValid = false;
                   this.previewTitle = this.t('scanner.previewInvalid');
                   this.previewDetail = localizeCoreMessage(this.language, IMPORT_TEXT_TOO_LARGE_MESSAGE);
@@ -396,7 +394,11 @@ struct ScannerPage {
     // 相机、相册和剪贴板结果已经运行过完整兼容预览；无效摘要不得继续进入保存。
     // 手动输入仍允许点击后执行一次 native 兼容解析，避免按键期间反复调用 N-API。
     return this.hasImportValue() && !this.isBusy &&
-      (!this.hasPendingSensitiveImport || this.previewValid);
+      (!this.hasPendingSensitiveImport() || this.previewValid);
+  }
+
+  private hasPendingSensitiveImport(): boolean {
+    return this.pendingSensitiveImport.length > 0;
   }
 
   private hasImportValue(): boolean {
@@ -409,15 +411,13 @@ struct ScannerPage {
 
   private setSensitiveImportValue(value: string): void {
     this.pendingSensitiveImport = value.trim();
-    this.hasPendingSensitiveImport = this.pendingSensitiveImport.length > 0;
     this.importBuffer = '';
   }
 
   private clearImportValue(): void {
     this.pendingSensitiveImport = '';
-    this.hasPendingSensitiveImport = false;
     this.importBuffer = '';
-    this.previewedImportValue = '';
+    this.previewMatchesImport = false;
     this.lastError = '';
     this.updateImportPreview('');
   }
@@ -842,7 +842,7 @@ struct ScannerPage {
 
   private updateImportPreview(value: string, allowNativeFallback: boolean = false): void {
     const input = value.trim();
-    this.previewedImportValue = '';
+    this.previewMatchesImport = false;
     if (input.length === 0) {
       this.previewTitle = '';
       this.previewDetail = '';
@@ -867,7 +867,7 @@ struct ScannerPage {
       this.previewTitle = this.t('scanner.previewSubscription');
       this.previewDetail = this.t('scanner.previewSubscriptionDetail');
       this.previewValid = true;
-      this.previewedImportValue = input;
+      this.previewMatchesImport = true;
       return;
     }
     const validation = NODES_CONTROLLER.validateConfig(input, this.language);
@@ -882,7 +882,7 @@ struct ScannerPage {
           'scanner.previewEndpoint', 'endpoint', redactDiagnosticText(endpointText))}`;
       }
       this.previewValid = true;
-      this.previewedImportValue = input;
+      this.previewMatchesImport = true;
       return;
     }
     const parsedNodes = SubscriptionManager.parseSubscriptionContent(input, '');
@@ -902,7 +902,7 @@ struct ScannerPage {
         this.previewTitle = this.f1('scanner.previewNodes', 'count', validNodeCount.toString());
         this.previewDetail = this.t('scanner.previewNodesDetail');
         this.previewValid = true;
-        this.previewedImportValue = input;
+        this.previewMatchesImport = true;
         return;
       }
     }
@@ -927,7 +927,7 @@ struct ScannerPage {
           this.previewTitle = this.f1('scanner.previewNodes', 'count', validNativeCount.toString());
           this.previewDetail = this.t('scanner.previewNodesDetail');
           this.previewValid = true;
-          this.previewedImportValue = input;
+          this.previewMatchesImport = true;
           return;
         }
       }
@@ -939,7 +939,7 @@ struct ScannerPage {
 
   private hasCurrentValidPreview(): boolean {
     const value = this.importValue();
-    return value.length > 0 && this.previewValid && this.previewedImportValue === value;
+    return value.length > 0 && this.previewValid && this.previewMatchesImport;
   }
 
   private async addManualNodeIfUnique(
