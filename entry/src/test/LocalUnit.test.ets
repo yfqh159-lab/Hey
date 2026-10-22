@@ -136,16 +136,16 @@ const WIREGUARD_CONF_WITHOUT_MTU: string =
 export default function localUnitTest() {
   describe('qrScanErrors', () => {
     it('treats documented numeric and string cancellation codes as user cancellation', 0, () => {
-      expect(isScanCancelled({ code: 20001 })).assertTrue();
-      expect(isScanCancelled({ code: '20001' })).assertTrue();
-      expect(isScanCancelled({ code: 1000500002 })).assertTrue();
-      expect(isScanCancelled({ code: '1000500002' })).assertTrue();
+      expect(isScanCancelled(objectFromJson('{"code":20001}'))).assertTrue();
+      expect(isScanCancelled(objectFromJson('{"code":"20001"}'))).assertTrue();
+      expect(isScanCancelled(objectFromJson('{"code":1000500002}'))).assertTrue();
+      expect(isScanCancelled(objectFromJson('{"code":"1000500002"}'))).assertTrue();
     });
 
     it('keeps permission and decoder failures visible', 0, () => {
-      expect(isScanCancelled({ code: 201 })).assertFalse();
-      expect(isScanCancelled({ message: 'decode failed' })).assertFalse();
-      expect(isScanCancelled({})).assertFalse();
+      expect(isScanCancelled(objectFromJson('{"code":201}'))).assertFalse();
+      expect(isScanCancelled(objectFromJson('{"message":"decode failed"}'))).assertFalse();
+      expect(isScanCancelled(objectFromJson('{}'))).assertFalse();
     });
   });
 
@@ -506,11 +506,9 @@ export default function localUnitTest() {
     });
 
     it('does not silently turn unreadable saved proxy mode settings into TUN defaults', 0, () => {
-      const localProxySettings: AppSettings = {
-        ...DEFAULT_APP_SETTINGS,
-        mode: APP_MODE_PROXY_ONLY,
-        localSocksPort: 19080
-      };
+      const localProxySettings = buildSettingsFixture();
+      localProxySettings.mode = APP_MODE_PROXY_ONLY;
+      localProxySettings.localSocksPort = 19080;
       const raw = JSON.stringify(localProxySettings);
 
       const primary = SettingsStore.selectStoredSettings(raw, '{broken');
@@ -533,18 +531,9 @@ export default function localUnitTest() {
     });
 
     it('sanitizes wrong runtime types inside restored settings instead of retaining or throwing', 0, () => {
-      const malformed = JSON.stringify({
-        mode: APP_MODE_PROXY_ONLY,
-        speedEnabled: 'yes',
-        localSocksPort: '19080',
-        perAppProxyList: [100, 'com.example.valid', null],
-        routingRules: [null, {
-          id: 7,
-          remarks: {},
-          domain: [1, 'example.com', null, 'example.com'],
-          enabled: 'no'
-        }]
-      });
+      const malformed = '{"mode":"proxy","speedEnabled":"yes","localSocksPort":"19080",' +
+        '"perAppProxyList":[100,"com.example.valid",null],"routingRules":[null,{' +
+        '"id":7,"remarks":{},"domain":[1,"example.com",null,"example.com"],"enabled":"no"}]}';
       const selected = SettingsStore.selectStoredSettings(malformed, '');
       expect(selected.source).assertEqual('primary');
       expect(selected.settings?.speedEnabled ?? true).assertFalse();
@@ -557,31 +546,11 @@ export default function localUnitTest() {
     });
 
     it('skips malformed subscription groups and nodes while normalizing valid entries', 0, () => {
-      const malformed = JSON.stringify({
-        url: 9,
-        selectedNodeId: {},
-        nodes: [],
-        updatedAt: 'now',
-        selectedGroupId: 4,
-        groups: [null, {
-          id: 3,
-          name: {},
-          url: 'https://example.com/sub',
-          enabled: 'yes',
-          nodes: [null, { id: 'bad', outboundJson: 42 }, {
-            id: 'good',
-            name: 'Good',
-            protocol: 'vless',
-            outboundJson: VLESS_REALITY_OUTBOUND,
-            sourceUrl: '',
-            rawLink: '',
-            updatedAt: 1,
-            delayMs: -1,
-            delayTestAt: 0,
-            delayStatus: ''
-          }]
-        }]
-      });
+      const malformed = '{"url":9,"selectedNodeId":{},"nodes":[],"updatedAt":"now",' +
+        '"selectedGroupId":4,"groups":[null,{"id":3,"name":{},"url":"https://example.com/sub",' +
+        '"enabled":"yes","nodes":[null,{"id":"bad","outboundJson":42},{"id":"good",' +
+        '"name":"Good","protocol":"vless","outboundJson":' + JSON.stringify(VLESS_REALITY_OUTBOUND) +
+        ',"sourceUrl":"","rawLink":"","updatedAt":1,"delayMs":-1,"delayTestAt":0,"delayStatus":""}]}]}';
       const selected = SubscriptionStore.selectStoredProfile(malformed, '');
       expect(selected.source).assertEqual('primary');
       expect(selected.profile?.groups.length ?? 0).assertEqual(1);
@@ -641,14 +610,8 @@ export default function localUnitTest() {
     });
 
     it('does not retain wrong runtime types in persisted control-card presentation fields', 0, () => {
-      const malformed = JSON.stringify({
-        primaryActionUri: 42,
-        runtimeStatus: 'idle',
-        runtimeMode: APP_MODE_PROXY_ONLY,
-        appName: false,
-        statusLabel: {},
-        primaryColor: ['red']
-      });
+      const malformed = '{"primaryActionUri":42,"runtimeStatus":"idle","runtimeMode":"proxy",' +
+        '"appName":false,"statusLabel":{},"primaryColor":["red"]}';
       const selected = ControlCardStore.selectStoredState(malformed, '');
       expect(selected.source).assertEqual('primary');
       expect(selected.state?.primaryActionUri ?? '').assertEqual(CONTROL_CARD_START_URI);
@@ -1780,7 +1743,7 @@ export default function localUnitTest() {
       expect(routed[1]).assertEqual('[2606:4700:4700::1111]:53');
       expect(routed[2]).assertEqual('https://dns.google/dns-query');
 
-      const settingsController = new SettingsController();
+      const settingsController = SETTINGS_CONTROLLER;
       const draft = settingsController.toDraft(buildSettingsFixture());
       draft.remoteDns = 'localhost,https+local://dns.google/dns-query';
       expect(settingsController.buildSettings(draft).remoteDns).assertEqual(DNS_PROXY);
@@ -2505,7 +2468,7 @@ export default function localUnitTest() {
     it('bounds imported routing rule cardinality', 0, () => {
       const raw = new Array<Record<string, Object>>();
       for (let index = 0; index < MAX_ROUTING_RULE_COUNT + 2; index++) {
-        raw.push({ domain: [`domain:${index}.example`], outboundTag: 'proxy' });
+        raw.push(JSON.parse(`{"domain":["domain:${index}.example"],"outboundTag":"proxy"}`) as Record<string, Object>);
       }
       const result = importRoutingRulesJson([], JSON.stringify(raw));
       expect(result.success).assertTrue();
@@ -2683,15 +2646,11 @@ export default function localUnitTest() {
     });
 
     it('parses the trusted default geo release and checksum files', 0, () => {
-      const release = JSON.stringify({
-        tag_name: '202610202206',
-        assets: [
-          { name: 'geosite.dat', size: 2048, browser_download_url: 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610202206/geosite.dat' },
-          { name: 'geosite.dat.sha256sum', size: 80, browser_download_url: 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610202206/geosite.dat.sha256sum' },
-          { name: 'geoip.dat', size: 4096, browser_download_url: 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610202206/geoip.dat' },
-          { name: 'geoip.dat.sha256sum', size: 80, browser_download_url: 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610202206/geoip.dat.sha256sum' }
-        ]
-      });
+      const release = '{"tag_name":"202610202206","assets":[' +
+        '{"name":"geosite.dat","size":2048,"browser_download_url":"https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610202206/geosite.dat"},' +
+        '{"name":"geosite.dat.sha256sum","size":80,"browser_download_url":"https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610202206/geosite.dat.sha256sum"},' +
+        '{"name":"geoip.dat","size":4096,"browser_download_url":"https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610202206/geoip.dat"},' +
+        '{"name":"geoip.dat.sha256sum","size":80,"browser_download_url":"https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610202206/geoip.dat.sha256sum"}]}';
       const parsed = parseDefaultGeoRelease(release);
       expect(parsed.ok).assertTrue();
       expect(parsed.manifest?.version).assertEqual('202610202206');
@@ -2708,15 +2667,11 @@ export default function localUnitTest() {
     });
 
     it('rejects default geo release metadata that redirects an asset', 0, () => {
-      const release = JSON.stringify({
-        tag_name: '202610202206',
-        assets: [
-          { name: 'geosite.dat', size: 2048, browser_download_url: 'https://example.com/geosite.dat' },
-          { name: 'geosite.dat.sha256sum', browser_download_url: 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610202206/geosite.dat.sha256sum' },
-          { name: 'geoip.dat', size: 4096, browser_download_url: 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610202206/geoip.dat' },
-          { name: 'geoip.dat.sha256sum', browser_download_url: 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610202206/geoip.dat.sha256sum' }
-        ]
-      });
+      const release = '{"tag_name":"202610202206","assets":[' +
+        '{"name":"geosite.dat","size":2048,"browser_download_url":"https://example.com/geosite.dat"},' +
+        '{"name":"geosite.dat.sha256sum","browser_download_url":"https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610202206/geosite.dat.sha256sum"},' +
+        '{"name":"geoip.dat","size":4096,"browser_download_url":"https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610202206/geoip.dat"},' +
+        '{"name":"geoip.dat.sha256sum","browser_download_url":"https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202610202206/geoip.dat.sha256sum"}]}';
       expect(parseDefaultGeoRelease(release).ok).assertFalse();
     });
 
@@ -2793,18 +2748,18 @@ export default function localUnitTest() {
       const state = parseGeoTransactionState(encodeGeoTransactionState(3, 1));
       expect(state?.stagedMask).assertEqual(3);
       expect(state?.originalMask).assertEqual(1);
-      expect(parseGeoTransactionState(new Uint8Array([0, 0]).buffer)).assertEqual(null);
-      expect(parseGeoTransactionState(new Uint8Array([1, 2]).buffer)).assertEqual(null);
-      expect(parseGeoTransactionState(new Uint8Array([7, 0]).buffer)).assertEqual(null);
-      expect(parseGeoTransactionState(new Uint8Array([1]).buffer)).assertEqual(null);
+      expect(parseGeoTransactionState(byteBuffer([0, 0]))).assertEqual(null);
+      expect(parseGeoTransactionState(byteBuffer([1, 2]))).assertEqual(null);
+      expect(parseGeoTransactionState(byteBuffer([7, 0]))).assertEqual(null);
+      expect(parseGeoTransactionState(byteBuffer([1]))).assertEqual(null);
     });
 
     it('accepts only a fully written geo transaction commit marker', 0, () => {
-      expect(isValidGeoCommitMarker(new Uint8Array([1]).buffer)).assertTrue();
+      expect(isValidGeoCommitMarker(byteBuffer([1]))).assertTrue();
       expect(isValidGeoCommitMarker(null)).assertFalse();
       expect(isValidGeoCommitMarker(new ArrayBuffer(0))).assertFalse();
-      expect(isValidGeoCommitMarker(new Uint8Array([0]).buffer)).assertFalse();
-      expect(isValidGeoCommitMarker(new Uint8Array([1, 0]).buffer)).assertFalse();
+      expect(isValidGeoCommitMarker(byteBuffer([0]))).assertFalse();
+      expect(isValidGeoCommitMarker(byteBuffer([1, 0]))).assertFalse();
     });
 
     it('blocks core startup only for geo replacement transaction artifacts', 0, () => {
@@ -3337,10 +3292,10 @@ export default function localUnitTest() {
 
     it('starts scanner immediately only for an explicit route request', 0, () => {
       expect(shouldStartScannerImmediately(undefined)).assertFalse();
-      expect(shouldStartScannerImmediately({})).assertFalse();
-      expect(shouldStartScannerImmediately({ startImmediately: true })).assertTrue();
-      expect(shouldStartScannerImmediately({ startImmediately: '1' })).assertTrue();
-      expect(shouldStartScannerImmediately({ startImmediately: false })).assertFalse();
+      expect(shouldStartScannerImmediately(recordFromJson('{}'))).assertFalse();
+      expect(shouldStartScannerImmediately(recordFromJson('{"startImmediately":true}'))).assertTrue();
+      expect(shouldStartScannerImmediately(recordFromJson('{"startImmediately":"1"}'))).assertTrue();
+      expect(shouldStartScannerImmediately(recordFromJson('{"startImmediately":false}'))).assertFalse();
     });
 
     it('keeps recovered vpn sessions on their actual runtime mode', 0, () => {
@@ -3558,7 +3513,7 @@ export default function localUnitTest() {
         'https://2.example/ip'
       ], 1)).assertFalse();
 
-      const controller = new SettingsController();
+      const controller = SETTINGS_CONTROLLER;
       const settingsDraft = controller.toDraft(buildSettingsFixture());
       settingsDraft.ipApiUrl = 'http://example.com/ip';
       expect(controller.buildSettings(settingsDraft).ipApiUrl).assertEqual('');
@@ -6017,6 +5972,23 @@ export default function localUnitTest() {
       expect(selectUnderlyingNetworkCandidate([]).kind).assertEqual('none');
     });
   });
+}
+
+function objectFromJson(value: string): Object {
+  return JSON.parse(value) as Object;
+}
+
+function recordFromJson(value: string): Record<string, Object> {
+  return JSON.parse(value) as Record<string, Object>;
+}
+
+function byteBuffer(values: Array<number>): ArrayBuffer {
+  const data = new ArrayBuffer(values.length);
+  const bytes = new Uint8Array(data);
+  for (let index = 0; index < values.length; index++) {
+    bytes[index] = values[index];
+  }
+  return data;
 }
 
 function buildSettingsFixture(): AppSettings {
