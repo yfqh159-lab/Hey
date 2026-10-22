@@ -226,6 +226,12 @@ export class ConnectionController {
         this.generatedConfig.configJson, coreLogPath, fallbackLogLevel);
       this.runtimeMode = normalizeAppRuntimeMode(
         resolvedRuntimeSettings?.mode ?? settings?.mode, APP_MODE_VPN);
+      if (this.runtimeMode === APP_MODE_VPN && validation.configType === 'full' &&
+        this.generatedConfig.vpnDataPlaneCompatible !== true) {
+        throw new Error(
+          '完整 Xray 配置的 TUN 模式需要回环 SOCKS 入站使用 noauth 且开启 udp。'
+        );
+      }
       if (this.runtimeMode === APP_MODE_VPN) {
         // 初次启动可使用当前承载的域名预解析结果；切网重载必须保留原始域名和用户自己
         // 配置的静态 hosts，避免把旧网络解析出的临时地址永久带到新承载。配置完全相同

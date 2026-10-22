@@ -1542,7 +1542,8 @@ if (reloadStart < 0 || reloadEnd < 0 || reloadCatch < 0 || reloadHealthGuard < 0
 
 if (!config.includes('if (vpnMode) {\n    inbounds.push(tunInbound);') ||
   !config.includes('settings.localSocksEnabled || proxyOnlyMode') ||
-  !config.includes("const socksInbound = findFullConfigLocalInbound(runtimeConfig, 'socks');") ||
+  !config.includes("const localSocksInbound = findFullConfigLocalInbound(runtimeConfig, 'socks');") ||
+  !config.includes('const socksInbound = isVpnRuntimeMode(settings?.mode) ?') ||
   !config.includes('runtimeHealthPort: socksInbound?.port')) {
   throw new Error('Xray runtime config no longer keeps TUN and local proxy inbounds mode-scoped');
 }
@@ -2903,6 +2904,31 @@ if (!store.includes('runtimeHealthPort?: number;') ||
 }
 NODE
 printf 'session-bound persisted runtime SOCKS port verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
+const profile = fs.readFileSync('entry/src/main/ets/core/Profile.ets', 'utf8');
+const config = fs.readFileSync('entry/src/main/ets/core/XrayConfig.ets', 'utf8');
+const connection = fs.readFileSync('entry/src/main/ets/services/ConnectionController.ets', 'utf8');
+const tests = fs.readFileSync('entry/src/test/LocalUnit.test.ets', 'utf8');
+const compatibilityAt = connection.indexOf("validation.configType === 'full'");
+const vpnLaunchAt = connection.indexOf('const vpnSessionId = this.createVpnSessionId(', compatibilityAt);
+if (!profile.includes('vpnDataPlaneCompatible?: boolean;') ||
+  !config.includes('function findFullConfigVpnDataPlaneInbound(') ||
+  !config.includes("auth === 'noauth' && settings['udp'] === true") ||
+  !config.includes('(vpnSocksInbound ?? localSocksInbound) : localSocksInbound') ||
+  !config.includes('vpnDataPlaneCompatible: vpnSocksInbound !== null') ||
+  compatibilityAt < 0 || vpnLaunchAt < compatibilityAt ||
+  !connection.slice(compatibilityAt, vpnLaunchAt).includes('this.runtimeMode === APP_MODE_VPN') ||
+  !connection.slice(compatibilityAt, vpnLaunchAt).includes('this.generatedConfig.vpnDataPlaneCompatible !== true') ||
+  !tests.includes('expect(passwordResult.vpnDataPlaneCompatible).assertFalse();') ||
+  !tests.includes('expect(tcpOnlyResult.vpnDataPlaneCompatible).assertFalse();') ||
+  !tests.includes('expect(vpnMixedResult.runtimeHealthPort).assertEqual(19082);') ||
+  !tests.includes('expect(proxyMixedResult.runtimeHealthPort).assertEqual(19080);')) {
+  throw new Error('full-config TUN can use an authenticated or TCP-only SOCKS inbound');
+}
+NODE
+printf 'full-config TUN SOCKS capability verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');

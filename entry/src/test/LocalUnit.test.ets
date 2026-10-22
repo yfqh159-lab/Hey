@@ -1100,6 +1100,32 @@ export default function localUnitTest() {
       expect(localProxy.httpProxyHost).assertEqual(DEFAULT_SOCKS_HOST);
       expect(localProxy.httpProxyPort).assertEqual(19081);
       expect(localProxy.runtimeHealthPort).assertEqual(19080);
+      expect(localProxy.vpnDataPlaneCompatible).assertTrue();
+
+      const passwordSocks = fullWithLocalProxy.replace(
+        '"settings":{"udp":true}',
+        '"settings":{"auth":"password","accounts":[{"user":"test","pass":"secret"}],"udp":true}'
+      );
+      const passwordResult = buildRuntimeXrayConfig(passwordSocks, settings, 'full');
+      expect(passwordResult.runtimeHealthPort).assertEqual(19080);
+      expect(passwordResult.vpnDataPlaneCompatible).assertFalse();
+      const tcpOnlySocks = fullWithLocalProxy.replace('"settings":{"udp":true}', '"settings":{"udp":false}');
+      const tcpOnlyResult = buildRuntimeXrayConfig(tcpOnlySocks, settings, 'full');
+      expect(tcpOnlyResult.runtimeHealthPort).assertEqual(19080);
+      expect(tcpOnlyResult.vpnDataPlaneCompatible).assertFalse();
+      const mixedSocks = passwordSocks.replace(
+        '],"outbounds"',
+        ',{"tag":"tun-socks","listen":"127.0.0.1","port":19082,"protocol":"socks",' +
+          '"settings":{"auth":"noauth","udp":true}}],"outbounds"'
+      );
+      const vpnMixedResult = buildRuntimeXrayConfig(mixedSocks, settings, 'full');
+      expect(vpnMixedResult.runtimeHealthPort).assertEqual(19082);
+      expect(vpnMixedResult.vpnDataPlaneCompatible).assertTrue();
+      settings.mode = APP_MODE_PROXY_ONLY;
+      const proxyMixedResult = buildRuntimeXrayConfig(mixedSocks, settings, 'full');
+      expect(proxyMixedResult.runtimeHealthPort).assertEqual(19080);
+      expect(proxyMixedResult.vpnDataPlaneCompatible).assertTrue();
+      settings.mode = APP_MODE_VPN;
 
       const remoteOnlySocks = fullWithLocalProxy.replace('127.0.0.1', '192.0.2.10');
       expect(buildRuntimeXrayConfig(remoteOnlySocks, settings, 'full').runtimeHealthPort === undefined)

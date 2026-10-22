@@ -499,6 +499,34 @@ function findFullConfigLocalInbound(configJson: string, protocol: string): FullC
   return null;
 }
 
+// Harmony VPN 的 gVisor/HEV 数据面只按主机+端口连接 SOCKS5，当前不传递
+// 用户名/密码，且系统 VPN 中的 DNS 和应用 UDP 需要 UDP ASSOCIATE。完整
+// Xray 配置不能仅凭 TCP 端口可连就被当成可用的 TUN 入口。
+function findFullConfigVpnDataPlaneInbound(configJson: string): FullConfigLocalInbound | null {
+  const config = parseFullConfig(configJson);
+  for (let index = 0; index < config.inbounds.length; index++) {
+    const inbound = config.inbounds[index];
+    if (typeof inbound.protocol !== 'string' || inbound.protocol.toLowerCase() !== 'socks' ||
+      typeof inbound.port !== 'number' || !Number.isFinite(inbound.port) ||
+      Math.floor(inbound.port) !== inbound.port || inbound.port < 1 || inbound.port > 65535) {
+      continue;
+    }
+    const listen = typeof inbound.listen === 'string' ? inbound.listen.trim().toLowerCase() : '';
+    if (listen.length > 0 && listen !== DEFAULT_SOCKS_HOST && listen !== 'localhost' && listen !== '0.0.0.0') {
+      continue;
+    }
+    const rawSettings = inbound.settings;
+    const settings = typeof rawSettings === 'object' && rawSettings !== null && !Array.isArray(rawSettings) ?
+      rawSettings as Record<string, Object> : {} as Record<string, Object>;
+    const authValue = settings['auth'];
+    const auth = typeof authValue === 'string' ? authValue.trim().toLowerCase() : 'noauth';
+    if (auth === 'noauth' && settings['udp'] === true) {
+      return { host: DEFAULT_SOCKS_HOST, port: inbound.port };
+    }
+  }
+  return null;
+}
+
 export function validateOutboundJson(outboundJson: string): ValidationResult {
   const trimmed = outboundJson.trim();
   if (trimmed.length === 0) {
@@ -1031,7 +1059,10 @@ export function buildRuntimeXrayConfig(configJson: string, settings?: AppSetting
     const withProcesses = normalizeFullConfigRoutingProcesses(fullConfig, resolveProcessUid, canUseProcessRouting(settings));
     const withRealityFix = applyRealityMlkemFingerprintWorkaroundToFullConfig(withProcesses);
     const runtimeConfig = suppressIpv6InFullConfig(withRealityFix, settings);
-    const socksInbound = findFullConfigLocalInbound(runtimeConfig, 'socks');
+    const localSocksInbound = findFullConfigLocalInbound(runtimeConfig, 'socks');
+    const vpnSocksInbound = findFullConfigVpnDataPlaneInbound(runtimeConfig);
+    const socksInbound = isVpnRuntimeMode(settings?.mode) ?
+      (vpnSocksInbound ?? localSocksInbound) : localSocksInbound;
     const httpInbound = findFullConfigLocalInbound(runtimeConfig, 'http');
     return {
       configJson: runtimeConfig,
@@ -1039,7 +1070,8 @@ export function buildRuntimeXrayConfig(configJson: string, settings?: AppSetting
       socksPort: socksInbound?.port,
       httpProxyHost: httpInbound?.host,
       httpProxyPort: httpInbound?.port,
-      runtimeHealthPort: socksInbound?.port
+      runtimeHealthPort: socksInbound?.port,
+      vpnDataPlaneCompatible: vpnSocksInbound !== null
     };
   }
   if (validation.configType === 'proxy-chain') {

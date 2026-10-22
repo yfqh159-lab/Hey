@@ -85,6 +85,7 @@ export interface GeneratedXrayConfig {
   httpProxyPort?: number;
   metricsServer?: string;
   runtimeHealthPort?: number;
+  vpnDataPlaneCompatible?: boolean;
 }
 
 export interface RoutingRule {
