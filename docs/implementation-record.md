@@ -389,6 +389,13 @@ Node 堆上限也从默认 8 GB 收敛到 2 GB，避免 Windows 页面文件不�
 汇总；保留为 DevEco 本地预览器稳定性问题，不虚报为测试成功或代码失败。剪贴板安全组件修复后的
 完整应用已再次通过 ArkTS/CMake/Ninja/HAP 构建，但该次 LocalUnit 因上述预览运行时问题未执行断言。
 
+后续编译警告审计又闭环两类真实控制流缺口：`5399005` 让扫码保存、Geo 操作和可信网络设置的
+Toast 失败保持非致命，避免页面退后台后把已完成导入误报失败或跳过 Geo 回调；`bea8c69` 将同一
+边界覆盖 JSON/备份导入、分享导出，并为路由/分应用剪贴板写失败增加脱敏日志和用户提示。其余
+“Function may throw” 警告均位于已有事务捕获/资源 `finally`、故意向控制器传播的异步存储 API，
+或由页面捕获的相机扫码 API；没有为清零警告而改变这些正确的传播语义。对应无签名完整 HAP
+构建再次通过，产物为 85,965,499 字节，压缩包完整且五个 arm64 关键库齐全。
+
 2026-10-21 还直接核对了
 [`Loyalsoldier/v2ray-rules-dat` 最新 Release API](https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest)：
 版本 `202610202206` 同时提供 `geoip.dat`、`geosite.dat` 及对应 `.sha256sum`；临时目录中下载的

@@ -3,9 +3,9 @@
 > 审计日期：2026-10-22
 > 审计分支：`codex/p0-vpn-mainline`
 > 远端基线：fork `origin/main` 为 `65bdea3`，上游 `upstream/main` 为 `3371128`
-> 实现审计点：`02de88d`
+> 实现审计点：`bea8c69`
 > v2rayNG 只读参考版本：`118cf5b`
-> 范围声明：本文件只记录仓库、源码和当前环境可运行的静态检查结论，不把它们写成编译、模拟器或真机结果。
+> 范围声明：静态结论与后续 DevEco 编译证据分开记录；二者都不替代模拟器或真机结果。
 
 ## 结论
 
@@ -35,12 +35,13 @@
 | 节点导入 | 相机、相册、剪贴板、分享和手动输入均先解析/脱敏预览，经确认后保存；无效、重复、取消、权限错误和混合批量内容有边界处理。API 12+ 剪贴板读取统一由系统 `PasteButton` 的单次用户授权触发，不申请宽泛 `READ_PASTEBOARD` 权限 | `Scanner.ets`、`QrScan.ets`、`ShareLinkParser.ets`、订阅存储 |
 | 外部输入 | Deep Link、Want、控制卡参数、分享文本、订阅响应、配置文本和诊断内容均设置长度/数量上限；超限数据不会整块进入 AppStorage 或持久层 | Ability、Want、导入与共享控制代码；对应 LocalUnit 用例 |
 | 节点/订阅存储 | 原始记录和字段均有限额；非空但全损坏的主数据不能掩盖有效备份；批量解析和规范化工作量有界 | `SubscriptionStore.ets`、数据库与调度索引 |
-| 跨进程状态 | VPN 状态、停止标志、流量、控制卡状态均限制原始大小并验证结构；损坏主记录可回退备份，损坏临时工件不会永久阻塞后续写入 | `VpnRuntimeStateStore.ets`、`NetSceneStopStore.ets` 等 |
+| 跨进程状态 | VPN 状态、停止标志、流量、控制卡状态均限制原始大小并验证结构；损坏主记录可回退备份，损坏临时工件不会永久阻塞后续写入 | `VpnRuntimeStateStore.ets`、`NetSceneStopFlag.ets` 等 |
 | 控制卡 | formId 和节点 ID 有边界；持久化动作 URI 只允许固定 `hey://start/stop/toggle/scan`，不能把任意 URI 变成可执行卡片动作 | FormExtension/控制卡服务及状态存储 |
 | 后台订阅任务 | WorkScheduler 回调进程内单飞；重复投递不会在一个永久 pending 任务上无限叠加；旧 groupId 输入受限 | 后台订阅 worker 与调度存储 |
 | Geo 更新 | 内置可信 HTTPS 来源，无需普通用户输入 URL；双文件下载经版本/大小/protobuf/SHA-256 校验和事务替换，失败回滚且保留旧文件；核心加载前恢复中断事务 | `GeoAssets.ets`、`AssetsController.ets`、`GeoCoreReadiness.ets` |
 | 出口与延迟 | 运行态和外网验证分离；出口只接受有界 HTTPS 响应和公网 IP，失败清除旧结果但不会因单个检测站暂时不可达拆毁健康隧道 | 网络探针、Runtime controller/panel |
 | 日志与隐私 | URL 凭据、UUID、密码、Token、私钥、主机/IP 等在 UI/诊断持久化前脱敏；日志数量和单条长度有界 | `DiagnosticRedaction.ets`、`DiagnosticLog.ets` |
+| UI 异常边界 | 扫码、JSON/备份导入、Geo 操作和设置保存的 Toast 只作次要反馈；页面失去窗口时不再把已完成保存误报为失败，也不会跳过 Geo 回调/清理。路由和分应用剪贴板导出会捕获写入失败并写入脱敏日志 | 相关页面、`AssetsController.ets`、源码门禁 |
 | 原生二进制 | 四个随包 `.so` 有固定 SHA-256 清单；脚本验证精确文件集、AArch64、所需桥接符号和 OpenHarmony TLSDESC | `prebuilt/arm64-v8a/SHA256SUMS`、`verify_prebuilt_native.sh` |
 | 权限、敏感信息、许可 | 未发现私人节点、凭据、签名材料或额外越权保活；直接使用的第三方组件和构建来源有记录，未移植 v2rayNG 代码 | manifests、合规扫描、`THIRD-PARTY-NOTICES.md` |
 
@@ -55,6 +56,9 @@
 - `85e230a`：持久化及交互输入边界。
 - `d11080c`：剩余存储、Want、控制卡、后台任务、TUN 生命周期及原生校验缺口。
 - `02de88d`：将六处剪贴板读取入口迁移到系统 `PasteButton` 临时授权，并删除始终返回成功的伪权限辅助函数；路由规则仍在读取后等待用户确认才写入。
+- `7ad8149`：安全粘贴按钮保持至少 40vp 的可触达区域。
+- `5399005`：扫码、Geo 与可信网络设置的 Toast 失败不再改变保存、回调和清理控制流。
+- `bea8c69`：JSON/备份导入、导出及剪贴板写入同样建立非致命反馈和明确错误边界。
 
 这些提交之前的主链、扫码、运行模式、Geo 事务和状态修复仍保留在同一分支；上述列表只标识本次最后一轮安全审计的收口提交。
 
@@ -88,13 +92,13 @@ ArkTS 的截止时间能结束上层等待，但不能强制终止已经卡死�
 - 标准 Linux Go 1.27.3 临时工具链：`libsingbox` 在产物同组 build tags 下的 7 类代表配置全部通过真实 `libbox.NewService`；`tun2socks_adapter` 包编译通过（当前无独立 Go 测试用例）。两者均使用 `GOFLAGS=-mod=readonly`，没有改写依赖文件。
 - 所有 `scripts/*.sh` 执行 `bash -n`：通过。
 - `bash scripts/compliance_scan.sh`：通过；未发现私人节点、签名材料、地区策略或未批准用途。
-- `bash scripts/device_vpn_smoke_test.sh doctor`：按预期未通过；Node.js、unzip 可用，但缺少 `hvigorw`、Harmony SDK、项目级签名 `build-profile.json5`、已签名 HAP 和 `hdc`。
-
-因此本轮**没有运行** ArkTS LocalUnit、OpenHarmony Native/HAP 编译、模拟器或真机测试，也不声称这些项目通过。标准 Linux Go 测试不能替代 OHOS cgo/TLSDESC 交叉编译；尤其是 `xray_napi.cpp` 的新改动尚未经过目标 Harmony 工具链编译。
+- Windows DevEco Studio DS-243.24978.46.36.611280 / Hvigor 6.24.2：在独立 Windows 工作树完成 ArkTS、CMake、Ninja、资源及 PackageHap 构建；`bea8c69` 对应验证提交生成 85,965,499 字节无签名 HAP，`unzip -t` 通过且五个关键 arm64 库齐全。
+- ArkTS LocalUnit 曾在较早实现点全量通过 243/243；当前实现点重跑受 DevEco 预览运行时 `arkTheme` panda file 加载失败阻断，没有产生新的 Hypium 汇总，因此不把历史结果写成当前提交的单测通过。
+- Windows `hdc list targets` 返回 `[Empty]`；项目没有签名配置，故安装、模拟器和真机检查均未执行。
 
 ## 下一阶段入口
 
-静态审计到此停止扩张。具备 DevEco/Harmony SDK 后，先运行源码门禁、LocalUnit 和完整 HAP 构建，处理编译/API 差异；再用模拟器检查页面、导入和存储恢复；最后严格按 [`device-acceptance.md`](device-acceptance.md) 在真机验证 VPN/TUN、DNS/IPv6、防回环、锁屏后台、承载切换、原生阻塞故障、出口以及 AI 应用流量。所有未执行项继续标为未执行，不能用静态检查替代。
+静态审计和无签名完整构建到此闭环。下一步需要 Windows DevEco 启动模拟器或连接真机，并配置只保留在本地的签名；随后先检查页面、导入和存储恢复，再严格按 [`device-acceptance.md`](device-acceptance.md) 验证 VPN/TUN、DNS/IPv6、防回环、锁屏后台、承载切换、原生阻塞故障、出口以及 AI 应用流量。所有未执行项继续标为未执行，不能用静态检查替代。
 
 ## 后续 DevEco 编译复核（2026-10-22）
 
