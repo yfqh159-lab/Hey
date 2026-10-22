@@ -82,19 +82,22 @@ struct PerAppPage {
     // 我们在此配合预设应用和自定义录入包名，从而实现完整的黑白名单规则定制。
     SHARED_RUNTIME_CONTROLLER.appendLog(this.t('perApp.log.loaded'));
 
-    // 将预置常用应用包名合并，并在此处显式排除掉当前应用自身，防止本应用出现在可选列表中
-    PRESET_APPS.forEach(preset => {
-      if (preset.bundleName !== SELF_BUNDLE_NAME && !list.some(item => item.bundleName === preset.bundleName)) {
-        list.push({
-          bundleName: preset.bundleName,
-          label: this.t(preset.labelKey),
-          isSystem: preset.isSystem
-        });
-      }
-    });
-
     const context = this.getUIContext().getHostContext() as common.Context;
     const devicePackages = this.loadDevicePackageCatalog(context);
+    // 真机目录存在时只展示实际安装的包，避免 Android 兼容包名等预设项与鸿蒙原生包重复。
+    // 没有调试目录时保留原有预设，用户仍可手工录入包名。
+    if (devicePackages.length === 0) {
+      PRESET_APPS.forEach(preset => {
+        if (preset.bundleName !== SELF_BUNDLE_NAME && !list.some(item => item.bundleName === preset.bundleName)) {
+          list.push({
+            bundleName: preset.bundleName,
+            label: this.t(preset.labelKey),
+            isSystem: preset.isSystem
+          });
+        }
+      });
+    }
+
     devicePackages.forEach((entry: PerAppPackageCatalogItem) => {
       if (!list.some(item => item.bundleName === entry.bundleName)) {
         list.push({
