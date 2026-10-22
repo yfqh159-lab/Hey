@@ -4,6 +4,18 @@
 > 不把静态检查等同于真机验收。真机结果只填写在
 > [`device-acceptance.md`](device-acceptance.md)。
 
+## 2026-10-22 源码审计结论
+
+- 本轮源码审计已经收口，范围、证据、已执行门禁和仍需设备闭环的边界记录在
+  [`source-audit.md`](source-audit.md)。审计没有把静态检查写成构建或真机通过；当前环境
+  缺少 `hvigorw`、Harmony SDK、本地签名和 `hdc`。
+- 分别刷新 fork 与上游后，当前分支包含 `origin/main` 和 `upstream/main` 的全部提交；本地
+  v2rayNG 参考仓库为 `118cf5b`（2.3.12），只用于对照节点列表、运行模式和交互，没有复制
+  Android UI 或实现代码。
+- 需要后续重点闭环两项语义边界：Network Kit 在 ArkTS 回调校验前已自动跟随重定向；以及
+  当前 `RUNNING` 表示本地 VPN/TUN/核心数据面就绪，外网 HTTPS 与出口 IP 是随后独立验证。
+  两项都已在审计结论中给出可复现风险和下一步方案，不虚报为已由源码解决。
+
 ## 已落地变更
 
 ### 代理与 VPN 主链
