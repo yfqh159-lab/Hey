@@ -10,7 +10,8 @@ import {
   exportPerAppProxyList,
   importPerAppProxyList,
   invertVisiblePerAppPackages,
-  parsePerAppPackageCatalog,
+  parsePerAppPackageCatalogItems,
+  PerAppPackageCatalogItem,
   PER_APP_DEVICE_PACKAGE_CATALOG_FILE,
   selectAllPerAppPackages
 } from '../core/PerAppProxy';
@@ -94,11 +95,11 @@ struct PerAppPage {
 
     const context = this.getUIContext().getHostContext() as common.Context;
     const devicePackages = this.loadDevicePackageCatalog(context);
-    devicePackages.forEach((pkg: string) => {
-      if (!list.some(item => item.bundleName === pkg)) {
+    devicePackages.forEach((entry: PerAppPackageCatalogItem) => {
+      if (!list.some(item => item.bundleName === entry.bundleName)) {
         list.push({
-          bundleName: pkg,
-          label: this.f1('perApp.customLabel', 'package', pkg),
+          bundleName: entry.bundleName,
+          label: entry.label.length > 0 ? entry.label : this.f1('perApp.customLabel', 'package', entry.bundleName),
           isSystem: false
         });
       }
@@ -123,7 +124,7 @@ struct PerAppPage {
     this.allApps = list;
   }
 
-  private loadDevicePackageCatalog(context: common.Context): Array<string> {
+  private loadDevicePackageCatalog(context: common.Context): Array<PerAppPackageCatalogItem> {
     const path = `${context.filesDir}/${PER_APP_DEVICE_PACKAGE_CATALOG_FILE}`;
     try {
       if (!fs.accessSync(path)) {
@@ -133,7 +134,7 @@ struct PerAppPage {
       if (stat.size <= 0 || stat.size > 2 * 1024 * 1024) {
         return [];
       }
-      return parsePerAppPackageCatalog(fs.readTextSync(path), SELF_BUNDLE_NAME);
+      return parsePerAppPackageCatalogItems(fs.readTextSync(path), SELF_BUNDLE_NAME);
     } catch (error) {
       SHARED_RUNTIME_CONTROLLER.appendLog(
         this.f1('perApp.log.deviceCatalogFailed', 'error', redactDiagnosticText(JSON.stringify(error)))

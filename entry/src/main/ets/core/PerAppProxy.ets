@@ -5,6 +5,11 @@ export interface PerAppProxyImportResult {
   count: number;
 }
 
+export interface PerAppPackageCatalogItem {
+  bundleName: string;
+  label: string;
+}
+
 export const MAX_PER_APP_PACKAGE_COUNT: number = 4096;
 export const PER_APP_DEVICE_PACKAGE_CATALOG_FILE: string = 'per-app-device-packages.txt';
 const MAX_PER_APP_IMPORT_CHARS: number = 2 * 1024 * 1024;
@@ -22,10 +27,51 @@ export function parsePerAppPackageCatalog(
   content: string,
   selfPackageName: string = ''
 ): Array<string> {
+  return parsePerAppPackageCatalogItems(content, selfPackageName)
+    .map((item: PerAppPackageCatalogItem) => item.bundleName);
+}
+
+export function parsePerAppPackageCatalogItems(
+  content: string,
+  selfPackageName: string = ''
+): Array<PerAppPackageCatalogItem> {
   if (content.length > MAX_PER_APP_IMPORT_CHARS) {
     return [];
   }
-  return normalizePerAppPackageList(content.split(/[\s,]+/), selfPackageName);
+
+  const items = new Array<PerAppPackageCatalogItem>();
+  const indexes: Record<string, number> = {};
+  const selfKey = selfPackageName.trim().toLowerCase();
+  const lines = content.split(/\r?\n/);
+  for (let lineIndex = 0; lineIndex < lines.length && items.length < MAX_PER_APP_PACKAGE_COUNT; lineIndex++) {
+    const line = lines[lineIndex].trim();
+    if (line.length === 0) {
+      continue;
+    }
+    const tabIndex = line.indexOf('\t');
+    const packageTokens = tabIndex > 0 ? [line.substring(0, tabIndex).trim()] : line.split(/[\s,]+/);
+    const label = tabIndex > 0 ? normalizePerAppPackageLabel(line.substring(tabIndex + 1)) : '';
+    for (let tokenIndex = 0; tokenIndex < packageTokens.length; tokenIndex++) {
+      const bundleName = packageTokens[tokenIndex].trim();
+      const key = bundleName.toLowerCase();
+      if (!isValidPackageName(bundleName) || key === selfKey) {
+        continue;
+      }
+      const existingIndex = indexes[key];
+      if (existingIndex !== undefined) {
+        if (items[existingIndex].label.length === 0 && label.length > 0) {
+          items[existingIndex].label = label;
+        }
+        continue;
+      }
+      indexes[key] = items.length;
+      items.push({ bundleName, label });
+      if (items.length >= MAX_PER_APP_PACKAGE_COUNT) {
+        break;
+      }
+    }
+  }
+  return items;
 }
 
 export function normalizePerAppPackageList(packages: Array<string>, selfPackageName: string = ''): Array<string> {
@@ -161,4 +207,8 @@ function isValidPackageName(value: string): boolean {
     return false;
   }
   return /^[A-Za-z0-9_.$-]+$/.test(value);
+}
+
+function normalizePerAppPackageLabel(value: string): string {
+  return value.replace(/[\u0000-\u001F\u007F]/g, ' ').trim().substring(0, 120);
 }

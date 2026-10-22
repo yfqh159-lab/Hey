@@ -17,7 +17,7 @@ import { defaultJsonConfigNodeName, resolveJsonConfigNodeName } from '../main/et
 import { selectRuntimeLocalSocksPort, shouldExposeLocalHttpProxy, shouldUseDynamicLocalSocksPort, withRuntimeLocalSocksPort } from '../main/ets/core/LocalProxy';
 import { parseManualOutboundEditState } from '../main/ets/core/ManualOutboundEditState';
 import { buildManualHysteria2Outbound, buildManualWireguardOutbound } from '../main/ets/core/ManualOutboundBuilder';
-import { MAX_PER_APP_PACKAGE_COUNT, clearVisiblePerAppPackages, exportPerAppProxyList, hasEmptyPerAppProxyWhitelist, importPerAppProxyList, invertVisiblePerAppPackages, normalizePerAppPackageList, parsePerAppPackageCatalog, selectAllPerAppPackages } from '../main/ets/core/PerAppProxy';
+import { MAX_PER_APP_PACKAGE_COUNT, clearVisiblePerAppPackages, exportPerAppProxyList, hasEmptyPerAppProxyWhitelist, importPerAppProxyList, invertVisiblePerAppPackages, normalizePerAppPackageList, parsePerAppPackageCatalog, parsePerAppPackageCatalogItems, selectAllPerAppPackages } from '../main/ets/core/PerAppProxy';
 import { shouldShowProxySharingStartWarning } from '../main/ets/core/ProxySharingWarning';
 import { canCancelStartingConnection, shouldDeferBusyControlAction, shouldOfferConnectionStop } from '../main/ets/core/ConnectionInteraction';
 import { shouldStartScannerImmediately } from '../main/ets/core/ScannerLaunch';
@@ -3216,6 +3216,14 @@ export default function localUnitTest() {
         selfPackage
       );
       expect(deviceCatalog.length).assertEqual(2);
+      const labeledCatalog = parsePerAppPackageCatalogItems(
+        'com.example.one\t示例应用\ncom.example.two\tSecond App\ncom.example.one\t重复名称\ncom.lmlm.hey\tHey',
+        selfPackage
+      );
+      expect(labeledCatalog.length).assertEqual(2);
+      expect(labeledCatalog[0].bundleName).assertEqual('com.example.one');
+      expect(labeledCatalog[0].label).assertEqual('示例应用');
+      expect(labeledCatalog[1].label).assertEqual('Second App');
       expect(deviceCatalog[0]).assertEqual('com.example.one');
       expect(deviceCatalog[1]).assertEqual('com.example.two');
       expect(hasEmptyPerAppProxyWhitelist(true, false, [], selfPackage)).assertTrue();
