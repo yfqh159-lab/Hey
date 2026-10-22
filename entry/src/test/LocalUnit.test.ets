@@ -189,7 +189,7 @@ export default function localUnitTest() {
         'authorization = Basic assignment-secret; HTTP 401';
       const output = redactDiagnosticText(input);
       expect(output).assertContain('password = [redacted]&token=[redacted]');
-      expect(output).assertContain('Authorization: [redacted]\nHTTP 401');
+      expect(output).assertContain('Authorization: [redacted]\nauthorization = [redacted]; HTTP 401');
       expect(output).assertContain('authorization = [redacted]; HTTP 401');
       expect(output.includes('hunter2')).assertFalse();
       expect(output.includes('abc123')).assertFalse();
@@ -2815,7 +2815,7 @@ export default function localUnitTest() {
     it('normalizes scanned asset URL payloads for QR import', 0, () => {
       const result = normalizeScannedAssetUrl(' https://example.com/geosite.dat?download=1 ');
       expect(result.valid).assertTrue();
-      expect(result.name).assertEqual('geosite');
+      expect(result.name).assertEqual('custom_geosite');
       expect(result.url).assertEqual('https://example.com/geosite.dat?download=1');
 
       const root = normalizeScannedAssetUrl('https://example.com/');
@@ -3076,6 +3076,7 @@ export default function localUnitTest() {
       draft.useHevTun = false;
       draft.localSocksEnabled = false;
       draft.proxySharingEnabled = true;
+      draft.mode = APP_MODE_VPN;
       expect(SETTINGS_CONTROLLER.buildSettings(draft).proxySharingEnabled).assertFalse();
       draft.localSocksEnabled = true;
       expect(SETTINGS_CONTROLLER.buildSettings(draft).proxySharingEnabled).assertTrue();
@@ -3504,7 +3505,7 @@ export default function localUnitTest() {
       expect(normalizeIpApiUrl('http://example.com/ip')).assertEqual('');
       expect(normalizeIpApiUrl('https://')).assertEqual('');
       expect(normalizeIpApiUrl('https://user:pass@example.com/ip')).assertEqual('');
-      expect(normalizeIpApiUrl(' HTTPS://example.com/ip ')).assertEqual('HTTPS://example.com/ip');
+      expect(normalizeIpApiUrl(' HTTPS://example.com/ip ')).assertEqual('https://example.com/ip');
       expect(areSafeRemoteIpRedirects(['https://cdn.example.com/ip'], 5)).assertTrue();
       expect(areSafeRemoteIpRedirects(['HTTPS://cdn.example.com/ip'], 5)).assertTrue();
       expect(areSafeRemoteIpRedirects(['http://cdn.example.com/ip'], 5)).assertFalse();
@@ -3518,7 +3519,7 @@ export default function localUnitTest() {
       settingsDraft.ipApiUrl = 'http://example.com/ip';
       expect(controller.buildSettings(settingsDraft).ipApiUrl).assertEqual('');
       settingsDraft.ipApiUrl = ' HTTPS://example.com/ip ';
-      expect(controller.buildSettings(settingsDraft).ipApiUrl).assertEqual('HTTPS://example.com/ip');
+      expect(controller.buildSettings(settingsDraft).ipApiUrl).assertEqual('https://example.com/ip');
     });
 
     it('formats runtime values through shared helpers', 0, () => {

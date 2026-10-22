@@ -106,7 +106,7 @@ export class ProfileStore {
       const profile = JSON.parse(raw) as ProxyProfile;
       if (profile === null || typeof profile !== 'object' || typeof profile.id !== 'string' || profile.id.length === 0 ||
         profile.id.length > MAX_PROFILE_TEXT_CHARS ||
-        (profile.name !== undefined && (typeof profile.name !== 'string' || profile.name.length > MAX_PROFILE_TEXT_CHARS)) ||
+        (typeof profile.name === 'string' && profile.name.length > MAX_PROFILE_TEXT_CHARS) ||
         (profile.outboundJson !== undefined && (typeof profile.outboundJson !== 'string' ||
           profile.outboundJson.length > MAX_EXTERNAL_IMPORT_TEXT_CHARS))) {
         return null;
