@@ -1,5 +1,5 @@
 import { common } from '@kit.AbilityKit';
-import { router, promptAction } from '@kit.ArkUI';
+import { router } from '@kit.ArkUI';
 import { picker } from '@kit.CoreFileKit';
 import { scanBarcode, scanCore, detectBarcode } from '@kit.ScanKit';
 import { pasteboard } from '@kit.BasicServicesKit';
@@ -224,7 +224,7 @@ struct ScannerPage {
                     if (result === PasteButtonOnClickResult.SUCCESS) {
                       this.pasteFromClipboard();
                     } else {
-                      promptAction.showToast({ message: this.t('prompt.clipboardReadFailed') });
+                      this.toast(this.t('prompt.clipboardReadFailed'));
                     }
                   })
 
@@ -558,7 +558,7 @@ struct ScannerPage {
     this.updateImportPreview(this.pendingSensitiveImport, true);
     // 扫码/相册只负责识别并展示脱敏摘要。必须由用户检查摘要后再次点击导入，
     // 才允许保存节点或订阅来源；订阅内容仍需在订阅页由用户主动更新。
-    promptAction.showToast({ message: this.t('scanner.reviewBeforeImport') });
+    this.toast(this.t('scanner.reviewBeforeImport'));
   }
 
   private async pasteFromClipboard(): Promise<void> {
@@ -587,16 +587,16 @@ struct ScannerPage {
           this.setSensitiveImportValue(text);
           this.lastError = '';
           this.updateImportPreview(this.pendingSensitiveImport, true);
-          promptAction.showToast({ message: this.t('prompt.pastedConfig') });
+          this.toast(this.t('prompt.pastedConfig'));
         } else {
-          promptAction.showToast({ message: this.t('prompt.clipboardTextEmpty') });
+          this.toast(this.t('prompt.clipboardTextEmpty'));
         }
       } else {
-        promptAction.showToast({ message: this.t('prompt.clipboardNoData') });
+        this.toast(this.t('prompt.clipboardNoData'));
       }
     } catch (error) {
       if (this.isCurrentPage(pageGeneration)) {
-        promptAction.showToast({ message: this.t('prompt.clipboardReadFailed') });
+        this.toast(this.t('prompt.clipboardReadFailed'));
       }
     } finally {
       if (this.isCurrentPage(pageGeneration)) {
@@ -631,7 +631,7 @@ struct ScannerPage {
     if (!this.hasCurrentValidPreview()) {
       this.updateImportPreview(value, true);
       if (this.hasCurrentValidPreview()) {
-        promptAction.showToast({ message: this.t('scanner.reviewBeforeImport') });
+        this.toast(this.t('scanner.reviewBeforeImport'));
       }
       return;
     }
@@ -662,7 +662,7 @@ struct ScannerPage {
           }
           const duplicateMessage = this.t('scanner.subscriptionAlreadyAdded');
           SHARED_RUNTIME_CONTROLLER.appendLog(duplicateMessage);
-          promptAction.showToast({ message: duplicateMessage });
+          this.toast(duplicateMessage);
           this.clearImportValue();
           router.pushUrl({ url: AppRoute.SUBSCRIPTIONS });
           return;
@@ -689,7 +689,7 @@ struct ScannerPage {
         }
         const addedMessage = this.t('scanner.subscriptionAdded');
         SHARED_RUNTIME_CONTROLLER.appendLog(addedMessage);
-        promptAction.showToast({ message: addedMessage });
+        this.toast(addedMessage);
         this.clearImportValue();
         router.pushUrl({ url: AppRoute.SUBSCRIPTIONS });
         return;
@@ -745,7 +745,7 @@ struct ScannerPage {
           if (duplicateCount > 0) {
             SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('scanner.duplicateNodes', 'count', duplicateCount.toString()));
           }
-          promptAction.showToast({ message: batchMessage });
+          this.toast(batchMessage);
           this.clearImportValue();
           router.back();
           return;
@@ -800,7 +800,7 @@ struct ScannerPage {
         if (duplicateCount > 0) {
           SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('scanner.duplicateNodes', 'count', duplicateCount.toString()));
         }
-        promptAction.showToast({ message: successMessage });
+        this.toast(successMessage);
         this.clearImportValue();
         router.back();
         return;
@@ -824,7 +824,7 @@ struct ScannerPage {
         return;
       }
       SHARED_RUNTIME_CONTROLLER.appendLog(this.t('log.profileSaved'));
-      promptAction.showToast({ message: this.t('scanner.nodeImported') });
+      this.toast(this.t('scanner.nodeImported'));
       this.clearImportValue();
       router.back();
     } catch (error) {
@@ -955,6 +955,15 @@ struct ScannerPage {
 
   private t(key: string): string {
     return translate(this.language, key);
+  }
+
+  private toast(message: string): void {
+    try {
+      this.getUIContext().getPromptAction().showToast({ message });
+    } catch (_error) {
+      // Import state and navigation remain authoritative if the page loses its
+      // ArkUI window while a camera, album, clipboard, or save task completes.
+    }
   }
 
   private f1(key: string, name: string, value: string): string {

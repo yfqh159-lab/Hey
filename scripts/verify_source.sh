@@ -1750,12 +1750,38 @@ const busyAt = importBody.indexOf('this.isBusy = true;');
 if (!source.includes("this.hasCurrentValidPreview() ? 'action.importResult' : 'import.parseButton'") ||
   guardAt < 0 || busyAt < 0 || guardAt > busyAt ||
   !importBody.includes('this.updateImportPreview(value, true);') ||
-  !importBody.includes("promptAction.showToast({ message: this.t('scanner.reviewBeforeImport') });") ||
+  !importBody.includes("this.toast(this.t('scanner.reviewBeforeImport'));") ||
   !previewBody.includes("this.previewedImportValue = input;")) {
   throw new Error('manual Scanner native fallback can bypass preview confirmation');
 }
 NODE
 printf 'scanner manual native preview confirmation passed\n'
+
+node <<'NODE'
+const fs = require('fs');
+const scanner = fs.readFileSync('entry/src/main/ets/pages/Scanner.ets', 'utf8');
+const assets = fs.readFileSync('entry/src/main/ets/features/assets/AssetsController.ets', 'utf8');
+const networkScenario = fs.readFileSync('entry/src/main/ets/pages/NetworkScenario.ets', 'utf8');
+
+function count(source, needle) {
+  return source.split(needle).length - 1;
+}
+
+if (count(scanner, '.showToast(') !== 1 ||
+  !scanner.includes('private toast(message: string): void {') ||
+  !scanner.includes('catch (_error) {')) {
+  throw new Error('Scanner feedback can still change import control flow');
+}
+if (count(assets, 'promptAction.showToast(') !== 1 ||
+  !assets.includes('private toast(message: string): void {')) {
+  throw new Error('Geo feedback can still skip mutation callbacks or cleanup');
+}
+if (count(networkScenario, '.showToast(') !== 1 ||
+  !networkScenario.includes('private toast(message: string): void {')) {
+  throw new Error('network-scenario feedback can still escape save error handling');
+}
+NODE
+printf 'non-fatal critical UI feedback verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');

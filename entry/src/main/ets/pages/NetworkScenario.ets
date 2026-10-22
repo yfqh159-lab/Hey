@@ -442,7 +442,12 @@ struct NetworkScenarioPage {
   }
 
   private toast(message: string): void {
-    this.getUIContext().getPromptAction().showToast({ message: message });
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: message });
+    } catch (_error) {
+      // A missing/detached UI context must not turn save-error reporting into
+      // another rejected operation or prevent the single-flight queue draining.
+    }
   }
 
   private t(key: string): string {

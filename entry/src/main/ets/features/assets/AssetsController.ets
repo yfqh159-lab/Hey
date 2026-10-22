@@ -233,6 +233,15 @@ export class AssetsController {
     return translate(language, key);
   }
 
+  private toast(message: string): void {
+    try {
+      promptAction.showToast({ message });
+    } catch (_error) {
+      // Toast is secondary feedback. Geo callbacks and transaction cleanup must
+      // still run when ArkUI has no active window (for example after backgrounding).
+    }
+  }
+
   // 获取本地 dat 文件大小和修改日期
   getFileStatus(context: common.Context, fileName: string, language: AppLanguage): string {
     const path = `${context.filesDir}/${fileName}`;
@@ -485,7 +494,7 @@ export class AssetsController {
   ): Promise<void> {
     if (this.assetMutationRunning) {
       const busyMessage = this.t(language, 'assets.downloadBusy');
-      promptAction.showToast({ message: busyMessage });
+      this.toast(busyMessage);
       onError(busyMessage);
       onComplete();
       return;
@@ -500,11 +509,11 @@ export class AssetsController {
     try {
       onStart();
       const proxyPlan = this.resolveDownloadProxyPlan();
-      promptAction.showToast({ message: this.t(language, 'assets.downloading').replace('{title}', fileName) });
+      this.toast(this.t(language, 'assets.downloading').replace('{title}', fileName));
       // 内置文件的高级 URL 与自定义 .dat 使用同一条校验路径：远端必须在
       // 数据文件旁提供 `${url}.sha256sum`，任何失败都不会覆盖现有文件。
       await this.downloadVerifiedGeo(fileName, url, tempPath, targetPath, proxyPlan);
-      promptAction.showToast({ message: this.t(language, 'assets.downloadSuccess').replace('{title}', fileName) });
+      this.toast(this.t(language, 'assets.downloadSuccess').replace('{title}', fileName));
       onSuccess();
     } catch (error) {
       try {
@@ -514,11 +523,9 @@ export class AssetsController {
       } catch (e) {}
 
       const errMsg = redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error));
-      promptAction.showToast({
-        message: this.t(language, 'assets.downloadFailed')
-          .replace('{title}', fileName)
-          .replace('{error}', errMsg)
-      });
+      this.toast(this.t(language, 'assets.downloadFailed')
+        .replace('{title}', fileName)
+        .replace('{error}', errMsg));
       onError(errMsg);
     } finally {
       this.assetMutationRunning = false;
@@ -535,13 +542,13 @@ export class AssetsController {
     onComplete: () => void
   ): Promise<void> {
     if (this.assetMutationRunning) {
-      promptAction.showToast({ message: this.t(language, 'assets.downloadBusy') });
+      this.toast(this.t(language, 'assets.downloadBusy'));
       onComplete();
       return;
     }
     this.assetMutationRunning = true;
     try {
-      promptAction.showToast({ message: this.t(language, 'assets.updatingAll') });
+      this.toast(this.t(language, 'assets.updatingAll'));
       const proxyPlan = this.resolveDownloadProxyPlan();
 
       let total = 0;
@@ -560,17 +567,15 @@ export class AssetsController {
       }
 
       if (total > 0 && success === total) {
-        promptAction.showToast({ message: this.t(language, 'assets.updateAllSuccess') });
+        this.toast(this.t(language, 'assets.updateAllSuccess'));
       } else if (success > 0) {
-        promptAction.showToast({ message: this.t(language, 'assets.partialUpdateSuccess') });
+        this.toast(this.t(language, 'assets.partialUpdateSuccess'));
       } else {
-        promptAction.showToast({ message: this.t(language, 'assets.updateAllFailed') });
+        this.toast(this.t(language, 'assets.updateAllFailed'));
       }
     } catch (error) {
-      promptAction.showToast({
-        message: this.t(language, 'assets.updateAllError')
-          .replace('{error}', redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error)))
-      });
+      this.toast(this.t(language, 'assets.updateAllError')
+        .replace('{error}', redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error))));
     } finally {
       this.assetMutationRunning = false;
       onComplete();
@@ -1152,7 +1157,7 @@ export class AssetsController {
   ): Promise<boolean> {
     if (this.assetMutationRunning) {
       const message = this.t(language, 'assets.downloadBusy');
-      promptAction.showToast({ message });
+      this.toast(message);
       onError(message);
       return false;
     }
@@ -1192,7 +1197,7 @@ export class AssetsController {
       }
       this.replaceTempFileSafely(tempPath, destPath);
 
-      promptAction.showToast({ message: this.t(language, 'assets.action.importLocal.success').replace('{title}', destFileName) });
+      this.toast(this.t(language, 'assets.action.importLocal.success').replace('{title}', destFileName));
       onSuccess();
       return true;
     } catch (error) {
@@ -1217,7 +1222,7 @@ export class AssetsController {
       } catch (e) {}
 
       const errMsg = redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error));
-      promptAction.showToast({ message: this.t(language, 'assets.action.importLocal.failed').replace('{error}', errMsg) });
+      this.toast(this.t(language, 'assets.action.importLocal.failed').replace('{error}', errMsg));
       onError(errMsg);
       return false;
     } finally {
@@ -1233,7 +1238,7 @@ export class AssetsController {
     onComplete: (success: boolean) => void
   ): void {
     if (this.assetMutationRunning) {
-      promptAction.showToast({ message: this.t(language, 'assets.downloadBusy') });
+      this.toast(this.t(language, 'assets.downloadBusy'));
       onComplete(false);
       return;
     }
@@ -1245,11 +1250,11 @@ export class AssetsController {
       this.removeStandaloneAssetFiles(targetPath);
       success = true;
       if (existed) {
-        promptAction.showToast({ message: this.t(language, 'assets.deleteSuccess').replace('{title}', fileName) });
+        this.toast(this.t(language, 'assets.deleteSuccess').replace('{title}', fileName));
       }
     } catch (error) {
       const message = redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error));
-      promptAction.showToast({ message: this.t(language, 'assets.deleteFailed').replace('{error}', message) });
+      this.toast(this.t(language, 'assets.deleteFailed').replace('{error}', message));
     } finally {
       this.assetMutationRunning = false;
       onComplete(success);
@@ -1259,7 +1264,7 @@ export class AssetsController {
   // 删除自定义 URL 链接及本地 dat 文件
   async deleteCustomAsset(context: common.Context, item: CustomAssetUrl, customAssets: Array<CustomAssetUrl>, language: AppLanguage): Promise<Array<CustomAssetUrl>> {
     if (this.assetMutationRunning) {
-      promptAction.showToast({ message: this.t(language, 'assets.downloadBusy') });
+      this.toast(this.t(language, 'assets.downloadBusy'));
       return customAssets;
     }
     this.assetMutationRunning = true;
@@ -1287,11 +1292,11 @@ export class AssetsController {
         const fileMessage = fileError instanceof Error ? fileError.message : JSON.stringify(fileError);
         throw new Error(`Geo file deletion failed and source rollback was not confirmed: ${fileMessage}; ${rollbackErrorMessage}`);
       }
-      promptAction.showToast({ message: this.t(language, 'assets.customDeleteSuccess') });
+      this.toast(this.t(language, 'assets.customDeleteSuccess'));
       return updated;
     } catch (error) {
       const message = redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error));
-      promptAction.showToast({ message: this.t(language, 'assets.deleteFailed').replace('{error}', message) });
+      this.toast(this.t(language, 'assets.deleteFailed').replace('{error}', message));
       return customAssets;
     } finally {
       this.assetMutationRunning = false;
