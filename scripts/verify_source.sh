@@ -1366,6 +1366,24 @@ printf 'scanner invalid-payload confirmation guard passed\n'
 
 node <<'NODE'
 const fs = require('fs');
+const scanner = fs.readFileSync('entry/src/main/ets/pages/Scanner.ets', 'utf8');
+const previewAt = scanner.indexOf('  private updateImportPreview(');
+const previewEnd = scanner.indexOf('\n  private hasCurrentValidPreview()', previewAt);
+const preview = scanner.slice(previewAt, previewEnd);
+if (previewAt < 0 || previewEnd < 0 ||
+  !preview.includes('let validNodeCount = 0;') ||
+  !preview.includes('parsedNode.configType\n        ).valid') ||
+  !preview.includes("this.f1('scanner.previewNodes', 'count', validNodeCount.toString())") ||
+  !preview.includes('let validNativeCount = 0;') ||
+  !preview.includes("nativeResult.outbounds[index].outboundJson,\n            this.language,\n            'outbound'") ||
+  !preview.includes("this.f1('scanner.previewNodes', 'count', validNativeCount.toString())")) {
+  throw new Error('scanner batch preview can approve entries that node validation rejects');
+}
+NODE
+printf 'scanner importable-node preview verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
 const source = fs.readFileSync('entry/src/main/ets/pages/Scanner.ets', 'utf8');
 const importStart = source.indexOf('  private async importResult(): Promise<void> {');
 const previewStart = source.indexOf('\n  private updateImportPreview(', importStart);

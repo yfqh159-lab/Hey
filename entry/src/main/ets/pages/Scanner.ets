@@ -857,11 +857,24 @@ struct ScannerPage {
     }
     const parsedNodes = SubscriptionManager.parseSubscriptionContent(input, '');
     if (parsedNodes.length > 0) {
-      this.previewTitle = this.f1('scanner.previewNodes', 'count', parsedNodes.length.toString());
-      this.previewDetail = this.t('scanner.previewNodesDetail');
-      this.previewValid = true;
-      this.previewedImportValue = input;
-      return;
+      let validNodeCount = 0;
+      for (let index = 0; index < parsedNodes.length; index++) {
+        const parsedNode = parsedNodes[index];
+        if (NODES_CONTROLLER.validateConfig(
+          parsedNode.outboundJson,
+          this.language,
+          parsedNode.configType
+        ).valid) {
+          validNodeCount++;
+        }
+      }
+      if (validNodeCount > 0) {
+        this.previewTitle = this.f1('scanner.previewNodes', 'count', validNodeCount.toString());
+        this.previewDetail = this.t('scanner.previewNodesDetail');
+        this.previewValid = true;
+        this.previewedImportValue = input;
+        return;
+      }
     }
     // libXray accepts a few compatibility formats beyond the ArkTS parser. A
     // completed scan/photo/clipboard result must not be labelled invalid when
@@ -870,11 +883,23 @@ struct ScannerPage {
     if (allowNativeFallback) {
       const nativeResult = convertNativeShareTextToOutbounds(input);
       if (nativeResult.ok && nativeResult.outbounds.length > 0) {
-        this.previewTitle = this.f1('scanner.previewNodes', 'count', nativeResult.outbounds.length.toString());
-        this.previewDetail = this.t('scanner.previewNodesDetail');
-        this.previewValid = true;
-        this.previewedImportValue = input;
-        return;
+        let validNativeCount = 0;
+        for (let index = 0; index < nativeResult.outbounds.length; index++) {
+          if (NODES_CONTROLLER.validateConfig(
+            nativeResult.outbounds[index].outboundJson,
+            this.language,
+            'outbound'
+          ).valid) {
+            validNativeCount++;
+          }
+        }
+        if (validNativeCount > 0) {
+          this.previewTitle = this.f1('scanner.previewNodes', 'count', validNativeCount.toString());
+          this.previewDetail = this.t('scanner.previewNodesDetail');
+          this.previewValid = true;
+          this.previewedImportValue = input;
+          return;
+        }
       }
     }
     this.previewTitle = this.t('scanner.previewInvalid');
