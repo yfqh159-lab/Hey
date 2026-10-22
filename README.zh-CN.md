@@ -160,6 +160,17 @@ DevEco Studio 里配置本机的调试或发布签名。证书路径、密钥密
 当前构建配置里的 target SDK 是 `6.0.1(21)`，compatible SDK 是 `5.1.1(19)`。
 项目里的烟测脚本封装了 `hvigorw` 和 `hdc`。
 
+Linux 构建机不必安装图形界面 IDE，可以登录华为开发者联盟的
+[Command Line Tools 下载中心](https://developer.huawei.com/consumer/cn/download/command-line-tools-for-hmos)，
+下载与 **DevEco Studio 6.0.1 Release / HarmonyOS SDK 6.0.1(21)** 配套的 Linux 工具包，并按
+[官方命令行工具说明](https://developer.huawei.com/consumer/cn/doc/harmonyos-guides/ide-commandline-get)
+核对发布方校验值后解压。不要使用公开归档里的 2.x/3.x 旧工具构建本项目，也不要从非官方镜像
+取得 SDK。下载页面需要开发者账号时应由用户正常登录，构建脚本不会绕过认证或代存账号凭据。
+
+解压后至少把 `command-line-tools/bin` 加入本次终端的 `PATH`；若工具不在标准位置，再显式设置
+`DEVECO_SDK_HOME`、`HVIGOR` 和 `HDC`。先在下载页/工具包元数据核对 API 21 版本，再运行
+`doctor` 确认脚本识别到了对应 SDK 和工具路径；不要把 OpenHarmony 社区 SDK 或历史版本混入。
+
 构建签名 HAP：
 
 ```bash
@@ -174,6 +185,16 @@ DEVECO_SDK_HOME=/Applications/DevEco-Studio.app/Contents/sdk \
 HVIGOR=/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw \
 HDC=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/hdc \
 ./scripts/device_vpn_smoke_test.sh build
+```
+
+Linux 命令行工具的路径示例（以实际解压结构为准）：
+
+```bash
+export PATH=/绝对路径/command-line-tools/bin:$PATH
+DEVECO_SDK_HOME=/绝对路径/command-line-tools/sdk \
+HVIGOR=/绝对路径/command-line-tools/bin/hvigorw \
+HDC=/绝对路径/command-line-tools/sdk/default/openharmony/toolchains/hdc \
+./scripts/device_vpn_smoke_test.sh doctor
 ```
 
 先运行 `./scripts/device_vpn_smoke_test.sh doctor` 可一次查看 Node.js、unzip、hvigor、SDK、本地签名配置、

@@ -215,10 +215,38 @@ passwords, and other signing material local.
 The app is configured for HarmonyOS target SDK `6.0.1(21)` and compatible SDK
 `5.1.1(19)`. The project smoke-test script wraps `hvigorw` and `hdc`.
 
+A Linux build host does not require the graphical IDE. Sign in to Huawei's
+[Command Line Tools download center](https://developer.huawei.com/consumer/en/download/command-line-tools-for-hmos),
+download the Linux package matching **DevEco Studio 6.0.1 Release / HarmonyOS
+SDK 6.0.1(21)**, and verify the publisher checksum before extracting it, as
+described in the
+[official command-line setup guide](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ide-commandline-get).
+Do not build this project with archived 2.x/3.x tools or an OpenHarmony
+community SDK, and do not obtain the SDK from an unofficial mirror. When the
+download center requires a developer account, sign in normally; the project
+scripts neither bypass authentication nor retain account credentials.
+
+Add `command-line-tools/bin` to the current shell's `PATH`. For a nonstandard
+layout, also set `DEVECO_SDK_HOME`, `HVIGOR`, and `HDC`. Verify the API 21
+version in the download page/package metadata first, then run `doctor` to
+confirm that the script resolves those SDK and tool paths. Do not mix in a
+historical or OpenHarmony SDK.
+
 Build the signed HAP:
 
 ```bash
 ./scripts/device_vpn_smoke_test.sh build
+```
+
+Example for an extracted Linux command-line package (adjust paths to the actual
+archive layout):
+
+```bash
+export PATH=/absolute/path/command-line-tools/bin:$PATH
+DEVECO_SDK_HOME=/absolute/path/command-line-tools/sdk \
+HVIGOR=/absolute/path/command-line-tools/bin/hvigorw \
+HDC=/absolute/path/command-line-tools/sdk/default/openharmony/toolchains/hdc \
+./scripts/device_vpn_smoke_test.sh doctor
 ```
 
 The script prefers `hvigorw` and `hdc` from `PATH` and also detects the default
