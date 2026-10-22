@@ -453,6 +453,8 @@ printf 'bounded Geo and egress HTTP promise verification passed\n'
 
 if [ "$(grep -c "request.on('headersReceive', redirectHeaderListener)" "${geo_controller}")" -ne 2 ] || \
   [ "$(grep -c 'areAllowedGeoAssetRedirects(originalUrl, observedRedirects' "${geo_controller}")" -ne 2 ] || \
+  [ "$(grep -c 'let redirectBaseUrl = url;' "${geo_controller}")" -ne 2 ] || \
+  [ "$(grep -c 'resolveHttpRedirectUrl(' "${geo_controller}")" -lt 4 ] || \
   ! grep -Fq 'export function areAllowedGeoAssetRedirects(' "entry/src/main/ets/core/GeoAssets.ets" || \
   ! grep -Fq 'redirectUrls.length > maxRedirects' "entry/src/main/ets/core/GeoAssets.ets"; then
   throw_error "Geo downloads do not validate Network Kit's automatically followed redirect chain"
@@ -472,12 +474,21 @@ printf 'bounded subscription HTTP verification passed\n'
 
 if ! grep -Fq "const MAX_SUBSCRIPTION_REDIRECTS: number = 5;" "${subscription_manager}" || \
   ! grep -Fq "request.on('headersReceive', redirectHeaderListener);" "${subscription_manager}" || \
+  ! grep -Fq "let redirectBaseUrl = requestUrl;" "${subscription_manager}" || \
+  ! grep -Fq "resolveHttpRedirectUrl(" "${subscription_manager}" || \
   ! grep -Fq "validateSubscriptionRedirectChain(" "${subscription_manager}" || \
   ! grep -Fq "observedRedirects.length + redirectCount > MAX_SUBSCRIPTION_REDIRECTS" \
   "${subscription_manager}"; then
   throw_error "subscription downloads do not validate Network Kit's automatically followed redirects"
 fi
 printf 'subscription automatic redirect-chain verification passed\n'
+
+if ! grep -Fq "let redirectBaseUrl = target;" "entry/src/main/ets/services/RemoteIpInfo.ets" || \
+  ! grep -Fq "resolveHttpRedirectUrl(" "entry/src/main/ets/services/RemoteIpInfo.ets" || \
+  ! grep -Fq "export function resolveHttpRedirectUrl(" "entry/src/main/ets/core/HttpRedirect.ets"; then
+  throw_error "HTTP redirect observers do not resolve each relative hop against its preceding URL"
+fi
+printf 'relative HTTP redirect-chain resolution verification passed\n'
 
 geo_page="entry/src/main/ets/pages/Assets.ets"
 geo_urls="entry/src/main/ets/core/AssetUrls.ets"

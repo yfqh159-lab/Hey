@@ -1,5 +1,6 @@
 import { http } from '@kit.NetworkKit';
 import { APP_HTTP_USER_AGENT, normalizeHttpsUrl } from '../core/HttpDefaults';
+import { parseHttpRedirectLocation, resolveHttpRedirectUrl } from '../core/HttpRedirect';
 import { LOCAL_HTTP_PROXY_HOST } from '../core/XrayConfig';
 
 interface RemoteIpPayload {
@@ -45,12 +46,15 @@ export async function fetchRemoteIpInfo(ipApiUrl: string, proxyPort: number, tim
 
   const request = http.createHttp();
   const observedRedirects = new Array<string>();
-  let lastObservedRedirect = '';
+  let redirectBaseUrl = target;
   const redirectHeaderListener = (headers: Object): void => {
-    const redirectUrl = parseRedirectLocation(JSON.stringify(headers));
-    if (redirectUrl.length > 0 && redirectUrl !== lastObservedRedirect) {
+    const redirectUrl = resolveHttpRedirectUrl(
+      redirectBaseUrl,
+      parseHttpRedirectLocation(JSON.stringify(headers))
+    );
+    if (redirectUrl.length > 0) {
       observedRedirects.push(redirectUrl);
-      lastObservedRedirect = redirectUrl;
+      redirectBaseUrl = redirectUrl;
     }
   };
   try {
@@ -77,7 +81,9 @@ export async function fetchRemoteIpInfo(ipApiUrl: string, proxyPort: number, tim
     // 部分设备的 NetworkKit Promise 可能越过 connect/read timeout 仍不结算；外层
     // 截止时间保证出口检测和网络变化评估不会永久保持 in-flight。
     const response = await withRequestTimeout(request.request(target, options), timeoutMs + 1000);
-    redirectHeaderListener(response.header);
+    if (observedRedirects.length === 0) {
+      redirectHeaderListener(response.header);
+    }
     if (!areSafeRemoteIpRedirects(observedRedirects, MAX_REMOTE_IP_REDIRECTS)) {
       return failedRemoteIpInfo('unsafe-redirect');
     }
@@ -283,14 +289,6 @@ export function normalizeIpApiUrl(ipApiUrl: string): string {
   // The result is used as evidence that traffic reached the expected public egress.
   // Plain HTTP can be altered in transit and must not be presented as verified state.
   return normalizeHttpsUrl(ipApiUrl);
-}
-
-function parseRedirectLocation(headerJson: string): string {
-  const match = headerJson.match(/"(?:Location|location)"\s*:\s*(?:"([^"]+)"|\[\s*"([^"]+)")/);
-  if (match === null) {
-    return '';
-  }
-  return (match[1] ?? match[2] ?? '').trim();
 }
 
 function responseBodyText(result: Object | string | ArrayBuffer): string {

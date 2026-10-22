@@ -8,6 +8,7 @@ import { decodeBase64ToUtf8 } from '../main/ets/core/Encoding';
 import { isIpv4InCidr, isLoopbackOrPrivateHttpUrl, isLoopbackOrPrivateIpv4Host, PRIVATE_IP_LIST } from '../main/ets/core/PrivateNetwork';
 import { buildH2HttpSettings, splitH2Hosts } from '../main/ets/core/H2Transport';
 import { toIdnDomain, toIdnUrl } from '../main/ets/core/IdnUrl';
+import { resolveHttpRedirectUrl } from '../main/ets/core/HttpRedirect';
 import { formatTranslation, missingTranslationKeys, normalizeLanguage, resolveLanguage, resolveSystemLanguage, translate } from '../main/ets/core/I18n';
 import { resolveImportedNodeName } from '../main/ets/core/ImportedNodeNames';
 import { AutoAction, NetAutomationConfig, NetContext, decideNetAutomationAction, isTrustedNetwork, networkContextSignature, networkTransportSignature, selectUnderlyingNetworkCandidate, shouldReloadActiveCoreAfterNetworkChange } from '../main/ets/core/NetworkAutomation';
@@ -2574,6 +2575,16 @@ export default function localUnitTest() {
     it('only follows safe redirects for default and custom geo sources', 0, () => {
       const assetRedirect = 'https://release-assets.githubusercontent.com/github-production-release-asset/file';
       expect(parseHttpRedirectLocation(JSON.stringify({ location: assetRedirect }))).assertEqual(assetRedirect);
+      expect(parseHttpRedirectLocation('{"Location":["..\\/asset\\u003fdownload=1"]}'))
+        .assertEqual('../asset?download=1');
+      expect(resolveHttpRedirectUrl('https://example.com/releases/v1/files/list', '../geoip.dat?download=1'))
+        .assertEqual('https://example.com/releases/v1/geoip.dat?download=1');
+      expect(resolveHttpRedirectUrl('https://example.com/releases/v1/list?old=1', '?new=1'))
+        .assertEqual('https://example.com/releases/v1/list?new=1');
+      expect(resolveHttpRedirectUrl('https://example.com/releases/v1/list?old=1', '//cdn.example.com/file'))
+        .assertEqual('https://cdn.example.com/file');
+      expect(resolveHttpRedirectUrl('https://example.com/releases/v1/list', 'javascript:alert(1)'))
+        .assertEqual('');
       expect(isAllowedGeoAssetRedirect(`${DEFAULT_GEO_RELEASE_DOWNLOAD_PREFIX}v1/geoip.dat`, assetRedirect)).assertTrue();
       expect(isAllowedGeoAssetRedirect(`${DEFAULT_GEO_RELEASE_DOWNLOAD_PREFIX}v1/geoip.dat`, 'https://example.com/file')).assertFalse();
       expect(isAllowedGeoAssetRedirect(DEFAULT_GEO_RELEASE_API, 'https://api.github.com/repositories/1/releases/2')).assertTrue();

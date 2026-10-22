@@ -33,6 +33,7 @@ import {
 } from '../../core/GeoAssets';
 import { redactDiagnosticText } from '../../core/DiagnosticRedaction';
 import { APP_HTTP_USER_AGENT } from '../../core/HttpDefaults';
+import { resolveHttpRedirectUrl } from '../../core/HttpRedirect';
 import { AppLanguage, isProxyOnlyRuntimeMode } from '../../core/Profile';
 import {
   LOCAL_HTTP_PROXY_HOST,
@@ -674,12 +675,15 @@ export class AssetsController {
     }
     const request = http.createHttp();
     const observedRedirects = new Array<string>();
-    let lastObservedRedirect = '';
+    let redirectBaseUrl = url;
     const redirectHeaderListener = (headers: Object): void => {
-      const redirectUrl = parseHttpRedirectLocation(JSON.stringify(headers));
-      if (redirectUrl.length > 0 && redirectUrl !== lastObservedRedirect) {
+      const redirectUrl = resolveHttpRedirectUrl(
+        redirectBaseUrl,
+        parseHttpRedirectLocation(JSON.stringify(headers))
+      );
+      if (redirectUrl.length > 0) {
         observedRedirects.push(redirectUrl);
-        lastObservedRedirect = redirectUrl;
+        redirectBaseUrl = redirectUrl;
       }
     };
     try {
@@ -710,14 +714,18 @@ export class AssetsController {
       // 负责最终释放 assetMutationRunning；超时只失败并保留旧文件，不会改走直连。
       const response = await withAssetRequestTimeout(
         request.request(url, options), GEO_TEXT_HTTP_DEADLINE_MS);
-      redirectHeaderListener(response.header);
+      if (observedRedirects.length === 0) {
+        redirectHeaderListener(response.header);
+      }
       if (!areAllowedGeoAssetRedirects(originalUrl, observedRedirects,
         MAX_ASSET_REDIRECTS - redirectCount)) {
         throw new Error('HTTP redirect target is not allowed');
       }
       const responseCode = Number(response.responseCode);
       if (this.isRedirectCode(responseCode)) {
-        const redirectUrl = parseHttpRedirectLocation(JSON.stringify(response.header));
+        const redirectUrl = observedRedirects.length > 0 ?
+          observedRedirects[observedRedirects.length - 1] :
+          resolveHttpRedirectUrl(url, parseHttpRedirectLocation(JSON.stringify(response.header)));
         if (!isAllowedGeoAssetRedirect(originalUrl, redirectUrl)) {
           throw new Error('HTTP redirect target is not allowed');
         }
@@ -768,12 +776,15 @@ export class AssetsController {
     }
     const request = http.createHttp();
     const observedRedirects = new Array<string>();
-    let lastObservedRedirect = '';
+    let redirectBaseUrl = url;
     const redirectHeaderListener = (headers: Object): void => {
-      const redirectUrl = parseHttpRedirectLocation(JSON.stringify(headers));
-      if (redirectUrl.length > 0 && redirectUrl !== lastObservedRedirect) {
+      const redirectUrl = resolveHttpRedirectUrl(
+        redirectBaseUrl,
+        parseHttpRedirectLocation(JSON.stringify(headers))
+      );
+      if (redirectUrl.length > 0) {
         observedRedirects.push(redirectUrl);
-        lastObservedRedirect = redirectUrl;
+        redirectBaseUrl = redirectUrl;
       }
     };
     try {
@@ -802,14 +813,18 @@ export class AssetsController {
       }
       const response = await withAssetRequestTimeout(
         request.request(url, options), GEO_DATA_HTTP_DEADLINE_MS);
-      redirectHeaderListener(response.header);
+      if (observedRedirects.length === 0) {
+        redirectHeaderListener(response.header);
+      }
       if (!areAllowedGeoAssetRedirects(originalUrl, observedRedirects,
         MAX_ASSET_REDIRECTS - redirectCount)) {
         throw new Error('HTTP redirect target is not allowed');
       }
       const responseCode = Number(response.responseCode);
       if (this.isRedirectCode(responseCode)) {
-        const redirectUrl = parseHttpRedirectLocation(JSON.stringify(response.header));
+        const redirectUrl = observedRedirects.length > 0 ?
+          observedRedirects[observedRedirects.length - 1] :
+          resolveHttpRedirectUrl(url, parseHttpRedirectLocation(JSON.stringify(response.header)));
         if (!isAllowedGeoAssetRedirect(originalUrl, redirectUrl)) {
           throw new Error('HTTP redirect target is not allowed');
         }

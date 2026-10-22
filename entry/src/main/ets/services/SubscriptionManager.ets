@@ -5,6 +5,7 @@ import { toIdnUrl } from '../core/IdnUrl';
 import { ProxyNode, isProxyOnlyRuntimeMode } from '../core/Profile';
 import { decodeBase64ToUtf8, encodeUtf8ToBase64 } from '../core/Encoding';
 import { isLoopbackOrPrivateHttpUrl } from '../core/PrivateNetwork';
+import { parseHttpRedirectLocation, resolveHttpRedirectUrl } from '../core/HttpRedirect';
 import {
   isSupportedShareLink,
   parseShareLinkToOutboundJson,
@@ -478,12 +479,15 @@ export class SubscriptionManager {
     const requestUrl = SubscriptionManager.toSubscriptionRequestUrl(url);
     const request = http.createHttp();
     const observedRedirects = new Array<string>();
-    let lastObservedRedirect = '';
+    let redirectBaseUrl = requestUrl;
     const redirectHeaderListener = (headers: Object): void => {
-      const redirectUrl = SubscriptionManager.redirectUrl(requestUrl, JSON.stringify(headers));
-      if (redirectUrl.length > 0 && redirectUrl !== lastObservedRedirect) {
+      const redirectUrl = resolveHttpRedirectUrl(
+        redirectBaseUrl,
+        parseHttpRedirectLocation(JSON.stringify(headers))
+      );
+      if (redirectUrl.length > 0) {
         observedRedirects.push(redirectUrl);
-        lastObservedRedirect = redirectUrl;
+        redirectBaseUrl = redirectUrl;
       }
     };
     try {
@@ -509,7 +513,9 @@ export class SubscriptionManager {
       // 参数超时不足以保证部分设备的 NetworkKit Promise 结算。外层截止时间释放
       // 手动/后台更新队列；运行态代理入口失败时仍原样失败，不降级携带凭据直连。
       const response = await withSubscriptionRequestTimeout(request.request(requestUrl, options));
-      redirectHeaderListener(response.header);
+      if (observedRedirects.length === 0) {
+        redirectHeaderListener(response.header);
+      }
       const redirectValidation = SubscriptionManager.validateSubscriptionRedirectChain(
         requestUrl,
         observedRedirects,
@@ -523,7 +529,9 @@ export class SubscriptionManager {
       }
       const responseCode = Number(response.responseCode);
       if (SubscriptionManager.isRedirectCode(responseCode)) {
-        const redirectUrl = SubscriptionManager.redirectUrl(requestUrl, JSON.stringify(response.header));
+        const redirectUrl = observedRedirects.length > 0 ?
+          observedRedirects[observedRedirects.length - 1] :
+          resolveHttpRedirectUrl(requestUrl, parseHttpRedirectLocation(JSON.stringify(response.header)));
         if (redirectUrl.length > 0) {
           const redirectRequestUrl = SubscriptionManager.toSubscriptionRequestUrl(redirectUrl);
           const validationMessage = SubscriptionManager.validateSubscriptionUrl(redirectRequestUrl, allowInsecureUrl);
@@ -1559,53 +1567,6 @@ export class SubscriptionManager {
 
   private static isRedirectCode(code: number): boolean {
     return code === 301 || code === 302 || code === 303 || code === 307 || code === 308;
-  }
-
-  private static redirectUrl(currentUrl: string, headerJson: string): string {
-    const location = SubscriptionManager.findJsonString(headerJson, 'Location');
-    if (location.length > 0) {
-      return SubscriptionManager.resolveUrl(currentUrl, location);
-    }
-    const lowerLocation = SubscriptionManager.findJsonString(headerJson, 'location');
-    if (lowerLocation.length > 0) {
-      return SubscriptionManager.resolveUrl(currentUrl, lowerLocation);
-    }
-    const firstLocation = SubscriptionManager.findJsonArrayFirstString(headerJson, 'Location');
-    if (firstLocation.length > 0) {
-      return SubscriptionManager.resolveUrl(currentUrl, firstLocation);
-    }
-    const firstLowerLocation = SubscriptionManager.findJsonArrayFirstString(headerJson, 'location');
-    if (firstLowerLocation.length > 0) {
-      return SubscriptionManager.resolveUrl(currentUrl, firstLowerLocation);
-    }
-    return '';
-  }
-
-  private static resolveUrl(currentUrl: string, location: string): string {
-    const trimmed = location.trim();
-    if (SubscriptionManager.isHttpUrl(trimmed)) {
-      return trimmed;
-    }
-    const schemeEnd = currentUrl.indexOf('://');
-    if (schemeEnd < 0) {
-      return '';
-    }
-    const scheme = currentUrl.substring(0, schemeEnd);
-    if (trimmed.startsWith('//')) {
-      return `${scheme}:${trimmed}`;
-    }
-    const originEnd = currentUrl.indexOf('/', schemeEnd + 3);
-    const origin = originEnd < 0 ? currentUrl : currentUrl.substring(0, originEnd);
-    if (trimmed.startsWith('/')) {
-      return `${origin}${trimmed}`;
-    }
-    const queryStart = currentUrl.indexOf('?');
-    const withoutQuery = queryStart < 0 ? currentUrl : currentUrl.substring(0, queryStart);
-    const slashIndex = withoutQuery.lastIndexOf('/');
-    if (slashIndex <= schemeEnd + 2) {
-      return `${origin}/${trimmed}`;
-    }
-    return `${withoutQuery.substring(0, slashIndex + 1)}${trimmed}`;
   }
 
   private static makeNodeName(imported: ShareLinkParseResult, outboundJson: string, index: number): string {

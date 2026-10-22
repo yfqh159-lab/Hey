@@ -1,4 +1,5 @@
 import { normalizeHttpsUrl } from './HttpDefaults';
+export { parseHttpRedirectLocation } from './HttpRedirect';
 
 // Xray 核心的规则数据文件名。文件名是上游核心的既定约定，与任何地区策略无关。
 export const GEOSITE_FILE_NAME: string = 'geosite.dat';
@@ -387,14 +388,6 @@ function isPrintableGeoIdentifier(bytes: Uint8Array, start: number, end: number)
     }
   }
   return true;
-}
-
-export function parseHttpRedirectLocation(headerJson: string): string {
-  const match = headerJson.match(/"(?:Location|location)"\s*:\s*(?:"([^"]+)"|\[\s*"([^"]+)")/);
-  if (match === null) {
-    return '';
-  }
-  return match[1] ?? match[2] ?? '';
 }
 
 export function isAllowedGeoAssetRedirect(originalUrl: string, redirectUrl: string): boolean {
