@@ -6,7 +6,10 @@ param(
 
   [string]$DevEcoHome = $env:DEVECO_HOME,
   [string]$Hap = '',
-  [string]$BuildProfile = ''
+  [string]$BuildProfile = '',
+
+  [ValidateRange(30, 3600)]
+  [int]$TestTimeoutSeconds = 120
 )
 
 $ErrorActionPreference = 'Stop'
@@ -55,6 +58,48 @@ function Invoke-ExternalTool {
   & $Executable @Arguments
   if ($LASTEXITCODE -ne 0) {
     throw "Command failed with exit code ${LASTEXITCODE}: $Executable"
+  }
+}
+
+function Invoke-ExternalToolWithTimeout {
+  param(
+    [Parameter(Mandatory = $true)][string]$Executable,
+    [Parameter(Mandatory = $true)][string[]]$Arguments,
+    [Parameter(Mandatory = $true)][int]$TimeoutSeconds
+  )
+
+  $runId = [Guid]::NewGuid().ToString('N')
+  $stdoutPath = Join-Path ([System.IO.Path]::GetTempPath()) "hey-$runId.stdout.log"
+  $stderrPath = Join-Path ([System.IO.Path]::GetTempPath()) "hey-$runId.stderr.log"
+  $process = $null
+  try {
+    $process = Start-Process -FilePath $Executable -ArgumentList $Arguments -WorkingDirectory $ProjectRoot `
+      -NoNewWindow -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+    $completed = $process.WaitForExit($TimeoutSeconds * 1000)
+    if (-not $completed) {
+      & taskkill.exe /PID $process.Id /T /F *> $null
+      throw "Command timed out after $TimeoutSeconds seconds: $Executable"
+    }
+    if (Test-Path $stdoutPath) {
+      $stdout = Get-Content -Raw -LiteralPath $stdoutPath
+      if ($stdout.Length -gt 0) {
+        [Console]::Out.Write($stdout)
+      }
+    }
+    if (Test-Path $stderrPath) {
+      $stderr = Get-Content -Raw -LiteralPath $stderrPath
+      if ($stderr.Length -gt 0) {
+        [Console]::Error.Write($stderr)
+      }
+    }
+    if ($process.ExitCode -ne 0) {
+      throw "Command failed with exit code $($process.ExitCode): $Executable"
+    }
+  } finally {
+    if ($null -ne $process -and -not $process.HasExited) {
+      & taskkill.exe /PID $process.Id /T /F *> $null
+    }
+    Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
   }
 }
 
@@ -195,10 +240,10 @@ try {
     'test' {
       Assert-DevEcoTools
       $testStartedAt = [DateTime]::UtcNow
-      Invoke-ExternalTool $Hvigor @(
+      Invoke-ExternalToolWithTimeout -Executable $Hvigor -Arguments @(
         '--mode', 'module', '-p', 'module=entry@default', '-p', 'isLocalTest=true',
         'test', '--no-daemon', '--stacktrace'
-      )
+      ) -TimeoutSeconds $TestTimeoutSeconds
       $resultLog = Join-Path $ProjectRoot 'entry\.test\default\intermediates\test\coverage_data\coverage.log'
       if (-not (Test-Path $resultLog)) {
         throw "LocalUnit result log was not generated: $resultLog"

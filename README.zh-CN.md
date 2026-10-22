@@ -211,6 +211,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\device_vpn_smoke_test.ps1 bui
 powershell -ExecutionPolicy Bypass -File .\scripts\device_vpn_smoke_test.ps1 targets
 ```
 
+`test` 默认 120 秒后终止本轮 Hvigor 进程树，防止 Ark 本地预览运行时崩溃后命令永久挂住；低性能
+机器可传 `-TestTimeoutSeconds 300`。超时或缺少新的 Hypium 汇总都按失败处理。
+
 完整安装包仍应在 DevEco Studio 中配置用户自己的签名后构建；不要把本地证书、密码或
 `build-profile.json5` 提交到仓库。
 
