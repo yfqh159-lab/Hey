@@ -67,7 +67,7 @@ import { boundedDiagnosticPollIntervals } from '../main/ets/services/ConnectionC
 import { nativeDelayFailureStatus } from '../main/ets/services/DelayTester';
 import { isRuntimeHealthPort } from '../main/ets/services/RuntimeHealthProbe';
 import { parseNetSceneStopRecord, parseNetSceneStopTimestamp, selectNetSceneStopRecord, selectNetSceneStopTimestamp, wasNetSceneStoppedAfter, wasNetSceneStoppedForSession } from '../main/ets/services/NetSceneStopFlag';
-import { PersistedVpnRuntimeState, VPN_RUNTIME_HEARTBEAT_STALE_MS, hasInvalidPersistedVpnRuntimeArtifacts, inspectPersistedVpnRuntimeArtifacts, isPersistedVpnCleanupIncomplete, isPersistedVpnRuntimeHealthy, isPersistedVpnRuntimeSessionReady, isPersistedVpnRuntimeSessionStopped, normalizeActiveVpnStartedAt, parsePersistedVpnRuntimeState, selectPersistedVpnRuntimeState, shouldCleanupAfterVpnRuntimeStateWriteFailures } from '../main/ets/services/VpnRuntimeStateStore';
+import { PersistedVpnRuntimeState, VPN_RUNTIME_HEARTBEAT_STALE_MS, VPN_RUNTIME_STATE_SCHEMA_VERSION, hasInvalidPersistedVpnRuntimeArtifacts, inspectPersistedVpnRuntimeArtifacts, isPersistedVpnCleanupIncomplete, isPersistedVpnRuntimeHealthy, isPersistedVpnRuntimeSessionReady, isPersistedVpnRuntimeSessionStopped, normalizeActiveVpnStartedAt, parsePersistedVpnRuntimeState, selectPersistedVpnRuntimeState, shouldCleanupAfterVpnRuntimeStateWriteFailures } from '../main/ets/services/VpnRuntimeStateStore';
 import { appendVpnStartCancellation, parseVpnStartCancellationHistory } from '../main/ets/services/VpnStartCancellationStore';
 import { buildAssetDownloadProxyPorts, resolveAssetDownloadProxyPlan } from '../main/ets/features/assets/AssetsController';
 import {
@@ -3467,6 +3467,7 @@ export default function localUnitTest() {
     it('accepts only fresh and fully healthy persisted VPN sessions', 0, () => {
       const now = 100000;
       const healthy: PersistedVpnRuntimeState = {
+        schemaVersion: VPN_RUNTIME_STATE_SCHEMA_VERSION,
         sessionId: 'session-1',
         active: true,
         startedAt: 50000,
@@ -3512,6 +3513,12 @@ export default function localUnitTest() {
       expect(parsePersistedVpnRuntimeState('{"sessionId":"session-1","active":true,"startedAt":1,' +
         '"heartbeatAt":2,"coreType":"xray","xrayRunning":true,"tunRunning":true}')
         ?.runtimeHealthPort === undefined).assertTrue();
+      expect(parsePersistedVpnRuntimeState('{"schemaVersion":2,"sessionId":"session-1",' +
+        '"active":true,"startedAt":1,"heartbeatAt":2,"coreType":"xray",' +
+        '"xrayRunning":true,"tunRunning":true}')).assertEqual(null);
+      expect(parsePersistedVpnRuntimeState('{"schemaVersion":3,"sessionId":"session-1",' +
+        '"active":true,"startedAt":1,"heartbeatAt":2,"coreType":"xray",' +
+        '"runtimeHealthPort":18082,"xrayRunning":true,"tunRunning":true}')).assertEqual(null);
     });
 
     it('keeps active VPN heartbeats valid after the wall clock moves backwards', 0, () => {
@@ -3520,6 +3527,7 @@ export default function localUnitTest() {
       expect(normalizeActiveVpnStartedAt(40000, heartbeatAt)).assertEqual(40000);
       expect(normalizeActiveVpnStartedAt(Number.NaN, heartbeatAt)).assertEqual(heartbeatAt);
       const healthyAfterClockChange: PersistedVpnRuntimeState = {
+        schemaVersion: VPN_RUNTIME_STATE_SCHEMA_VERSION,
         sessionId: 'clock-shift-session',
         active: true,
         startedAt: normalizeActiveVpnStartedAt(100000, heartbeatAt),

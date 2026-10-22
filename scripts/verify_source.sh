@@ -2911,13 +2911,19 @@ const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeCont
 const card = fs.readFileSync('entry/src/main/ets/services/ControlCardManager.ets', 'utf8');
 const tests = fs.readFileSync('entry/src/test/LocalUnit.test.ets', 'utf8');
 if (!store.includes('runtimeHealthPort?: number;') ||
+  !store.includes('export const VPN_RUNTIME_STATE_SCHEMA_VERSION: number = 2;') ||
+  !store.includes('const legacyState = value.schemaVersion === undefined;') ||
+  !store.includes('!legacyState && value.active && value.runtimeHealthPort === undefined') ||
   !store.includes('value.runtimeHealthPort < 1 || value.runtimeHealthPort > 65535') ||
+  !store.includes('schemaVersion: VPN_RUNTIME_STATE_SCHEMA_VERSION,') ||
+  (vpn.match(/schemaVersion: VPN_RUNTIME_STATE_SCHEMA_VERSION/g) || []).length !== 2 ||
   (vpn.match(/runtimeHealthPort: this[.]runtimeHealthProbePort/g) || []).length !== 2 ||
   !runtime.includes('persisted.runtimeHealthPort ?? VPN_DATA_SOCKS_PORT') ||
   !runtime.includes('(current.runtimeHealthPort ?? VPN_DATA_SOCKS_PORT) === expectedHealthPort') ||
   !card.includes('persisted.runtimeHealthPort ?? VPN_DATA_SOCKS_PORT') ||
   !card.includes('(confirmed.runtimeHealthPort ?? VPN_DATA_SOCKS_PORT) === expectedHealthPort') ||
-  !tests.includes('?.runtimeHealthPort === undefined).assertTrue();')) {
+  !tests.includes('?.runtimeHealthPort === undefined).assertTrue();') ||
+  !tests.includes('"schemaVersion":3')) {
   throw new Error('persisted VPN recovery is not bound to a validated runtime SOCKS port');
 }
 NODE

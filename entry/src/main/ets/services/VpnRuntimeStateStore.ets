@@ -9,8 +9,10 @@ const VPN_RUNTIME_STATE_TEMP_FILE: string = 'hey-vpn-runtime-state.tmp';
 const VPN_RUNTIME_STATE_BACKUP_FILE: string = 'hey-vpn-runtime-state.bak';
 export const VPN_RUNTIME_HEARTBEAT_STALE_MS: number = 30000;
 export const VPN_RUNTIME_STATE_WRITE_FAILURE_LIMIT: number = 3;
+export const VPN_RUNTIME_STATE_SCHEMA_VERSION: number = 2;
 
 export interface PersistedVpnRuntimeState {
+  schemaVersion?: number;
   sessionId: string;
   active: boolean;
   startedAt: number;
@@ -47,7 +49,9 @@ function isValidPersistedTimestamp(value: number, allowZero: boolean): boolean {
 export function parsePersistedVpnRuntimeState(content: string): PersistedVpnRuntimeState | null {
   try {
     const value = JSON.parse(content) as PersistedVpnRuntimeState;
-    if (typeof value.sessionId !== 'string' || !isValidVpnSessionId(value.sessionId) ||
+    const legacyState = value.schemaVersion === undefined;
+    if ((!legacyState && value.schemaVersion !== VPN_RUNTIME_STATE_SCHEMA_VERSION) ||
+      typeof value.sessionId !== 'string' || !isValidVpnSessionId(value.sessionId) ||
       typeof value.active !== 'boolean' || typeof value.startedAt !== 'number' ||
       typeof value.heartbeatAt !== 'number' || typeof value.coreType !== 'string' ||
       typeof value.xrayRunning !== 'boolean' || typeof value.tunRunning !== 'boolean' ||
@@ -65,6 +69,7 @@ export function parsePersistedVpnRuntimeState(content: string): PersistedVpnRunt
         (typeof value.runtimeHealthPort !== 'number' || !Number.isFinite(value.runtimeHealthPort) ||
           Math.floor(value.runtimeHealthPort) !== value.runtimeHealthPort ||
           value.runtimeHealthPort < 1 || value.runtimeHealthPort > 65535)) ||
+      (!legacyState && value.active && value.runtimeHealthPort === undefined) ||
       (value.coreType !== 'xray' && value.coreType !== 'singbox')) {
       return null;
     }
@@ -277,6 +282,7 @@ export class VpnRuntimeStateStore {
     cleanupAttempted: boolean = false
   ): PersistedVpnRuntimeState {
     return {
+      schemaVersion: VPN_RUNTIME_STATE_SCHEMA_VERSION,
       sessionId,
       active: false,
       startedAt,

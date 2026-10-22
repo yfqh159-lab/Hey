@@ -46,6 +46,7 @@ import { DiagnosticLog } from '../services/DiagnosticLog';
 import {
   normalizeActiveVpnStartedAt,
   VpnRuntimeStateStore,
+  VPN_RUNTIME_STATE_SCHEMA_VERSION,
   shouldCleanupAfterVpnRuntimeStateWriteFailures
 } from '../services/VpnRuntimeStateStore';
 import { isRuntimeHealthPort, probeRuntimeSocksHealth, waitForRuntimeSocksHealth } from '../services/RuntimeHealthProbe';
@@ -408,6 +409,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
 
       const activeAt = Date.now();
       const activeStateStored = VpnRuntimeStateStore.write(this.context, {
+        schemaVersion: VPN_RUNTIME_STATE_SCHEMA_VERSION,
         sessionId: this.sessionId,
         active: true,
         startedAt: normalizeActiveVpnStartedAt(this.startedAt, activeAt),
@@ -1048,6 +1050,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     const now = Date.now();
     if (now - this.lastRuntimeStateAt >= RUNTIME_STATE_INTERVAL_MS) {
       const stored = VpnRuntimeStateStore.write(this.context, {
+        schemaVersion: VPN_RUNTIME_STATE_SCHEMA_VERSION,
         sessionId: this.sessionId,
         active: true,
         startedAt: normalizeActiveVpnStartedAt(this.startedAt, now),
