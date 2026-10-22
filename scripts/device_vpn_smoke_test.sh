@@ -170,6 +170,18 @@ case "${1:-}" in
     "${ROOT_DIR}/scripts/verify_source.sh"
     run_hvigor --mode module \
       -p module=entry@default -p isLocalTest=true test --no-daemon --stacktrace
+    test_result_log="${ROOT_DIR}/entry/.test/default/intermediates/test/coverage_data/coverage.log"
+    if [[ ! -f "${test_result_log}" ]]; then
+      printf 'LocalUnit result log was not generated: %s\n' "${test_result_log}" >&2
+      exit 1
+    fi
+    test_summary="$(grep -E '\[Hypium\]total cases:[0-9]+;failure [0-9]+,error [0-9]+,pass [0-9]+;' \
+      "${test_result_log}" | tail -n 1 || true)"
+    if [[ -z "${test_summary}" || "${test_summary}" != *';failure 0,error 0,'* ]]; then
+      printf 'LocalUnit assertions did not all pass: %s\n' "${test_summary:-summary missing}" >&2
+      exit 1
+    fi
+    printf 'LocalUnit assertions passed: %s\n' "${test_summary#*\[Hypium\]}"
     ;;
   go-test)
     "${ROOT_DIR}/scripts/test_go_components.sh"
