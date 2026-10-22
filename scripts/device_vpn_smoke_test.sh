@@ -40,7 +40,7 @@ if [[ -z "${JAVA:-}" ]]; then
 fi
 
 usage() {
-  printf 'Usage: %s {build|test|go-test|install|logs|targets|doctor}\n' "$0"
+  printf 'Usage: %s {build|test|go-test|verify-hap|install|logs|targets|doctor}\n' "$0"
 }
 
 require_hvigor() {
@@ -229,6 +229,10 @@ case "${1:-}" in
     ;;
   go-test)
     "${ROOT_DIR}/scripts/test_go_components.sh"
+    ;;
+  verify-hap)
+    require_hap_signature_verifier
+    verify_hap_native_libs
     ;;
   install)
     require_hdc

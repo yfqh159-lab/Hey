@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Position = 0)]
-  [ValidateSet('doctor', 'test', 'build', 'install', 'targets', 'logs')]
+  [ValidateSet('doctor', 'test', 'build', 'verify-hap', 'install', 'targets', 'logs')]
   [string]$Action = 'doctor',
 
   [string]$DevEcoHome = $env:DEVECO_HOME,
@@ -335,6 +335,9 @@ try {
         '--mode', 'module', '-p', 'product=default', '-p', 'module=entry@default',
         '-p', 'buildMode=debug', 'assembleHap', '--no-daemon', '--stacktrace'
       )
+      Assert-SignedHap $Hap $Java $HapSignTool
+    }
+    'verify-hap' {
       Assert-SignedHap $Hap $Java $HapSignTool
     }
     'install' {

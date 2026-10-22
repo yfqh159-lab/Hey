@@ -208,6 +208,7 @@ $env:Path = "$env:JAVA_HOME\bin;$env:Path"
 powershell -ExecutionPolicy Bypass -File .\scripts\device_vpn_smoke_test.ps1 doctor
 powershell -ExecutionPolicy Bypass -File .\scripts\device_vpn_smoke_test.ps1 test
 powershell -ExecutionPolicy Bypass -File .\scripts\device_vpn_smoke_test.ps1 build
+powershell -ExecutionPolicy Bypass -File .\scripts\device_vpn_smoke_test.ps1 verify-hap
 powershell -ExecutionPolicy Bypass -File .\scripts\device_vpn_smoke_test.ps1 targets
 ```
 
@@ -243,6 +244,14 @@ HDC=/绝对路径/command-line-tools/sdk/default/openharmony/toolchains/hdc \
 
 ```text
 entry/build/default/outputs/default/entry-default-signed.hap
+```
+
+没有设备时也可只验证指定 HAP 的真实签名和随包原生库；PowerShell 用 `-Hap`，Unix Shell 用
+`HAP=/绝对路径/文件.hap` 覆盖默认路径：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\device_vpn_smoke_test.ps1 verify-hap `
+  -Hap .\entry\build\default\outputs\default\entry-default-signed.hap
 ```
 
 跑单元测试：

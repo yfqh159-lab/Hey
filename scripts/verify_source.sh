@@ -3479,13 +3479,14 @@ for (const required of [
   'param get const.product.model',
   '$targetExitCode -ne 0',
   "'verify-app'",
+  "'verify-hap'",
   'hap-sign-tool.jar'
 ]) {
   if (!windowsSmoke.includes(required)) {
     throw new Error(`Windows device doctor lost required target check: ${required}`);
   }
 }
-for (const required of ['verify-app', 'HAP_SIGN_TOOL', 'hap-sign-tool.jar']) {
+for (const required of ['verify-app', 'verify-hap)', 'HAP_SIGN_TOOL', 'hap-sign-tool.jar']) {
   if (!shellSmoke.includes(required)) {
     throw new Error(`Unix HAP installation lost signature verification: ${required}`);
   }
