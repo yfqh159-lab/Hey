@@ -201,6 +201,16 @@ $env:Path = "$env:JAVA_HOME\bin;$env:Path"
   --mode module -p module=entry@default -p isLocalTest=true test --no-daemon --stacktrace
 ```
 
+仓库也提供等价的 Windows 烟测入口；它会额外检查 Hypium 汇总，不能只凭 Hvigor 的
+`BUILD SUCCESSFUL` 把断言失败误报为通过：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\device_vpn_smoke_test.ps1 doctor
+powershell -ExecutionPolicy Bypass -File .\scripts\device_vpn_smoke_test.ps1 test
+powershell -ExecutionPolicy Bypass -File .\scripts\device_vpn_smoke_test.ps1 build
+powershell -ExecutionPolicy Bypass -File .\scripts\device_vpn_smoke_test.ps1 targets
+```
+
 完整安装包仍应在 DevEco Studio 中配置用户自己的签名后构建；不要把本地证书、密码或
 `build-profile.json5` 提交到仓库。
 
