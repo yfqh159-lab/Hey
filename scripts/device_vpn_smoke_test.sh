@@ -27,6 +27,7 @@ if [[ -z "${HDC:-}" ]]; then
   fi
 fi
 HAP="${HAP:-${ROOT_DIR}/entry/build/default/outputs/default/entry-default-signed.hap}"
+BUILD_PROFILE="${BUILD_PROFILE:-${ROOT_DIR}/build-profile.json5}"
 
 usage() {
   printf 'Usage: %s {build|test|go-test|install|logs|targets|doctor}\n' "$0"
@@ -47,6 +48,72 @@ tool_available() {
   else
     command -v "${tool}" >/dev/null 2>&1
   fi
+}
+
+signing_profile_configured() {
+  local profile="$1"
+  node - "${profile}" <<'NODE'
+const fs = require('fs');
+
+let source;
+try {
+  source = fs.readFileSync(process.argv[2], 'utf8');
+} catch (_) {
+  process.exit(2);
+}
+
+const key = /["']signingConfigs["']\s*:\s*\[/g.exec(source);
+if (!key) {
+  process.exit(2);
+}
+
+let index = key.index + key[0].length;
+while (index < source.length) {
+  const char = source[index];
+  const next = source[index + 1];
+  if (/\s/.test(char)) {
+    index += 1;
+    continue;
+  }
+  if (char === '/' && next === '/') {
+    index = source.indexOf('\n', index + 2);
+    if (index < 0) {
+      process.exit(2);
+    }
+    continue;
+  }
+  if (char === '/' && next === '*') {
+    index = source.indexOf('*/', index + 2);
+    if (index < 0) {
+      process.exit(2);
+    }
+    index += 2;
+    continue;
+  }
+  process.exit(char === ']' ? 1 : 0);
+}
+process.exit(2);
+NODE
+}
+
+require_signing_profile() {
+  if [[ ! -f "${BUILD_PROFILE}" ]]; then
+    printf 'build-profile.json5 not found: %s\n' "${BUILD_PROFILE}" >&2
+    printf 'Copy build-profile.example.json5 and configure local signing.\n' >&2
+    exit 1
+  fi
+  local status=0
+  signing_profile_configured "${BUILD_PROFILE}" || status=$?
+  if [[ "${status}" -eq 0 ]]; then
+    return
+  fi
+  if [[ "${status}" -eq 1 ]]; then
+    printf 'Signing is not configured in: %s\n' "${BUILD_PROFILE}" >&2
+  else
+    printf 'Could not verify signingConfigs in: %s\n' "${BUILD_PROFILE}" >&2
+  fi
+  printf 'Configure a non-empty local signingConfigs entry in DevEco Studio.\n' >&2
+  exit 1
 }
 
 run_hvigor() {
@@ -90,6 +157,7 @@ require_hdc() {
 case "${1:-}" in
   build)
     require_hvigor
+    require_signing_profile
     "${ROOT_DIR}/scripts/verify_source.sh"
     run_hvigor clean --no-daemon --stacktrace
     run_hvigor --mode module \
@@ -143,10 +211,18 @@ case "${1:-}" in
     else
       printf 'INFO: DEVECO_SDK_HOME is unset; hvigorw must resolve the SDK itself.\n'
     fi
-    if [[ -f "${ROOT_DIR}/build-profile.json5" ]]; then
-      printf 'OK: local build profile exists.\n'
-    else
+    if [[ ! -f "${BUILD_PROFILE}" ]]; then
       printf 'MISSING: build-profile.json5. Copy build-profile.example.json5 and configure local signing.\n'
+      doctor_failed=1
+    elif signing_profile_configured "${BUILD_PROFILE}"; then
+      printf 'OK: local build profile has a non-empty signing configuration.\n'
+    else
+      signing_status=$?
+      if [[ "${signing_status}" -eq 1 ]]; then
+        printf 'MISSING: build-profile.json5 exists but signingConfigs is empty. Configure local signing.\n'
+      else
+        printf 'MISSING: build-profile.json5 exists but signingConfigs could not be verified.\n'
+      fi
       doctor_failed=1
     fi
     if [[ -f "${HAP}" ]]; then

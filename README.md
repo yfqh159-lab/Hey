@@ -263,7 +263,10 @@ HDC=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/
 Run `./scripts/device_vpn_smoke_test.sh doctor` first to inspect Node.js, unzip,
 hvigor, the SDK, the local signing profile, signed HAP, hdc target, and system VPN authorization
 component in one pass. It reports all missing prerequisites and exits nonzero
-instead of stopping after the first missing tool.
+instead of stopping after the first missing tool. The preflight checks more than
+the existence of `build-profile.json5`: it rejects the unchanged example with
+an empty `signingConfigs` array without printing certificate paths, passwords,
+or other signing contents.
 
 The expected output is:
 

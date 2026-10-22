@@ -199,7 +199,8 @@ HDC=/绝对路径/command-line-tools/sdk/default/openharmony/toolchains/hdc \
 
 先运行 `./scripts/device_vpn_smoke_test.sh doctor` 可一次查看 Node.js、unzip、hvigor、SDK、本地签名配置、
 签名 HAP、hdc 设备及系统 VPN 授权组件；缺少多项时会全部列出并以非零状态结束，而不是只报告
-第一个缺失工具。
+第一个缺失工具。预检不仅检查 `build-profile.json5` 是否存在，也会拒绝原样复制示例后仍为空的
+`signingConfigs`；不会输出证书路径、密码或其他签名内容。
 
 构建产物默认位于：
 
