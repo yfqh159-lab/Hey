@@ -5,7 +5,6 @@ import {
   SUBSCRIPTION_AUTO_UPDATE_WORK_ABILITY,
   SUBSCRIPTION_AUTO_UPDATE_WORK_BUNDLE_NAME,
   SUBSCRIPTION_AUTO_UPDATE_WORK_ID,
-  SubscriptionAutoUpdateGroupSchedulePlan,
   SubscriptionAutoUpdateSchedulePlan,
   buildSubscriptionAutoUpdateSchedulePlan,
   subscriptionAutoUpdateWorkIdForGroup
@@ -56,19 +55,29 @@ export class SubscriptionBackgroundScheduler {
 
     const startedWorkIds = new Array<number>();
     try {
-      const previous = await SubscriptionBackgroundScheduler.loadScheduledWorks(context);
-      SubscriptionBackgroundScheduler.stopExistingWork(previous);
-      for (let index = 0; index < plan.groupPlans.length; index++) {
-        workScheduler.startWork(SubscriptionBackgroundScheduler.buildWorkInfo(plan.groupPlans[index], plan));
-        startedWorkIds.push(plan.groupPlans[index].workId);
+      let previous = new Array<SubscriptionScheduledWorkRecord>();
+      try {
+        previous = await SubscriptionBackgroundScheduler.loadScheduledWorks(context);
+      } catch (_error) {
+        // The aggregate work ID is authoritative in the current schema. A damaged old
+        // index must not permanently prevent scheduling; known legacy per-group IDs are
+        // also stopped below and unknown legacy callbacks self-retire in the extension.
       }
-      await SubscriptionBackgroundScheduler.saveScheduledWorks(context, plan.groupPlans);
+      SubscriptionBackgroundScheduler.stopExistingWork(previous);
+      SubscriptionBackgroundScheduler.stopWorkIds(
+        SubscriptionBackgroundScheduler.workIdsForGroups(profile.groups));
+      workScheduler.startWork(SubscriptionBackgroundScheduler.buildWorkInfo(plan));
+      startedWorkIds.push(SUBSCRIPTION_AUTO_UPDATE_WORK_ID);
+      await SubscriptionBackgroundScheduler.saveScheduledWorks(context, [{
+        groupId: '',
+        workId: SUBSCRIPTION_AUTO_UPDATE_WORK_ID
+      }]);
       return {
         ok: true,
         scheduled: true,
         enabledGroupCount: plan.enabledGroupCount,
         repeatCycleTimeMs: plan.repeatCycleTimeMs,
-        message: `Subscription background auto-update scheduled for ${plan.enabledGroupCount} group task(s).`
+        message: `Subscription background auto-update scheduled for ${plan.enabledGroupCount} group(s).`
       };
     } catch (error) {
       SubscriptionBackgroundScheduler.stopWorkIds(startedWorkIds);
@@ -102,8 +111,13 @@ export class SubscriptionBackgroundScheduler {
     // derivable from the current subscription database must still be stopped.
     SubscriptionBackgroundScheduler.stopWorkId(SUBSCRIPTION_AUTO_UPDATE_WORK_ID);
     SubscriptionBackgroundScheduler.stopWorkIds(knownWorkIds);
+    let previous = new Array<SubscriptionScheduledWorkRecord>();
     try {
-      const previous = await SubscriptionBackgroundScheduler.loadScheduledWorks(context);
+      previous = await SubscriptionBackgroundScheduler.loadScheduledWorks(context);
+    } catch (_error) {
+      // Continue to replace an unreadable index with the known empty state.
+    }
+    try {
       SubscriptionBackgroundScheduler.stopExistingWork(previous);
       await SubscriptionBackgroundScheduler.saveScheduledWorks(context, []);
     } catch (error) {
@@ -164,22 +178,20 @@ export class SubscriptionBackgroundScheduler {
     }
   }
 
-  private static buildWorkInfo(groupPlan: SubscriptionAutoUpdateGroupSchedulePlan, plan: SubscriptionAutoUpdateSchedulePlan): workScheduler.WorkInfo {
+  private static buildWorkInfo(plan: SubscriptionAutoUpdateSchedulePlan): workScheduler.WorkInfo {
     return {
-      workId: groupPlan.workId,
+      workId: SUBSCRIPTION_AUTO_UPDATE_WORK_ID,
       bundleName: SUBSCRIPTION_AUTO_UPDATE_WORK_BUNDLE_NAME,
       abilityName: SUBSCRIPTION_AUTO_UPDATE_WORK_ABILITY,
       isPersisted: true,
       networkType: workScheduler.NetworkType.NETWORK_TYPE_ANY,
       isRepeat: true,
-      repeatCycleTime: groupPlan.repeatCycleTimeMs,
+      repeatCycleTime: plan.repeatCycleTimeMs,
       parameters: {
         source: 'subscription-auto-update',
-        groupId: groupPlan.groupId,
-        workId: groupPlan.workId,
+        workId: SUBSCRIPTION_AUTO_UPDATE_WORK_ID,
         enabledGroupCount: plan.enabledGroupCount,
-        intervalMinutes: groupPlan.intervalMinutes,
-        nextDelayTimeMs: groupPlan.nextDelayTimeMs
+        intervalMinutes: plan.intervalMinutes
       }
     };
   }
@@ -212,12 +224,15 @@ export class SubscriptionBackgroundScheduler {
     throw new Error('Stored subscription background task index is unreadable.');
   }
 
-  private static async saveScheduledWorks(context: common.Context, groupPlans: Array<SubscriptionAutoUpdateGroupSchedulePlan>): Promise<void> {
+  private static async saveScheduledWorks(
+    context: common.Context,
+    scheduledWorks: Array<SubscriptionScheduledWorkRecord>
+  ): Promise<void> {
     const records = new Array<SubscriptionScheduledWorkRecord>();
-    for (let index = 0; index < groupPlans.length; index++) {
+    for (let index = 0; index < scheduledWorks.length; index++) {
       records.push({
-        groupId: groupPlans[index].groupId,
-        workId: groupPlans[index].workId
+        groupId: scheduledWorks[index].groupId,
+        workId: scheduledWorks[index].workId
       });
     }
     const store = await preferences.getPreferences(context, PREFERENCES_NAME);
@@ -268,7 +283,8 @@ export class SubscriptionBackgroundScheduler {
         const record = parsed[index] as Record<string, Object>;
         const groupId = record['groupId'];
         const workId = record['workId'];
-        if (typeof groupId !== 'string' || groupId.length === 0 || typeof workId !== 'number' ||
+        if (typeof groupId !== 'string' || typeof workId !== 'number' ||
+          (groupId.length === 0 && workId !== SUBSCRIPTION_AUTO_UPDATE_WORK_ID) ||
           !Number.isFinite(workId) || Math.floor(workId) !== workId || workId <= 0) {
           return null;
         }

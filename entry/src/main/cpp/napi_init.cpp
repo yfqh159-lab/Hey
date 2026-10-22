@@ -174,9 +174,18 @@ bool WriteTextFile(const std::string& path, const std::string& content, std::str
     }
 
     size_t written = std::fwrite(content.data(), 1, content.size(), file);
-    std::fclose(file);
     if (written != content.size()) {
         message = ErrnoMessage("Failed to write complete file: " + path);
+        std::fclose(file);
+        return false;
+    }
+    if (std::fflush(file) != 0 || fsync(fileno(file)) != 0) {
+        message = ErrnoMessage("Failed to flush file: " + path);
+        std::fclose(file);
+        return false;
+    }
+    if (std::fclose(file) != 0) {
+        message = ErrnoMessage("Failed to close file: " + path);
         return false;
     }
     return true;
@@ -1067,6 +1076,11 @@ napi_value SetTunFd(napi_env env, napi_callback_info info)
     if (!LoadXrayCore(message)) {
         g_tunRunning.store(false);
         return CreateResult(env, false, message);
+    }
+    if (g_setTunFd == nullptr) {
+        g_tunRunning.store(false);
+        return CreateResult(env, false,
+            "This Xray build does not support core-owned TUN; use the tun2socks data plane.");
     }
     if (!MakeFdInheritable(tunFd, message)) {
         g_tunRunning.store(false);

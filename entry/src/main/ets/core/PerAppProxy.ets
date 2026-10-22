@@ -5,11 +5,14 @@ export interface PerAppProxyImportResult {
   count: number;
 }
 
+export const MAX_PER_APP_PACKAGE_COUNT: number = 4096;
+const MAX_PER_APP_IMPORT_CHARS: number = 2 * 1024 * 1024;
+
 export function normalizePerAppPackageList(packages: Array<string>, selfPackageName: string = ''): Array<string> {
   const normalized = new Array<string>();
   const seen: Record<string, boolean> = {};
   const selfKey = selfPackageName.trim().toLowerCase();
-  for (let index = 0; index < packages.length; index++) {
+  for (let index = 0; index < packages.length && normalized.length < MAX_PER_APP_PACKAGE_COUNT; index++) {
     const item = packages[index].trim();
     const key = item.toLowerCase();
     if (!isValidPackageName(item) || key === selfKey || seen[key]) {
@@ -90,6 +93,14 @@ export function importPerAppProxyList(
   fallbackBypass: boolean,
   selfPackageName: string = ''
 ): PerAppProxyImportResult {
+  if (content.length > MAX_PER_APP_IMPORT_CHARS) {
+    return {
+      success: false,
+      bypass: fallbackBypass,
+      packages: [],
+      count: 0
+    };
+  }
   const lines = content.split(/\r?\n/).map((line: string) => line.trim()).filter((line: string) => line.length > 0);
   if (lines.length === 0) {
     return {
@@ -126,7 +137,7 @@ export function importPerAppProxyList(
 }
 
 function isValidPackageName(value: string): boolean {
-  if (value.length < 5 || value.indexOf('.') <= 0 || value.endsWith('.')) {
+  if (value.length < 5 || value.length > 255 || value.indexOf('.') <= 0 || value.endsWith('.')) {
     return false;
   }
   return /^[A-Za-z0-9_.$-]+$/.test(value);

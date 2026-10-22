@@ -17,7 +17,7 @@ import { defaultJsonConfigNodeName, resolveJsonConfigNodeName } from '../main/et
 import { selectRuntimeLocalSocksPort, shouldExposeLocalHttpProxy, shouldUseDynamicLocalSocksPort, withRuntimeLocalSocksPort } from '../main/ets/core/LocalProxy';
 import { parseManualOutboundEditState } from '../main/ets/core/ManualOutboundEditState';
 import { buildManualHysteria2Outbound, buildManualWireguardOutbound } from '../main/ets/core/ManualOutboundBuilder';
-import { clearVisiblePerAppPackages, exportPerAppProxyList, importPerAppProxyList, invertVisiblePerAppPackages, normalizePerAppPackageList, selectAllPerAppPackages } from '../main/ets/core/PerAppProxy';
+import { MAX_PER_APP_PACKAGE_COUNT, clearVisiblePerAppPackages, exportPerAppProxyList, importPerAppProxyList, invertVisiblePerAppPackages, normalizePerAppPackageList, selectAllPerAppPackages } from '../main/ets/core/PerAppProxy';
 import { shouldShowProxySharingStartWarning } from '../main/ets/core/ProxySharingWarning';
 import { canCancelStartingConnection, shouldDeferBusyControlAction, shouldOfferConnectionStop } from '../main/ets/core/ConnectionInteraction';
 import { shouldStartScannerImmediately } from '../main/ets/core/ScannerLaunch';
@@ -29,7 +29,7 @@ import { HARMONY_SEND_DATA_ACTION, HARMONY_SHARE_ABSTRACT_KEY, HARMONY_SHARE_URL
 import { extractOutboundsFromXrayConfig } from '../main/ets/core/XrayOutbounds';
 import { SUPPORTED_SHARE_LINK_SCHEMES, buildUnsupportedShareLinkMessage, formatOutboundJsonToShareLink, isSupportedShareLink, parseShareLinkToOutboundJson } from '../main/ets/core/ShareLinkParser';
 import { buildSingboxConfig } from '../main/ets/core/SingboxConfig';
-import { exportRoutingRulesJson, importRoutingRulesJson } from '../main/ets/core/RoutingRules';
+import { MAX_ROUTING_RULE_COUNT, exportRoutingRulesJson, importRoutingRulesJson } from '../main/ets/core/RoutingRules';
 import { buildConfigBackup, parseConfigBackup, serializeConfigBackup, CONFIG_BACKUP_APP_TAG, CONFIG_BACKUP_VERSION } from '../main/ets/core/ConfigBackup';
 import { AssetStore, CustomAssetUrl, GeoUpdateMetadata } from '../main/ets/storage/AssetStore';
 import { ControlCardStore } from '../main/ets/storage/ControlCardStore';
@@ -56,10 +56,12 @@ import {
   MIN_SUBSCRIPTION_UPDATE_INTERVAL_MINUTES,
   isSubscriptionAutoUpdateDue,
   moveSubscriptionGroup,
-  normalizeSubscriptionUpdateInterval
+  normalizeSubscriptionUpdateInterval,
+  selectNextDueSubscriptionGroup
 } from '../main/ets/core/SubscriptionGroups';
-import { buildSubscriptionAutoUpdateGroupSchedulePlans, buildSubscriptionAutoUpdateSchedulePlan, subscriptionAutoUpdateWorkIdForGroup } from '../main/ets/core/SubscriptionSchedulerPlan';
+import { SUBSCRIPTION_AUTO_UPDATE_WORK_ID, buildSubscriptionAutoUpdateGroupSchedulePlans, buildSubscriptionAutoUpdateSchedulePlan, subscriptionAutoUpdateWorkIdForGroup } from '../main/ets/core/SubscriptionSchedulerPlan';
 import { findMatchedSubscriptionNode, findSelectedNodeInGroup, resolveGlobalSelectedNodeId, resolveRetainedSelectedNodeId, shouldRefreshProfileForNode } from '../main/ets/core/SubscriptionSelection';
+import { MAX_SUBSCRIPTION_FILTER_CHARS, MAX_SUBSCRIPTION_NODE_COUNT, isSafeSubscriptionFilterPattern, limitSubscriptionText } from '../main/ets/core/SubscriptionSafety';
 import { buildSpeedNotificationAdditionalText, buildSpeedNotificationText, calculateSpeedNotificationRates, sampleSpeedNotificationStats, shouldPublishSpeedNotification } from '../main/ets/core/SpeedNotification';
 import { BROWSER_DIALER_MODE_OPTIONS, CORE_LOG_LEVEL_OPTIONS, DEFAULT_BROWSER_DIALER_MODE, DEFAULT_CORE_LOG_LEVEL, DEFAULT_FRAGMENT_PACKETS, DEFAULT_HYSTERIA2_SECURITY, DEFAULT_MUX_XUDP_QUIC, DEFAULT_STREAM_ALPN, DEFAULT_VMESS_SECURITY, FLOW_OPTIONS, FRAGMENT_PACKET_OPTIONS, GRPC_MODE_OPTIONS, HYSTERIA2_SECURITY_OPTIONS, KCP_HEADER_TYPE_OPTIONS, MUX_XUDP_QUIC_OPTIONS, SS_SECURITY_OPTIONS, STREAM_ALPN_OPTIONS, SUPPORTED_TRANSPORT_OPTIONS, TCP_HEADER_TYPE_OPTIONS, UTLS_FINGERPRINT_OPTIONS, VMESS_SECURITY_OPTIONS, XHTTP_MODE_OPTIONS, normalizeBrowserDialerMode, normalizeCoreLogLevel, normalizeFragmentPackets, normalizeHysteria2Security, normalizeMuxXudpQuic, normalizeStreamAlpn, normalizeStreamAlpnWithFallback, normalizeXhttpMode } from '../main/ets/core/ProtocolOptions';
 import { countLogLevels, filterLogEntries, filterLogItems, formatLogcatText, formatLogEntriesText } from '../main/ets/features/logs/LogOperations';
@@ -682,6 +684,13 @@ export default function localUnitTest() {
       const empty = SubscriptionBackgroundScheduler.selectStoredWorks('', '');
       expect(empty.source).assertEqual('empty');
       expect(empty.records?.length ?? -1).assertEqual(0);
+
+      const aggregate = SubscriptionBackgroundScheduler.selectStoredWorks(
+        `[{"groupId":"","workId":${SUBSCRIPTION_AUTO_UPDATE_WORK_ID}}]`, '');
+      expect(aggregate.source).assertEqual('primary');
+      expect(aggregate.records?.length ?? 0).assertEqual(1);
+      expect(SubscriptionBackgroundScheduler.selectStoredWorks(
+        '[{"groupId":"","workId":261001}]', '').source).assertEqual('invalid');
     });
 
     it('recovers custom Geo sources and verified update metadata independently', 0, () => {
@@ -2448,6 +2457,17 @@ export default function localUnitTest() {
       expect(notObject.skipped[0].reason).assertEqual('notObject');
     });
 
+    it('bounds imported routing rule cardinality', 0, () => {
+      const raw = new Array<Record<string, Object>>();
+      for (let index = 0; index < MAX_ROUTING_RULE_COUNT + 2; index++) {
+        raw.push({ domain: [`domain:${index}.example`], outboundTag: 'proxy' });
+      }
+      const result = importRoutingRulesJson([], JSON.stringify(raw));
+      expect(result.success).assertTrue();
+      expect(result.rules.length).assertEqual(MAX_ROUTING_RULE_COUNT);
+      expect(result.count).assertEqual(MAX_ROUTING_RULE_COUNT);
+    });
+
     it('imports routing rules json from QR code payload format', 0, () => {
       const lockedRule = buildRoutingRuleFixture('locked-qr-rule', 'Locked keep', 'direct');
       lockedRule.locked = true;
@@ -3162,6 +3182,14 @@ export default function localUnitTest() {
       expect(packageOnlyImport.success).assertTrue();
       expect(packageOnlyImport.bypass).assertTrue();
       expect(packageOnlyImport.packages[0]).assertEqual('com.huawei.hbrowser');
+
+      const manyPackages = new Array<string>();
+      for (let index = 0; index < MAX_PER_APP_PACKAGE_COUNT + 2; index++) {
+        manyPackages.push(`com.example.app${index}`);
+      }
+      expect(normalizePerAppPackageList(manyPackages).length).assertEqual(MAX_PER_APP_PACKAGE_COUNT);
+      expect(normalizePerAppPackageList([`com.${'a'.repeat(260)}`]).length).assertEqual(0);
+      expect(importPerAppProxyList('x'.repeat(2 * 1024 * 1024 + 1), false).success).assertFalse();
 
     });
 
@@ -5159,6 +5187,18 @@ export default function localUnitTest() {
       expect(outcome.skipped).assertEqual(1);
     });
 
+    it('bounds subscription filters and rejects blocking regex constructs', 0, () => {
+      expect(isSafeSubscriptionFilterPattern('HK|US')).assertTrue();
+      expect(isSafeSubscriptionFilterPattern('^(香港|日本)$')).assertTrue();
+      expect(isSafeSubscriptionFilterPattern('(a+)+$')).assertFalse();
+      expect(isSafeSubscriptionFilterPattern('(a|aa){2,}$')).assertFalse();
+      expect(isSafeSubscriptionFilterPattern('(a)\\1')).assertFalse();
+      expect(isSafeSubscriptionFilterPattern('[')).assertFalse();
+      expect(isSafeSubscriptionFilterPattern('a'.repeat(MAX_SUBSCRIPTION_FILTER_CHARS + 1))).assertFalse();
+      expect(limitSubscriptionText('abcdef', 4)).assertEqual('abcd');
+      expect(MAX_SUBSCRIPTION_NODE_COUNT).assertEqual(4096);
+    });
+
     it('detects html subscription responses', 0, () => {
       expect(SubscriptionManager.looksLikeHtmlContent('<!DOCTYPE html><html><body>login</body></html>')).assertTrue();
       expect(SubscriptionManager.looksLikeHtmlContent('  <html lang="zh"><head><title>x</title></head>')).assertTrue();
@@ -5395,6 +5435,28 @@ export default function localUnitTest() {
       group.enabled = true;
       group.url = '';
       expect(isSubscriptionAutoUpdateDue(group, 2000)).assertFalse();
+    });
+
+    it('selects only the most overdue subscription for one background callback', 0, () => {
+      const now = 10 * 60 * 60 * 1000;
+      const recent = buildSubscriptionGroupFixture('sub-recent', 'Recent');
+      recent.autoUpdate = true;
+      recent.updateIntervalMinutes = 60;
+      recent.updatedAt = now - 2 * 60 * 60 * 1000;
+      const oldest = buildSubscriptionGroupFixture('sub-oldest', 'Oldest');
+      oldest.autoUpdate = true;
+      oldest.updateIntervalMinutes = 60;
+      oldest.updatedAt = now - 5 * 60 * 60 * 1000;
+      const never = buildSubscriptionGroupFixture('sub-never', 'Never');
+      never.autoUpdate = true;
+      never.updatedAt = 0;
+
+      expect(selectNextDueSubscriptionGroup([recent, oldest], now)?.id ?? '').assertEqual('sub-oldest');
+      expect(selectNextDueSubscriptionGroup([recent, never, oldest], now)?.id ?? '').assertEqual('sub-never');
+      recent.autoUpdate = false;
+      oldest.autoUpdate = false;
+      never.autoUpdate = false;
+      expect(selectNextDueSubscriptionGroup([recent, never, oldest], now) === null).assertTrue();
     });
 
     it('parses install deep links with the protocol spec outer fragment fallback', 0, () => {

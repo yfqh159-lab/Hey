@@ -1181,8 +1181,8 @@ export class AssetsController {
 
       fs.fsyncSync(destFile.fd);
       fs.closeSync(srcFile);
-      fs.closeSync(destFile);
       srcFile = null;
+      fs.closeSync(destFile);
       destFile = null;
 
       const importedData = this.readFileData(tempPath);
@@ -1195,15 +1195,27 @@ export class AssetsController {
       onSuccess();
       return true;
     } catch (error) {
-      if (srcFile) fs.closeSync(srcFile);
-      if (destFile) fs.closeSync(destFile);
+      if (srcFile !== null) {
+        try {
+          fs.closeSync(srcFile);
+        } catch (_closeError) {
+          // Preserve the primary import error and continue temporary-file cleanup.
+        }
+      }
+      if (destFile !== null) {
+        try {
+          fs.closeSync(destFile);
+        } catch (_closeError) {
+          // Preserve the primary import error and continue temporary-file cleanup.
+        }
+      }
       try {
         if (fs.accessSync(tempPath)) {
           fs.unlinkSync(tempPath);
         }
       } catch (e) {}
 
-      const errMsg = error instanceof Error ? error.message : JSON.stringify(error);
+      const errMsg = redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error));
       promptAction.showToast({ message: this.t(language, 'assets.action.importLocal.failed').replace('{error}', errMsg) });
       onError(errMsg);
       return false;

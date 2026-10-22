@@ -472,6 +472,27 @@ if ! grep -Fq "const MAX_SUBSCRIPTION_RESPONSE_BYTES: number = 16 * 1024 * 1024;
 fi
 printf 'bounded subscription HTTP verification passed\n'
 
+subscription_safety="entry/src/main/ets/core/SubscriptionSafety.ets"
+subscription_store="entry/src/main/ets/storage/SubscriptionStore.ets"
+subscription_controller="entry/src/main/ets/features/subscriptions/SubscriptionsController.ets"
+if ! grep -Fq 'MAX_SUBSCRIPTION_NODE_COUNT: number = 4096' "${subscription_safety}" || \
+  ! grep -Fq 'MAX_SUBSCRIPTION_NODE_INPUT_CHARS: number = 256 * 1024' "${subscription_safety}" || \
+  ! grep -Fq '/\\[1-9]/.test(pattern)' "${subscription_safety}" || \
+  ! grep -Fq '/\)[*+{]/.test(pattern)' "${subscription_safety}" || \
+  ! grep -Fq 'nodes.length >= MAX_SUBSCRIPTION_NODE_COUNT' "${subscription_manager}" || \
+  ! grep -Fq 'line.length > MAX_SUBSCRIPTION_NODE_INPUT_CHARS' "${subscription_manager}" || \
+  ! grep -Fq 'validation.normalizedJson.length > MAX_STORED_NODE_CONFIG_CHARS' "${subscription_manager}" || \
+  ! grep -Fq 'normalized.length < MAX_SUBSCRIPTION_GROUP_COUNT' "${subscription_store}" || \
+  ! grep -Fq 'normalized.length < MAX_SUBSCRIPTION_NODE_COUNT' "${subscription_store}" || \
+  ! grep -Fq '!isSafeSubscriptionFilterPattern(pattern)' "${subscription_controller}" || \
+  ! grep -Fq "SubscriptionStore.saveUrl(context, '', targetGroupId, false)" "${subscription_controller}" || \
+  ! grep -Fq "SubscriptionStore.saveNodes(context, inlineGroupId, '', filteredInline" "${subscription_controller}" || \
+  ! grep -Fq 'bounds subscription filters and rejects blocking regex constructs' \
+    'entry/src/test/LocalUnit.test.ets'; then
+  throw_error "subscription cardinality, metadata, or regular-expression work is not bounded"
+fi
+printf 'bounded subscription parsing and filtering verification passed\n'
+
 if ! grep -Fq "const MAX_SUBSCRIPTION_REDIRECTS: number = 5;" "${subscription_manager}" || \
   ! grep -Fq "request.on('headersReceive', redirectHeaderListener);" "${subscription_manager}" || \
   ! grep -Fq "let redirectBaseUrl = requestUrl;" "${subscription_manager}" || \
@@ -586,7 +607,8 @@ if ! grep -Fq 'private static operationTail: Promise<void> = Promise.resolve();'
   ! grep -Fq 'private static enqueueOperation<T>(operation: () => Promise<T>): Promise<T>' "${settings_store_source}" ||
   ! grep -Fq 'SettingsStore.operationTail = task.then(' "${settings_store_source}" ||
   ! grep -Fq 'return fallback.slice();' "${settings_store_source}" ||
-  ! grep -Fq 'result.push(value[index] as string);' "${settings_store_source}"; then
+  ! grep -Fq 'const item = value[index] as string;' "${settings_store_source}" ||
+  ! grep -Fq 'result.push(item);' "${settings_store_source}"; then
   printf 'settings store operations are not serialized against cross-page stale snapshots\n' >&2
   exit 1
 fi
@@ -946,6 +968,28 @@ if (syncAt < 0 || syncNowAt < 0 || cancelAt < 0 || cancelNowAt < 0 || enqueueAt 
 NODE
 printf 'subscription schedule serialization verification passed\n'
 
+node <<'NODE'
+const fs = require('fs');
+const scheduler = fs.readFileSync('entry/src/main/ets/services/SubscriptionBackgroundScheduler.ets', 'utf8');
+const worker = fs.readFileSync('entry/src/main/ets/work/SubscriptionUpdateWorkAbility.ets', 'utf8');
+const groups = fs.readFileSync('entry/src/main/ets/core/SubscriptionGroups.ets', 'utf8');
+const controller = fs.readFileSync('entry/src/main/ets/features/subscriptions/SubscriptionsController.ets', 'utf8');
+const tests = fs.readFileSync('entry/src/test/LocalUnit.test.ets', 'utf8');
+if (!scheduler.includes('workScheduler.startWork(SubscriptionBackgroundScheduler.buildWorkInfo(plan));') ||
+  !scheduler.includes('workId: SUBSCRIPTION_AUTO_UPDATE_WORK_ID,') ||
+  scheduler.includes('startWork(SubscriptionBackgroundScheduler.buildWorkInfo(plan.groupPlans[index], plan))') ||
+  !scheduler.includes('Continue to replace an unreadable index with the known empty state.') ||
+  !worker.includes('SUBSCRIPTIONS_CONTROLLER.updateNextDue(') ||
+  !worker.includes('this.retireLegacyGroupWork(work, groupId);') ||
+  worker.includes('SubscriptionBackgroundScheduler.sync(context)') ||
+  !groups.includes('export function selectNextDueSubscriptionGroup(') ||
+  !controller.includes('private async updateNextDueNow(') ||
+  !tests.includes('selects only the most overdue subscription for one background callback')) {
+  throw new Error('subscription background work is not a single bounded aggregate task');
+}
+NODE
+printf 'bounded aggregate subscription background work verification passed\n'
+
 # Foreground edits, manual refreshes and WorkScheduler refreshes share one controller singleton.
 # Preserve intent order across the whole network-fetch/store/schedule operation so an old fetch
 # cannot finish after a newer edit and restore the old URL, nodes or active group.
@@ -1095,6 +1139,26 @@ if ! grep -Fq 'const MAX_ROUTING_IMPORT_FILE_BYTES: number = 2 * 1024 * 1024;' \
   throw_error "routing rule file import is not size-bounded or does not reject short reads"
 fi
 printf 'bounded routing file import verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
+const routing = fs.readFileSync('entry/src/main/ets/core/RoutingRules.ets', 'utf8');
+const perApp = fs.readFileSync('entry/src/main/ets/core/PerAppProxy.ets', 'utf8');
+const settings = fs.readFileSync('entry/src/main/ets/storage/SettingsStore.ets', 'utf8');
+const tests = fs.readFileSync('entry/src/test/LocalUnit.test.ets', 'utf8');
+if (!routing.includes('MAX_ROUTING_RULE_COUNT: number = 2048') ||
+  !routing.includes('MAX_ROUTING_MATCHER_COUNT: number = 2048') ||
+  !routing.includes('imported.length < MAX_ROUTING_RULE_COUNT') ||
+  !perApp.includes('MAX_PER_APP_PACKAGE_COUNT: number = 4096') ||
+  !perApp.includes('content.length > MAX_PER_APP_IMPORT_CHARS') ||
+  !perApp.includes('value.length > 255') ||
+  !settings.includes('rules.length < MAX_ROUTING_RULE_COUNT') ||
+  !settings.includes('normalizePerAppPackageList(') ||
+  !tests.includes('bounds imported routing rule cardinality')) {
+  throw new Error('routing and per-app configuration collections are not bounded');
+}
+NODE
+printf 'bounded routing and per-app collections verification passed\n'
 
 if [ "$(grep -c 'written !== bytes.byteLength' "entry/src/main/ets/pages/Backup.ets")" -lt 1 ] || \
   [ "$(grep -c 'written !== bytes.byteLength' "entry/src/main/ets/pages/Export.ets")" -lt 1 ] || \
@@ -1585,6 +1649,12 @@ for (const name of ['StopXray', 'SingboxStop']) {
 }
 if (!source.includes('if (g_tunEngine.load() == TUN_ENGINE_NONE)')) {
   throw new Error('legacy core-owned TUN cleanup guard is missing');
+}
+const legacyTun = functionBody('SetTunFd');
+if (!legacyTun.includes('if (g_setTunFd == nullptr)') ||
+  !source.includes('std::fflush(file) != 0 || fsync(fileno(file)) != 0') ||
+  !source.includes('if (std::fclose(file) != 0)')) {
+  throw new Error('native compatibility entry or config-file persistence can fail unsafely');
 }
 NODE
 printf 'core/TUN lifecycle separation verification passed\n'

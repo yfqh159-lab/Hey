@@ -39,6 +39,29 @@ export function isSubscriptionAutoUpdateDue(group: SubscriptionGroup, now: numbe
   return now - group.updatedAt >= intervalMs;
 }
 
+// A WorkScheduler extension has a bounded execution window. Process only one source per
+// callback, choosing the one furthest past its own interval; later callbacks drain the rest.
+export function selectNextDueSubscriptionGroup(
+  groups: Array<SubscriptionGroup>,
+  now: number
+): SubscriptionGroup | null {
+  let selected: SubscriptionGroup | null = null;
+  let selectedOverdueMs = -1;
+  for (let index = 0; index < groups.length; index++) {
+    const group = groups[index];
+    if (!isSubscriptionAutoUpdateDue(group, now)) {
+      continue;
+    }
+    const intervalMs = normalizeSubscriptionUpdateInterval(group.updateIntervalMinutes) * 60 * 1000;
+    const overdueMs = group.updatedAt <= 0 ? Number.MAX_SAFE_INTEGER : now - group.updatedAt - intervalMs;
+    if (selected === null || overdueMs > selectedOverdueMs) {
+      selected = group;
+      selectedOverdueMs = overdueMs;
+    }
+  }
+  return selected;
+}
+
 function findSubscriptionGroupIndex(groups: Array<SubscriptionGroup>, groupId: string): number {
   for (let index = 0; index < groups.length; index++) {
     if (groups[index].id === groupId) {

@@ -8,6 +8,13 @@ import { isLoopbackOrPrivateHttpUrl } from '../core/PrivateNetwork';
 import { parseHttpRedirectLocation, resolveHttpRedirectUrl } from '../core/HttpRedirect';
 import { SUBSCRIPTION_URL_TOO_LONG_MESSAGE, isExternalUriTooLarge } from '../core/ExternalInput';
 import {
+  MAX_SUBSCRIPTION_NAME_CHARS,
+  MAX_SUBSCRIPTION_NODE_COUNT,
+  MAX_SUBSCRIPTION_NODE_INPUT_CHARS,
+  MAX_STORED_NODE_CONFIG_CHARS,
+  limitSubscriptionText
+} from '../core/SubscriptionSafety';
+import {
   isSupportedShareLink,
   parseShareLinkToOutboundJson,
   ShareLinkParseResult
@@ -602,6 +609,14 @@ export class SubscriptionManager {
         }
         continue;
       }
+      if (line.length > MAX_SUBSCRIPTION_NODE_INPUT_CHARS) {
+        skipped++;
+        continue;
+      }
+      if (nodes.length >= MAX_SUBSCRIPTION_NODE_COUNT) {
+        skipped++;
+        continue;
+      }
       seen.add(line);
       const parsed = SubscriptionManager.parseNode(line, sourceUrl, index);
       if (parsed !== null) {
@@ -672,7 +687,10 @@ export class SubscriptionManager {
     const now = Date.now();
     const node: ProxyNode = {
       id: SubscriptionManager.makeNodeId(sourceUrl, line),
-      name: SubscriptionManager.makeNodeName(imported, validation.normalizedJson, index),
+      name: limitSubscriptionText(
+        SubscriptionManager.makeNodeName(imported, validation.normalizedJson, index),
+        MAX_SUBSCRIPTION_NAME_CHARS
+      ),
       protocol: validation.protocol,
       outboundJson: validation.normalizedJson,
       configType: validation.configType,
@@ -687,15 +705,22 @@ export class SubscriptionManager {
   }
 
   private static makeNodeFromOutboundJson(outboundJson: string, sourceUrl: string, rawLink: string, name: string, index: number): ProxyNode | null {
+    if (outboundJson.length > MAX_STORED_NODE_CONFIG_CHARS ||
+      rawLink.length > MAX_STORED_NODE_CONFIG_CHARS) {
+      return null;
+    }
     const validation = normalizeOutboundInput(outboundJson);
-    if (!validation.valid) {
+    if (!validation.valid || validation.normalizedJson.length > MAX_STORED_NODE_CONFIG_CHARS) {
       return null;
     }
 
     const now = Date.now();
     const node: ProxyNode = {
       id: SubscriptionManager.makeNodeId(sourceUrl, rawLink.length > 0 ? rawLink : validation.normalizedJson),
-      name: name.length > 0 ? name : SubscriptionManager.makeNodeNameFromJson(validation.protocol, validation.normalizedJson, index),
+      name: limitSubscriptionText(
+        name.length > 0 ? name : SubscriptionManager.makeNodeNameFromJson(validation.protocol, validation.normalizedJson, index),
+        MAX_SUBSCRIPTION_NAME_CHARS
+      ),
       protocol: validation.protocol,
       outboundJson: validation.normalizedJson,
       configType: validation.configType,
@@ -759,6 +784,10 @@ export class SubscriptionManager {
     const nodes = new Array<ProxyNode>();
     let skipped = 0;
     for (let index = 0; index < outbounds.length; index++) {
+      if (nodes.length >= MAX_SUBSCRIPTION_NODE_COUNT) {
+        skipped++;
+        continue;
+      }
       const outbound = outbounds[index];
       if (outbound.protocol === undefined || outbound.settings === undefined) {
         continue;
@@ -784,6 +813,10 @@ export class SubscriptionManager {
     let skipped = 0;
     const servers = document.servers ?? [];
     for (let index = 0; index < servers.length; index++) {
+      if (nodes.length >= MAX_SUBSCRIPTION_NODE_COUNT) {
+        skipped++;
+        continue;
+      }
       const server = servers[index];
       const host = SubscriptionManager.valueOr(server.server, '');
       const port = SubscriptionManager.parsePortValue(server.server_port ?? server.port);
@@ -823,6 +856,10 @@ export class SubscriptionManager {
     const nodes = new Array<ProxyNode>();
     let skipped = 0;
     for (let index = 0; index < entries.length; index++) {
+      if (nodes.length >= MAX_SUBSCRIPTION_NODE_COUNT) {
+        skipped++;
+        continue;
+      }
       const entry = entries[index];
       const outbound = SubscriptionManager.clashEntryToOutbound(entry);
       if (outbound === null) {
@@ -915,7 +952,8 @@ export class SubscriptionManager {
   }
 
   private static pushClashEntry(entries: Array<Map<string, string>>, entry: Map<string, string> | null): void {
-    if (entry !== null && SubscriptionManager.mapValue(entry, 'type', '').length > 0) {
+    if (entries.length < MAX_SUBSCRIPTION_NODE_COUNT + 1 && entry !== null &&
+      SubscriptionManager.mapValue(entry, 'type', '').length > 0) {
       entries.push(entry);
     }
   }

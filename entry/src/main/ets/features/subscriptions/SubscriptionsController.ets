@@ -5,12 +5,14 @@ import { AppLanguage, ProxyNode, SubscriptionGroup, SubscriptionProfile } from '
 import {
   DEFAULT_SUBSCRIPTION_UPDATE_INTERVAL_MINUTES,
   isSubscriptionAutoUpdateDue,
-  normalizeSubscriptionUpdateInterval
+  normalizeSubscriptionUpdateInterval,
+  selectNextDueSubscriptionGroup
 } from '../../core/SubscriptionGroups';
 import { findSelectedNodeInGroup, shouldRefreshProfileForNode } from '../../core/SubscriptionSelection';
 import { ProfileStore } from '../../storage/ProfileStore';
 import { SubscriptionStore } from '../../storage/SubscriptionStore';
 import { SubscriptionManager, SubscriptionUpdateResult } from '../../services/SubscriptionManager';
+import { isSafeSubscriptionFilterPattern } from '../../core/SubscriptionSafety';
 import { SubscriptionBackgroundScheduler } from '../../services/SubscriptionBackgroundScheduler';
 import { formatOne, formatTwo, localizedSubscriptionStatusText, localizeCoreMessage } from '../../utils/LocalizationPresenter';
 
@@ -102,11 +104,14 @@ export class SubscriptionsController {
         // 免去联网拉取（配置源地址不可达或网络受限时尤其有用）。解析不出节点才回退到原有的链接校验错误。
         const inlineNodes = SubscriptionManager.parseSubscriptionContent(url, '');
         if (inlineNodes.length > 0) {
-          const inlineProfile = await SubscriptionStore.saveUrl(context, url, targetGroupId, false);
+          // Inline payloads commonly contain UUIDs/passwords and can be large. They are
+          // import material, not a refreshable source URL; never duplicate them into the
+          // visible group metadata or Preferences after parsing.
+          const inlineProfile = await SubscriptionStore.saveUrl(context, '', targetGroupId, false);
           const inlineGroupId = targetGroupId.length > 0 ? targetGroupId : inlineProfile.selectedGroupId;
           const inlineFilter = this.findGroupFilter(inlineProfile.groups, inlineGroupId);
           const filteredInline = this.applyNodeFilter(inlineNodes, inlineFilter);
-          const savedInline = await SubscriptionStore.saveNodes(context, inlineGroupId, url, filteredInline, selectedNodeId);
+          const savedInline = await SubscriptionStore.saveNodes(context, inlineGroupId, '', filteredInline, selectedNodeId);
           const selectedInline = this.findNode(savedInline.nodes, savedInline.selectedNodeId);
           if (selectedInline !== null) {
             await ProfileStore.save(context, selectedInline.outboundJson, selectedInline.configType);
@@ -372,6 +377,50 @@ export class SubscriptionsController {
     };
   }
 
+  updateNextDue(context: common.Context, language: AppLanguage, now: number = Date.now(), proxyPort: number = 0): Promise<SubscriptionAutoUpdateResult> {
+    return this.enqueueOperation(
+      (): Promise<SubscriptionAutoUpdateResult> =>
+        this.updateNextDueNow(context, language, now, proxyPort));
+  }
+
+  private async updateNextDueNow(
+    context: common.Context,
+    language: AppLanguage,
+    now: number,
+    proxyPort: number
+  ): Promise<SubscriptionAutoUpdateResult> {
+    let subscription = await SubscriptionStore.load(context);
+    const group = selectNextDueSubscriptionGroup(subscription.groups, now);
+    if (group === null) {
+      return {
+        state: this.buildState(subscription, language, ''),
+        updatedCount: 0,
+        failedCount: 0
+      };
+    }
+
+    let updatedCount = 0;
+    let failedCount = 0;
+    try {
+      const result = await this.updateGroupNodes(context, group, false, proxyPort);
+      subscription = result.subscription;
+      if (result.ok) {
+        updatedCount = 1;
+      } else {
+        failedCount = 1;
+      }
+    } catch (_error) {
+      failedCount = 1;
+    }
+    return {
+      state: this.buildState(subscription, language, failedCount === 0
+        ? formatOne(language, 'subscription.autoUpdateGroup.success', 'name', group.name)
+        : formatOne(language, 'subscription.autoUpdateGroup.failed', 'name', group.name)),
+      updatedCount,
+      failedCount
+    };
+  }
+
   selectGroup(context: common.Context, group: SubscriptionGroup, language: AppLanguage): Promise<SubscriptionsControllerState> {
     const groupId = group.id;
     const groupName = group.name;
@@ -571,7 +620,7 @@ export class SubscriptionsController {
   // the full node list so a subscription is never silently emptied.
   private applyNodeFilter(nodes: Array<ProxyNode>, filter: string): Array<ProxyNode> {
     const pattern = filter.trim();
-    if (pattern.length === 0) {
+    if (pattern.length === 0 || !isSafeSubscriptionFilterPattern(pattern)) {
       return nodes;
     }
     try {

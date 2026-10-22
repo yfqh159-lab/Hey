@@ -3,7 +3,6 @@ import { WorkSchedulerExtensionAbility, workScheduler } from '@kit.BackgroundTas
 import { SETTINGS_CONTROLLER } from '../features/settings/SettingsController';
 import { SUBSCRIPTIONS_CONTROLLER } from '../features/subscriptions/SubscriptionsController';
 import { DiagnosticLog } from '../services/DiagnosticLog';
-import { SubscriptionBackgroundScheduler } from '../services/SubscriptionBackgroundScheduler';
 import { SubscriptionManager } from '../services/SubscriptionManager';
 import { PersistedVpnRuntimeStateReadResult, VpnRuntimeStateStore } from '../services/VpnRuntimeStateStore';
 import { ConnectionStatus } from '../core/Profile';
@@ -43,16 +42,16 @@ export default class SubscriptionUpdateWorkAbility extends WorkSchedulerExtensio
       const result = groupId.length > 0
         ? await SUBSCRIPTIONS_CONTROLLER.updateDueGroup(
           context, groupId, settings.language, Date.now(), proxyPort)
-        : await SUBSCRIPTIONS_CONTROLLER.updateDue(
+        : await SUBSCRIPTIONS_CONTROLLER.updateNextDue(
           context, settings.language, Date.now(), proxyPort);
-      const schedule = await SubscriptionBackgroundScheduler.sync(context);
       DiagnosticLog.append(context, {
         at: Date.now(),
-        level: result.failedCount > 0 || !schedule.ok ? 'warn' : 'info',
+        level: result.failedCount > 0 ? 'warn' : 'info',
         source: 'subscription-work',
         message: `Subscription background update completed: ${result.updatedCount} success, ${result.failedCount} failed.`,
-        details: `workId=${work.workId}; groupId=${groupId}; scheduleOk=${schedule.ok}; scheduled=${schedule.scheduled}; repeatCycleTimeMs=${schedule.repeatCycleTimeMs}; scheduleMessage=${schedule.message}`
+        details: `workId=${work.workId}; groupId=${groupId}`
       });
+      this.retireLegacyGroupWork(work, groupId);
     } catch (error) {
       DiagnosticLog.append(context, {
         at: Date.now(),
@@ -61,6 +60,7 @@ export default class SubscriptionUpdateWorkAbility extends WorkSchedulerExtensio
         message: 'Subscription background update failed.',
         details: this.stringifyError(error)
       });
+      this.retireLegacyGroupWork(work, this.workGroupId(work));
     }
   }
 
@@ -75,6 +75,19 @@ export default class SubscriptionUpdateWorkAbility extends WorkSchedulerExtensio
 
   private vpnMayOwnNetwork(read: PersistedVpnRuntimeStateReadResult): boolean {
     return read.authoritativeArtifactInvalid || (read.state !== null && read.state.active);
+  }
+
+  private retireLegacyGroupWork(work: workScheduler.WorkInfo, groupId: string): void {
+    if (groupId.length === 0) {
+      return;
+    }
+    try {
+      // Releases per-group jobs created by older builds, including jobs whose persisted
+      // index was damaged and therefore cannot be enumerated during foreground migration.
+      workScheduler.stopWork(work, true);
+    } catch (_error) {
+      // The scheduler may already have removed the legacy job.
+    }
   }
 
   private stringifyError(error: Error | Object): string {

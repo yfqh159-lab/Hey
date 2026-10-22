@@ -1,5 +1,10 @@
 import { RoutingRule } from './Profile';
 
+export const MAX_ROUTING_RULE_COUNT: number = 2048;
+export const MAX_ROUTING_MATCHER_COUNT: number = 2048;
+export const MAX_ROUTING_VALUE_CHARS: number = 4096;
+const MAX_ROUTING_SKIP_DETAILS: number = 256;
+
 // 导入失败原因。出厂不带任何规则，导入是用户建立规则表的主路径，
 // 因此失败必须能说清是哪一步出的问题，而不是只报一个"失败"。
 export type RoutingImportFailure = 'none' | 'empty' | 'invalidJson' | 'notArray' | 'noValidRule';
@@ -40,16 +45,16 @@ export function importRoutingRulesJson(existing: Array<RoutingRule>, content: st
 
   const imported = new Array<RoutingRule>();
   const skipped = new Array<RoutingRuleSkip>();
-  for (let index = 0; index < rawRules.length; index++) {
+  for (let index = 0; index < rawRules.length && imported.length < MAX_ROUTING_RULE_COUNT; index++) {
     const raw = rawRules[index];
     if (raw === null || raw === undefined || typeof raw !== 'object' || Array.isArray(raw)) {
-      skipped.push({ index: index + 1, reason: 'notObject' });
+      pushSkipped(skipped, index + 1, 'notObject');
       continue;
     }
     const rule = normalizeRoutingRule(raw, `imported-routing-rule-${index + 1}`);
     if (!hasRoutingMatcher(rule)) {
       // 一条规则至少要有一个匹配条件（域名/IP/进程/端口/协议/网络），否则永不命中。
-      skipped.push({ index: index + 1, reason: 'noMatcher' });
+      pushSkipped(skipped, index + 1, 'noMatcher');
       continue;
     }
     imported.push(rule);
@@ -59,10 +64,16 @@ export function importRoutingRulesJson(existing: Array<RoutingRule>, content: st
     return failedImport('noValidRule', skipped);
   }
 
+  const combined = preserveLockedRules(existing);
+  const accepted = new Array<RoutingRule>();
+  for (let index = 0; index < imported.length && combined.length < MAX_ROUTING_RULE_COUNT; index++) {
+    combined.push(imported[index]);
+    accepted.push(imported[index]);
+  }
   return {
     success: true,
-    rules: preserveLockedRules(existing).concat(imported),
-    count: imported.length,
+    rules: combined,
+    count: accepted.length,
     failure: 'none',
     skipped
   };
@@ -74,7 +85,7 @@ export function exportRoutingRulesJson(rules: Array<RoutingRule>): string {
 
 export function copyRoutingRules(rules: Array<RoutingRule>): Array<RoutingRule> {
   const result = new Array<RoutingRule>();
-  for (let index = 0; index < rules.length; index++) {
+  for (let index = 0; index < rules.length && result.length < MAX_ROUTING_RULE_COUNT; index++) {
     result.push(copyRoutingRule(rules[index]));
   }
   return result;
@@ -85,8 +96,12 @@ export function normalizeRoutingRules(rules: Array<RoutingRule> | undefined): Ar
     return [];
   }
   const result = new Array<RoutingRule>();
-  for (let index = 0; index < rules.length; index++) {
-    const rule = normalizeRoutingRule(rules[index], `routing-rule-${index + 1}`);
+  for (let index = 0; index < rules.length && result.length < MAX_ROUTING_RULE_COUNT; index++) {
+    const candidate = rules[index];
+    if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) {
+      continue;
+    }
+    const rule = normalizeRoutingRule(candidate, `routing-rule-${index + 1}`);
     if (rule.remarks.length > 0 || hasRoutingMatcher(rule)) {
       result.push(rule);
     }
@@ -101,7 +116,7 @@ export function hasRoutingMatcher(rule: RoutingRule): boolean {
 
 function preserveLockedRules(rules: Array<RoutingRule>): Array<RoutingRule> {
   const locked = new Array<RoutingRule>();
-  for (let index = 0; index < rules.length; index++) {
+  for (let index = 0; index < rules.length && locked.length < MAX_ROUTING_RULE_COUNT; index++) {
     if (rules[index].locked) {
       locked.push(copyRoutingRule(rules[index]));
     }
@@ -111,13 +126,13 @@ function preserveLockedRules(rules: Array<RoutingRule>): Array<RoutingRule> {
 
 function normalizeRoutingRule(item: RoutingRule, fallbackId: string): RoutingRule {
   return {
-    id: nonEmptyString(item.id, fallbackId),
-    remarks: stringValue(item.remarks, '').trim(),
+    id: nonEmptyString(item.id, fallbackId).substring(0, MAX_ROUTING_VALUE_CHARS),
+    remarks: stringValue(item.remarks, '').trim().substring(0, MAX_ROUTING_VALUE_CHARS),
     domain: cleanStringArray(item.domain),
     ip: cleanStringArray(item.ip),
     process: cleanStringArray(item.process),
     outboundTag: outboundTagValue(item.outboundTag),
-    port: stringValue(item.port, '').trim(),
+    port: stringValue(item.port, '').trim().substring(0, MAX_ROUTING_VALUE_CHARS),
     network: networkValue(item.network),
     protocol: cleanStringArray(item.protocol),
     enabled: boolValue(item.enabled, true),
@@ -146,13 +161,19 @@ function cleanStringArray(value: string[] | undefined): string[] {
     return [];
   }
   const result = new Array<string>();
-  for (let index = 0; index < value.length; index++) {
-    const item = stringValue(value[index], '').trim();
+  for (let index = 0; index < value.length && result.length < MAX_ROUTING_MATCHER_COUNT; index++) {
+    const item = stringValue(value[index], '').trim().substring(0, MAX_ROUTING_VALUE_CHARS);
     if (item.length > 0 && result.indexOf(item) < 0) {
       result.push(item);
     }
   }
   return result;
+}
+
+function pushSkipped(skipped: Array<RoutingRuleSkip>, index: number, reason: string): void {
+  if (skipped.length < MAX_ROUTING_SKIP_DETAILS) {
+    skipped.push({ index, reason });
+  }
 }
 
 function nonEmptyString(value: string | undefined, fallback: string): string {
@@ -161,11 +182,11 @@ function nonEmptyString(value: string | undefined, fallback: string): string {
 }
 
 function stringValue(value: string | undefined, fallback: string): string {
-  return value === undefined ? fallback : `${value}`;
+  return typeof value === 'string' ? value : fallback;
 }
 
 function boolValue(value: boolean | undefined, fallback: boolean): boolean {
-  return value === undefined ? fallback : value;
+  return typeof value === 'boolean' ? value : fallback;
 }
 
 function outboundTagValue(value: string | undefined): string {

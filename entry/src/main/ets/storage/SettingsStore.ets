@@ -31,6 +31,12 @@ import { DEFAULT_CORE_LOG_LEVEL, DEFAULT_MUX_XUDP_QUIC, normalizeCoreLogLevel, n
 import { DNS_PROXY, normalizeOptionalDnsValue, normalizeRemoteDnsValue } from '../core/DnsAddresses';
 import { normalizeHttpsUrl } from '../core/HttpDefaults';
 import { isReservedAppRuntimePort } from '../core/XrayConfig';
+import { MAX_PER_APP_PACKAGE_COUNT, normalizePerAppPackageList } from '../core/PerAppProxy';
+import {
+  MAX_ROUTING_MATCHER_COUNT,
+  MAX_ROUTING_RULE_COUNT,
+  MAX_ROUTING_VALUE_CHARS
+} from '../core/RoutingRules';
 
 const PREFERENCES_NAME: string = 'hey_vpn_settings';
 const SETTINGS_KEY: string = 'app_settings';
@@ -250,7 +256,8 @@ export class SettingsStore {
       sniffingEnabled: SettingsStore.boolValue(raw.sniffingEnabled, base.sniffingEnabled),
       routeOnlyEnabled: SettingsStore.boolValue(raw.routeOnlyEnabled, base.routeOnlyEnabled),
       perAppProxyEnabled: SettingsStore.boolValue(raw.perAppProxyEnabled, base.perAppProxyEnabled),
-      perAppProxyList: SettingsStore.arrayValue(raw.perAppProxyList, base.perAppProxyList),
+      perAppProxyList: normalizePerAppPackageList(
+        SettingsStore.arrayValue(raw.perAppProxyList, base.perAppProxyList)),
       perAppProxyBypass: SettingsStore.boolValue(raw.perAppProxyBypass, base.perAppProxyBypass),
       localDnsEnabled,
       fakeDnsEnabled: SettingsStore.boolValue(raw.fakeDnsEnabled, base.fakeDnsEnabled),
@@ -349,9 +356,12 @@ export class SettingsStore {
       return fallback.slice();
     }
     const result = new Array<string>();
-    for (let index = 0; index < value.length; index++) {
+    for (let index = 0; index < value.length && result.length < MAX_PER_APP_PACKAGE_COUNT; index++) {
       if (typeof value[index] === 'string') {
-        result.push(value[index] as string);
+        const item = value[index] as string;
+        if (item.length <= MAX_ROUTING_VALUE_CHARS) {
+          result.push(item);
+        }
       }
     }
     return result;
@@ -362,7 +372,7 @@ export class SettingsStore {
       return [];
     }
     const rules = new Array<RoutingRule>();
-    for (let index = 0; index < value.length; index++) {
+    for (let index = 0; index < value.length && rules.length < MAX_ROUTING_RULE_COUNT; index++) {
       const candidate = value[index] as Object;
       if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) {
         continue;
@@ -393,11 +403,11 @@ export class SettingsStore {
       return [];
     }
     const result = new Array<string>();
-    for (let index = 0; index < value.length; index++) {
+    for (let index = 0; index < value.length && result.length < MAX_ROUTING_MATCHER_COUNT; index++) {
       if (typeof value[index] !== 'string') {
         continue;
       }
-      const item = (value[index] as string).trim();
+      const item = (value[index] as string).trim().substring(0, MAX_ROUTING_VALUE_CHARS);
       if (item.length > 0 && result.indexOf(item) < 0) {
         result.push(item);
       }
