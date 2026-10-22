@@ -396,6 +396,11 @@ Toast 失败保持非致命，避免页面退后台后把已完成导入误报�
 或由页面捕获的相机扫码 API；没有为清零警告而改变这些正确的传播语义。对应无签名完整 HAP
 构建再次通过，产物为 85,965,499 字节，压缩包完整且五个 arm64 关键库齐全。
 
+`04c65b5` 将 Windows 真机预检补齐到与 Unix 入口相同的设备边界：`hdc [Empty]`、设备信息读取失败
+或缺少 `com.huawei.hmos.vpndialog` 都会阻止把环境标成可验收。`cc80c75` 又把 SDK 自带的
+`hap-sign-tool.jar verify-app` 接入两端 `build`/`install`，安装前同时验证真实 HAP 签名与五个关键
+arm64 库；已用当前无签名产物执行负向测试，验证器按预期以非零状态拒绝，脚本没有进入安装步骤。
+
 2026-10-21 还直接核对了
 [`Loyalsoldier/v2ray-rules-dat` 最新 Release API](https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest)：
 版本 `202610202206` 同时提供 `geoip.dat`、`geosite.dat` 及对应 `.sha256sum`；临时目录中下载的
