@@ -370,8 +370,22 @@ MISSING: hdc
 INFO: 当前尚无 signed HAP
 ```
 
-因此本环境只能提供源码、平台无关 Go 测试与原生预编译库静态证据，不能把 ArkTS LocalUnit、
-OpenHarmony 原生交叉编译、HAP 构建、安装或 VPN 真机行为写成已通过。
+上述记录是连接 Windows DevEco 前的环境结论；后续已完成下列补充验证，不能再把 ArkTS/HAP
+一概写成未运行：
+
+```text
+DevEco Studio DS-243.24978.46.36.611280 / Hvigor 6.24.2 / ohpm 6.1.2.268
+ArkTS LocalUnit：243 cases；failure 0，error 0，pass 243
+完整应用：ArkTS + CMake/Ninja + PackageHap 通过
+无签名 HAP：unzip 完整性通过，五个 arm64 关键原生库齐全
+hdc list targets：[Empty]
+```
+
+真实编译暴露的 66 个 LocalUnit ArkTS 编译错误、3 个完整页面编译错误及 5 个过期/矛盾断言均已
+修复。Hvigor 在有 Hypium 断言失败时仍可能打印 `BUILD SUCCESSFUL`，因此测试脚本新增汇总校验；
+Node 堆上限也从默认 8 GB 收敛到 2 GB，避免 Windows 页面文件不足导致错误 1455。后续预览运行时
+重跑发生一次 `modules.abc` 加载停滞和一次 panda file 加载失败，均未进入测试用例；保留为 DevEco
+本地预览器稳定性问题，不虚报为测试成功或代码失败。
 
 2026-10-21 还直接核对了
 [`Loyalsoldier/v2ray-rules-dat` 最新 Release API](https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest)：
@@ -379,10 +393,9 @@ OpenHarmony 原生交叉编译、HAP 构建、安装或 VPN 真机行为写成�
 16,587,463 字节 `geoip.dat` 与 11,338,645 字节 `geosite.dat` 均通过发布方 SHA-256。
 这只证明当前上游发布契约与解析器假设一致，不代表 HarmonyOS 应用内下载或安装已经真机通过。
 
-未执行且不得写成已通过：
+仍未执行且不得写成已通过：
 
-- DevEco/hvigor 工程编译与 ArkTS LocalUnit；当前环境没有 Harmony SDK/hvigor/ohpm。
-- HAP 签名、安装与 `hdc` 诊断；当前环境没有用户签名和目标设备。
+- HAP 签名、安装及设备侧 `hdc` 诊断；当前环境没有用户签名和目标设备。
 - VPN 出口、DNS/IPv6、锁屏、后台、网络切换、ChatGPT 网页及应用流量等真机矩阵。
 - 普通手机系统是否授予 Hey 开机自启动。代码只处理系统实际提供的 `AUTO_STARTUP` 启动原因；
   不调用仅限企业设备管理/特定设备类型的自启动特权接口，也不保证所有设备都会触发。

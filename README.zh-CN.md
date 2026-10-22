@@ -187,6 +187,23 @@ HDC=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/
 ./scripts/device_vpn_smoke_test.sh build
 ```
 
+Windows 已安装 DevEco Studio 时不需要额外 MCP 才能运行构建。PowerShell 可直接调用 DevEco 自带
+工具；若从 WSL 协作，建议把用于编译的工作树放在 Windows 本地卷，避免 `ohpm` 在 UNC/WSL 路径
+创建依赖链接时阻塞。以下路径按实际安装目录调整：
+
+```powershell
+$DevEcoHome = 'D:\Program Files\DevEco Studio'
+$env:DEVECO_SDK_HOME = "$DevEcoHome\sdk"
+$env:JAVA_HOME = "$DevEcoHome\jbr"
+$env:Path = "$env:JAVA_HOME\bin;$env:Path"
+& "$DevEcoHome\tools\ohpm\bin\ohpm.bat" install --all
+& "$DevEcoHome\tools\hvigor\bin\hvigorw.bat" `
+  --mode module -p module=entry@default -p isLocalTest=true test --no-daemon --stacktrace
+```
+
+完整安装包仍应在 DevEco Studio 中配置用户自己的签名后构建；不要把本地证书、密码或
+`build-profile.json5` 提交到仓库。
+
 Linux 命令行工具的路径示例（以实际解压结构为准）：
 
 ```bash

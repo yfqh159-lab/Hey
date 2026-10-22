@@ -94,3 +94,21 @@ ArkTS 的截止时间能结束上层等待，但不能强制终止已经卡死�
 ## 下一阶段入口
 
 静态审计到此停止扩张。具备 DevEco/Harmony SDK 后，先运行源码门禁、LocalUnit 和完整 HAP 构建，处理编译/API 差异；再用模拟器检查页面、导入和存储恢复；最后严格按 [`device-acceptance.md`](device-acceptance.md) 在真机验证 VPN/TUN、DNS/IPv6、防回环、锁屏后台、承载切换、原生阻塞故障、出口以及 AI 应用流量。所有未执行项继续标为未执行，不能用静态检查替代。
+
+## 后续 DevEco 编译复核（2026-10-22）
+
+静态审计完成后，已从 WSL 直接调用同机 Windows DevEco Studio 6.0.1/API 21 的 Hvigor、ohpm、JBR
+和 SDK，在 Windows 本地卷上的独立验证工作树执行真实编译：
+
+- ArkTS LocalUnit 已完成一次全量执行：`243` 个用例，`failure 0`、`error 0`、`pass 243`。
+- 完整应用的 ArkTS、CMake、Ninja、资源编译及无签名 HAP 打包通过；生成的约 86 MB HAP 经
+  `unzip -t` 校验无损，且含 `libheyvpn.so`、`libxray.so`、`libsingbox.so`、
+  `libheytun2socks.so`、`libhevsocks5tun.so` 五个 arm64 库。
+- 编译实际发现并修复了 API 21 ArkTS 严格类型、页面编译和测试夹具错误；Hvigor 的 LocalUnit
+  任务即使有断言失败也可能返回成功，因此烟测脚本现会额外检查 Hypium 汇总。
+- Windows 默认 8 GB Node 堆上限曾触发错误 1455；项目将 Hvigor 上限收敛到 2 GB 后完成测试。
+  后续两次预览运行时重跑分别停在 `modules.abc` 加载和 `Load current file's panda file failed`，均未
+  开始执行测试用例；这是 DevEco 本地预览运行时的不稳定项，不覆盖前述 243/243 成功证据。
+
+本次只生成无签名 HAP，没有写入或提交用户签名。`hdc list targets` 返回 `[Empty]`，所以安装、
+VPN 授权、模拟器页面和真机网络矩阵仍全部是未验证，不能由编译结果替代。
