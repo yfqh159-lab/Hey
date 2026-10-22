@@ -277,7 +277,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     this.activeHandoverConfigJson = handoverConfigJson.length > 0 ? handoverConfigJson : configJson;
     const useSingbox = isSingboxCore(this.getStringParameter(want, 'coreType', 'xray'));
     this.activeCoreType = useSingbox ? 'singbox' : 'xray';
-    // TUN 数据面固定把流量交给主进程传入的回环 SOCKS 入口；完整配置若没有
+    // TUN 数据面把流量交给主进程传入的回环 SOCKS 入口；完整配置若没有
     // 对应监听器也必须启动失败，不能在不可转发时虚报 VPN 已连接。
     const requestedHealthPort = Number(this.getStringParameter(want, VPN_HEALTH_PORT_KEY, '0'));
     this.runtimeHealthProbePort = isRuntimeHealthPort(requestedHealthPort) ? requestedHealthPort : 0;
@@ -414,6 +414,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         heartbeatAt: activeAt,
         coreType: this.activeCoreType,
         profileUpdatedAt: this.activeProfileUpdatedAt,
+        runtimeHealthPort: this.runtimeHealthProbePort,
         xrayRunning: true,
         tunRunning: true
       });
@@ -1053,6 +1054,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
         heartbeatAt: now,
         coreType: this.activeCoreType,
         profileUpdatedAt: this.activeProfileUpdatedAt,
+        runtimeHealthPort: this.runtimeHealthProbePort,
         xrayRunning: stats.xrayRunning,
         tunRunning: stats.tunRunning
       });

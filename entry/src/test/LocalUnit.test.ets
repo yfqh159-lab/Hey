@@ -3447,6 +3447,7 @@ export default function localUnitTest() {
         heartbeatAt: now - 1000,
         coreType: 'xray',
         profileUpdatedAt: 123456,
+        runtimeHealthPort: 19080,
         xrayRunning: true,
         tunRunning: true
       };
@@ -3462,6 +3463,7 @@ export default function localUnitTest() {
       healthy.heartbeatAt = now - 1000;
       expect(parsePersistedVpnRuntimeState(JSON.stringify(healthy))?.sessionId).assertEqual('session-1');
       expect(parsePersistedVpnRuntimeState(JSON.stringify(healthy))?.profileUpdatedAt).assertEqual(123456);
+      expect(parsePersistedVpnRuntimeState(JSON.stringify(healthy))?.runtimeHealthPort).assertEqual(19080);
       healthy.profileUpdatedAt = -1;
       expect(parsePersistedVpnRuntimeState(JSON.stringify(healthy))).assertEqual(null);
       healthy.profileUpdatedAt = 123456;
@@ -3475,6 +3477,15 @@ export default function localUnitTest() {
       expect(parsePersistedVpnRuntimeState('{"sessionId":"session-1","active":true,"startedAt":1,' +
         '"heartbeatAt":2,"coreType":"xray","profileUpdatedAt":1e309,' +
         '"xrayRunning":true,"tunRunning":true}')).assertEqual(null);
+      expect(parsePersistedVpnRuntimeState('{"sessionId":"session-1","active":true,"startedAt":1,' +
+        '"heartbeatAt":2,"coreType":"xray","runtimeHealthPort":0,' +
+        '"xrayRunning":true,"tunRunning":true}')).assertEqual(null);
+      expect(parsePersistedVpnRuntimeState('{"sessionId":"session-1","active":true,"startedAt":1,' +
+        '"heartbeatAt":2,"coreType":"xray","runtimeHealthPort":18082.5,' +
+        '"xrayRunning":true,"tunRunning":true}')).assertEqual(null);
+      expect(parsePersistedVpnRuntimeState('{"sessionId":"session-1","active":true,"startedAt":1,' +
+        '"heartbeatAt":2,"coreType":"xray","xrayRunning":true,"tunRunning":true}')
+        ?.runtimeHealthPort === undefined).assertTrue();
     });
 
     it('keeps active VPN heartbeats valid after the wall clock moves backwards', 0, () => {
@@ -3488,6 +3499,7 @@ export default function localUnitTest() {
         startedAt: normalizeActiveVpnStartedAt(100000, heartbeatAt),
         heartbeatAt,
         coreType: 'xray',
+        runtimeHealthPort: 18082,
         xrayRunning: true,
         tunRunning: true
       };

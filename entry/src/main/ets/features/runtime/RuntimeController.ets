@@ -427,7 +427,7 @@ export class RuntimeController {
       if (persisted === null || !persisted.active) {
         return;
       }
-      // 空闲 UI 只有在下方会话绑定的 18082 探针也成功后，才可接管旧 active 备份。
+      // 空闲 UI 只有在下方会话绑定的 SOCKS 端口探针也成功后，才可接管旧 active 备份。
     }
     if (persisted === null) {
       if (this.status === ConnectionStatus.RUNNING) {
@@ -512,10 +512,11 @@ export class RuntimeController {
     if (this.status === ConnectionStatus.IDLE) {
       const recoveredSessionId = persisted.sessionId;
       const recoveredStartedAt = persisted.startedAt;
+      const recoveredHealthPort = persisted.runtimeHealthPort ?? VPN_DATA_SOCKS_PORT;
       const recoveredGeneration = this.runtimeStartGeneration;
-      const dataPlane = await probeRuntimeSocksHealth(VPN_DATA_SOCKS_PORT);
+      const dataPlane = await probeRuntimeSocksHealth(recoveredHealthPort);
       if (!this.isCurrentRecoveredVpnCandidate(
-        context, recoveredSessionId, recoveredStartedAt, recoveredGeneration)) {
+        context, recoveredSessionId, recoveredStartedAt, recoveredHealthPort, recoveredGeneration)) {
         return;
       }
       if (!dataPlane.ok) {
@@ -544,7 +545,7 @@ export class RuntimeController {
       // 探针或停止标志读取期间，用户可能已经启动另一模式或 Extension 已换会话。
       // 迟到结果不得把新的 STARTING/本地代理状态覆盖成旧 VPN 会话。
       if (!this.isCurrentRecoveredVpnCandidate(
-        context, recoveredSessionId, recoveredStartedAt, recoveredGeneration)) {
+        context, recoveredSessionId, recoveredStartedAt, recoveredHealthPort, recoveredGeneration)) {
         return;
       }
       if (sceneStopped) {
@@ -585,6 +586,7 @@ export class RuntimeController {
     context: common.Context,
     expectedSessionId: string,
     expectedStartedAt: number,
+    expectedHealthPort: number,
     expectedGeneration: number
   ): boolean {
     if (this.status !== ConnectionStatus.IDLE || this.runtimeStartGeneration !== expectedGeneration) {
@@ -592,7 +594,9 @@ export class RuntimeController {
     }
     const current = VpnRuntimeStateStore.read(context);
     return current !== null && current.sessionId === expectedSessionId &&
-      current.startedAt === expectedStartedAt && isPersistedVpnRuntimeHealthy(current, Date.now());
+      current.startedAt === expectedStartedAt &&
+      (current.runtimeHealthPort ?? VPN_DATA_SOCKS_PORT) === expectedHealthPort &&
+      isPersistedVpnRuntimeHealthy(current, Date.now());
   }
 
   private resetUnhealthyVpnStateConfirmation(): void {

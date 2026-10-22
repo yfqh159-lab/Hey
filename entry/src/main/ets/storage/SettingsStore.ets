@@ -222,7 +222,7 @@ export class SettingsStore {
     const base = SettingsStore.copy(DEFAULT_APP_SETTINGS);
     const useHevTun = SettingsStore.boolValue(raw.useHevTun, base.useHevTun);
     const runtimeMode = normalizeAppRuntimeMode(raw.mode, base.mode);
-    // Hev 只是 VPN/TUN 数据面的可选适配器，固定转发到内部 VPN_DATA_SOCKS_PORT；
+    // Hev 只是 VPN/TUN 数据面的可选适配器，转发到本次生成或完整配置的 SOCKS 入口；
     // 它不依赖、也不应擅自开启用户可见的本地 SOCKS 监听。
     const localSocksEnabled = SettingsStore.boolValue(raw.localSocksEnabled, base.localSocksEnabled);
     const localProxyAvailable = localSocksEnabled || runtimeMode === APP_MODE_PROXY_ONLY;

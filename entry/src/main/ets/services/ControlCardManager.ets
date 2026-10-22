@@ -178,7 +178,8 @@ export class ControlCardManager {
       isPersistedVpnRuntimeHealthy(persisted, Date.now())) {
       const expectedSessionId = persisted.sessionId;
       const expectedStartedAt = persisted.startedAt;
-      const probe = await probeRuntimeTcpHealth(VPN_DATA_SOCKS_PORT);
+      const expectedHealthPort = persisted.runtimeHealthPort ?? VPN_DATA_SOCKS_PORT;
+      const probe = await probeRuntimeTcpHealth(expectedHealthPort);
       const latestState = await ControlCardStore.loadState(context);
       if (!sameControlCardRuntimeIdentity(state, latestState)) {
         return this.resolveChangedStateAfterProbe(context, latestState, retryDepth);
@@ -189,7 +190,9 @@ export class ControlCardManager {
       const confirmedRead = VpnRuntimeStateStore.readWithEvidence(context);
       const confirmed = confirmedRead.state;
       if (confirmed !== null && confirmed.sessionId === expectedSessionId &&
-        confirmed.startedAt === expectedStartedAt && !confirmedRead.authoritativeArtifactInvalid &&
+        confirmed.startedAt === expectedStartedAt &&
+        (confirmed.runtimeHealthPort ?? VPN_DATA_SOCKS_PORT) === expectedHealthPort &&
+        !confirmedRead.authoritativeArtifactInvalid &&
         isPersistedVpnRuntimeHealthy(confirmed, Date.now())) {
         if (probe.ok) {
           return buildControlCardFormData(

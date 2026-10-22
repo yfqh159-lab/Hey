@@ -855,11 +855,12 @@ const updateAt = source.indexOf('\n  private async updateOne(', loadAt);
 const body = source.slice(loadAt, updateAt);
 const persistedReadAt = body.indexOf('VpnRuntimeStateStore.readWithEvidence(context)');
 const staleCardReturnAt = body.indexOf("if (!state.vpnBacked || state.primaryActionUri !== CONTROL_CARD_STOP_URI)");
-const vpnProbeAt = body.indexOf('probeRuntimeTcpHealth(VPN_DATA_SOCKS_PORT)');
+const vpnProbeAt = body.indexOf('probeRuntimeTcpHealth(expectedHealthPort)');
 if (loadAt < 0 || updateAt < 0 || persistedReadAt < 0 || vpnProbeAt < persistedReadAt ||
   staleCardReturnAt < 0 || staleCardReturnAt < vpnProbeAt ||
   !body.includes('confirmed.sessionId === expectedSessionId') ||
   !body.includes('confirmed.startedAt === expectedStartedAt') ||
+  !body.includes('(confirmed.runtimeHealthPort ?? VPN_DATA_SOCKS_PORT) === expectedHealthPort') ||
   !body.includes('authoritativeArtifactInvalid = confirmedRead.authoritativeArtifactInvalid;') ||
   !body.includes('ConnectionStatus.RUNNING') ||
   !body.includes('true,\n            APP_MODE_VPN')) {
@@ -2098,7 +2099,7 @@ if (stopMethodAt < 0 || reconcileStoppedAt < 0 || cleanupIncompleteAt < 0 ||
 const cardReconcileAt = controlCardManager.indexOf('  private async loadReconciledState(');
 const cardReconcileEnd = controlCardManager.indexOf('\n  private async updateOne(', cardReconcileAt);
 const cardReconcile = controlCardManager.slice(cardReconcileAt, cardReconcileEnd);
-const cardProbeAt = cardReconcile.indexOf('await probeRuntimeTcpHealth(VPN_DATA_SOCKS_PORT)');
+const cardProbeAt = cardReconcile.indexOf('await probeRuntimeTcpHealth(expectedHealthPort)');
 const cardRereadAt = cardReconcile.indexOf('VpnRuntimeStateStore.readWithEvidence(context)', cardProbeAt);
 const cardHealthyReturnAt = cardReconcile.indexOf('return buildControlCardFormData(', cardRereadAt);
 const localCardAt = cardReconcile.indexOf('if (isControlCardLocalProxyRunning(state))');
@@ -2108,6 +2109,7 @@ if (cardReconcileAt < 0 || cardReconcileEnd < 0 || cardProbeAt < 0 ||
   cardRereadAt < cardProbeAt || cardHealthyReturnAt < cardRereadAt ||
   !cardReconcile.includes('confirmed.sessionId === expectedSessionId') ||
   !cardReconcile.includes('confirmed.startedAt === expectedStartedAt') ||
+  !cardReconcile.includes('(confirmed.runtimeHealthPort ?? VPN_DATA_SOCKS_PORT) === expectedHealthPort') ||
   !cardReconcile.includes('ConnectionStatus.ERROR') ||
   !cardReconcile.includes("translate(state.language, 'runtime.vpnHealthLost')") ||
   !cardReconcile.includes('APP_MODE_VPN,\n          true') ||
@@ -2172,13 +2174,13 @@ if (performRefreshEnd < 0 ||
 const persistedReconcileAt = runtime.indexOf('  private async reconcilePersistedVpnState(');
 const persistedReconcileEnd = runtime.indexOf('\n  private resetUnhealthyVpnStateConfirmation()', persistedReconcileAt);
 const persistedReconcile = runtime.slice(persistedReconcileAt, persistedReconcileEnd);
-const recoveredProbeAt = persistedReconcile.indexOf('await probeRuntimeSocksHealth(VPN_DATA_SOCKS_PORT)');
+const recoveredProbeAt = persistedReconcile.indexOf('await probeRuntimeSocksHealth(recoveredHealthPort)');
 const firstCandidateCheckAt = persistedReconcile.indexOf(
-  'context, recoveredSessionId, recoveredStartedAt, recoveredGeneration)', recoveredProbeAt);
+  'context, recoveredSessionId, recoveredStartedAt, recoveredHealthPort, recoveredGeneration)', recoveredProbeAt);
 const stopFlagAt = persistedReconcile.indexOf(
   'await NetSceneStopFlag.wasStopped(\n        context, recoveredStartedAt, recoveredSessionId)', firstCandidateCheckAt);
 const secondCandidateCheckAt = persistedReconcile.indexOf(
-  'context, recoveredSessionId, recoveredStartedAt, recoveredGeneration)', stopFlagAt);
+  'context, recoveredSessionId, recoveredStartedAt, recoveredHealthPort, recoveredGeneration)', stopFlagAt);
 const recoveredApplyAt = persistedReconcile.indexOf(
   'this.controller.reconcileRunning(\n        recoveredStartedAt, persisted.coreType, recoveredSessionId)', stopFlagAt);
 const normalizedActiveStartedAtCount =
@@ -2199,9 +2201,11 @@ if (persistedReconcileAt < 0 || persistedReconcileEnd < 0 ||
   !persistedReconcile.includes('await this.cleanupUnhealthyVpn(context, language);') ||
   !runtime.includes('private isCurrentRecoveredVpnCandidate(') ||
   !persistedReconcile.includes('const recoveredGeneration = this.runtimeStartGeneration;') ||
+  !persistedReconcile.includes('const recoveredHealthPort = persisted.runtimeHealthPort ?? VPN_DATA_SOCKS_PORT;') ||
   !runtime.includes('this.runtimeStartGeneration !== expectedGeneration') ||
   !runtime.includes('current.sessionId === expectedSessionId') ||
-  !runtime.includes('current.startedAt === expectedStartedAt')) {
+  !runtime.includes('current.startedAt === expectedStartedAt') ||
+  !runtime.includes('(current.runtimeHealthPort ?? VPN_DATA_SOCKS_PORT) === expectedHealthPort')) {
   throw new Error('persisted VPN recovery can trust a stale active file or overwrite a newer session');
 }
 if (!health.includes('export function shouldRestartUnhealthyVpnObservation(') ||
@@ -2879,6 +2883,26 @@ if (dataPlaneAt < 0 || activeStateAt < 0 ||
 }
 NODE
 printf 'verified runtime SOCKS port routing verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
+const store = fs.readFileSync('entry/src/main/ets/services/VpnRuntimeStateStore.ets', 'utf8');
+const vpn = fs.readFileSync('entry/src/main/ets/vpn/HeyVpnAbility.ets', 'utf8');
+const runtime = fs.readFileSync('entry/src/main/ets/features/runtime/RuntimeController.ets', 'utf8');
+const card = fs.readFileSync('entry/src/main/ets/services/ControlCardManager.ets', 'utf8');
+const tests = fs.readFileSync('entry/src/test/LocalUnit.test.ets', 'utf8');
+if (!store.includes('runtimeHealthPort?: number;') ||
+  !store.includes('value.runtimeHealthPort < 1 || value.runtimeHealthPort > 65535') ||
+  (vpn.match(/runtimeHealthPort: this[.]runtimeHealthProbePort/g) || []).length !== 2 ||
+  !runtime.includes('persisted.runtimeHealthPort ?? VPN_DATA_SOCKS_PORT') ||
+  !runtime.includes('(current.runtimeHealthPort ?? VPN_DATA_SOCKS_PORT) === expectedHealthPort') ||
+  !card.includes('persisted.runtimeHealthPort ?? VPN_DATA_SOCKS_PORT') ||
+  !card.includes('(confirmed.runtimeHealthPort ?? VPN_DATA_SOCKS_PORT) === expectedHealthPort') ||
+  !tests.includes('?.runtimeHealthPort === undefined).assertTrue();')) {
+  throw new Error('persisted VPN recovery is not bound to a validated runtime SOCKS port');
+}
+NODE
+printf 'session-bound persisted runtime SOCKS port verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');

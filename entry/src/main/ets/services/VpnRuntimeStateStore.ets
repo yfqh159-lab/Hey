@@ -17,6 +17,7 @@ export interface PersistedVpnRuntimeState {
   heartbeatAt: number;
   coreType: string;
   profileUpdatedAt?: number;
+  runtimeHealthPort?: number;
   xrayRunning: boolean;
   tunRunning: boolean;
   cleanupComplete?: boolean;
@@ -60,6 +61,10 @@ export function parsePersistedVpnRuntimeState(content: string): PersistedVpnRunt
       (value.profileUpdatedAt !== undefined &&
         (typeof value.profileUpdatedAt !== 'number' ||
           !isValidPersistedTimestamp(value.profileUpdatedAt, true))) ||
+      (value.runtimeHealthPort !== undefined &&
+        (typeof value.runtimeHealthPort !== 'number' || !Number.isFinite(value.runtimeHealthPort) ||
+          Math.floor(value.runtimeHealthPort) !== value.runtimeHealthPort ||
+          value.runtimeHealthPort < 1 || value.runtimeHealthPort > 65535)) ||
       (value.coreType !== 'xray' && value.coreType !== 'singbox')) {
       return null;
     }
