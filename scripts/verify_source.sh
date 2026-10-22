@@ -3468,4 +3468,25 @@ const appResourceCount = verifyResourceCatalog([
 console.log(`system string resource consistency passed: module=${moduleResourceCount}, app=${appResourceCount}`);
 NODE
 
+node <<'NODE'
+const fs = require('fs');
+const windowsSmoke = fs.readFileSync('scripts/device_vpn_smoke_test.ps1', 'utf8');
+const acceptance = fs.readFileSync('docs/device-acceptance.md', 'utf8');
+for (const required of [
+  'MISSING: no connected hdc target.',
+  'com.huawei.hmos.vpndialog',
+  'param get const.product.model',
+  '$targetExitCode -ne 0'
+]) {
+  if (!windowsSmoke.includes(required)) {
+    throw new Error(`Windows device doctor lost required target check: ${required}`);
+  }
+}
+if (!acceptance.includes('device_vpn_smoke_test.ps1 doctor') ||
+  !acceptance.includes('com.huawei.hmos.vpndialog')) {
+  throw new Error('device acceptance guide lost the Windows VPN preflight');
+}
+NODE
+printf 'Windows hdc/VPN preflight verification passed\n'
+
 printf 'source verification passed\n'

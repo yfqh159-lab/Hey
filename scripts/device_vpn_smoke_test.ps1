@@ -231,9 +231,36 @@ try {
       }
       if ($Hdc.Length -gt 0 -and (Test-Path $Hdc)) {
         Write-Host 'Targets:'
-        & $Hdc list targets
-        if ($LASTEXITCODE -ne 0) {
+        $targetLines = @(& $Hdc list targets 2>&1)
+        $targetExitCode = $LASTEXITCODE
+        $targetsOutput = ($targetLines | ForEach-Object { $_.ToString() }) -join "`n"
+        Write-Host $targetsOutput
+        if ($targetExitCode -ne 0) {
+          Write-Host 'MISSING: hdc could not enumerate targets.'
           $failed = $true
+        } elseif ([string]::IsNullOrWhiteSpace($targetsOutput) -or
+          $targetsOutput.Trim() -match '^(?i:\[?empty\]?)$') {
+          Write-Host 'MISSING: no connected hdc target.'
+          $failed = $true
+        } else {
+          Write-Host 'System:'
+          & $Hdc shell 'param get const.product.model; param get const.product.software.version; param get const.ohos.apiversion'
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host 'MISSING: connected target did not return system information.'
+            $failed = $true
+          }
+          Write-Host 'VPN dialog package:'
+          $vpnDialogLines = @(& $Hdc shell 'bm dump -n com.huawei.hmos.vpndialog' 2>&1)
+          $vpnDialogExitCode = $LASTEXITCODE
+          $vpnDialogOutput = ($vpnDialogLines | ForEach-Object { $_.ToString() }) -join "`n"
+          if ($vpnDialogExitCode -ne 0 -or
+            $vpnDialogOutput -match '(?i:failed|not exist|no bundle|no valid extension)') {
+            Write-Host 'MISSING: com.huawei.hmos.vpndialog is not installed. VPN authorization cannot complete on this target.'
+            Write-Host $vpnDialogOutput
+            $failed = $true
+          } else {
+            Write-Host 'OK: com.huawei.hmos.vpndialog is installed.'
+          }
         }
       }
       if ($failed) {

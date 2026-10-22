@@ -25,6 +25,19 @@
 ./scripts/device_vpn_smoke_test.sh logs
 ```
 
+Windows PowerShell 对应入口（先在 WSL 或 Git Bash 运行 `./scripts/verify_source.sh`）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\device_vpn_smoke_test.ps1 doctor
+powershell -ExecutionPolicy Bypass -File .\scripts\device_vpn_smoke_test.ps1 build
+powershell -ExecutionPolicy Bypass -File .\scripts\device_vpn_smoke_test.ps1 targets
+powershell -ExecutionPolicy Bypass -File .\scripts\device_vpn_smoke_test.ps1 install
+powershell -ExecutionPolicy Bypass -File .\scripts\device_vpn_smoke_test.ps1 logs
+```
+
+`doctor` 必须同时确认签名配置、已连接目标及目标系统内的
+`com.huawei.hmos.vpndialog`；模拟器镜像缺少该组件时不能执行系统 VPN 验收。
+
 ## 2. 必须通过的功能矩阵
 
 每项记录“通过 / 失败 / 未执行”、观察时间和必要的脱敏日志。

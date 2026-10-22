@@ -214,6 +214,13 @@ powershell -ExecutionPolicy Bypass -File .\scripts\device_vpn_smoke_test.ps1 tar
 `test` 默认 120 秒后终止本轮 Hvigor 进程树，防止 Ark 本地预览运行时崩溃后命令永久挂住；低性能
 机器可传 `-TestTimeoutSeconds 300`。超时或缺少新的 Hypium 汇总都按失败处理。
 
+PowerShell 入口负责 DevEco、Hypium 汇总、签名 HAP、`hdc` 目标和系统 VPN 授权组件检查。
+完整源码门禁是 Bash 脚本；Windows 用户应先在 WSL 或 Git Bash 中运行：
+
+```bash
+./scripts/verify_source.sh
+```
+
 完整安装包仍应在 DevEco Studio 中配置用户自己的签名后构建；不要把本地证书、密码或
 `build-profile.json5` 提交到仓库。
 
@@ -255,7 +262,7 @@ entry/build/default/outputs/default/entry-default-signed.hap
 OpenHarmony cgo/TLSDESC 交叉编译或真机 TUN 测试。Go 不在 `PATH` 时可传入
 `GO_BIN=/绝对路径/go`。
 
-`build` 和 `test` 会先运行 `verify_source.sh` 的完整源码门禁（包括工程骨架、合规、原生产物、
+Unix Shell 入口的 `build` 和 `test` 会先运行 `verify_source.sh` 的完整源码门禁（包括工程骨架、合规、原生产物、
 网络调用点、运行模式隔离、VPN 自包排除和翻译资源）；`build` 随后还会确认签名 HAP 内确实包含
 `libheyvpn.so`、Xray、sing-box 和两套 TUN 适配器。若本机签名配置生成了不同路径的
 产物，脚本会显示预期路径；此时可用 `HAP=/绝对路径/文件.hap` 指定实际文件。
