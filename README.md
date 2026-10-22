@@ -142,10 +142,12 @@ traffic stats.
   app ships no built-in region or country rule sets — every rule is written by
   the user.
 - Per-app tunnel: allow/bypass mode plus a stored package-name list. HarmonyOS
-  NEXT does not expose a general installed-app enumeration path to third-party
-  apps, so the page lists a handful of common local apps as typing shortcuts
-  and lets you enter any package name by hand. Nothing is ever selected for
-  you, and the list is neither derived from nor tied to any destination.
+  NEXT does not grant ordinary third-party apps permission to enumerate every
+  installed app. During development, an `hdc`-generated private catalog can
+  provide bundle names and localized labels for the connected device; the page
+  prefers that device catalog and falls back to a small set of typing shortcuts
+  when it is absent. Manual package entry remains available. Nothing is selected
+  automatically, and an empty allow-list fails closed instead of tunneling every app.
 - Network continuity and scenario automation: the app observes underlying
   bearer changes during its lifecycle and revalidates the exit, while the VPN
   Extension keeps the TUN/core running so new Xray connections can follow the
@@ -175,6 +177,10 @@ traffic stats.
 
 ## Known Limits
 
+- The real-device build, QR import, network, Geo, and per-app acceptance boundary
+  as of 2026-10-22 is recorded in [`docs/implementation-record.md`](docs/implementation-record.md)
+  and [`docs/device-acceptance.md`](docs/device-acceptance.md). Unexecuted items are
+  not promoted to passed based on compilation or UI checks.
 - End-to-end VPN behavior still needs real-device coverage across more
   HarmonyOS NEXT devices and system versions. Some emulator/system images lack
   the VPN authorization component.
@@ -182,6 +188,10 @@ traffic stats.
   Wi-Fi/cellular handover still require target-device acceptance testing. The
   heartbeat improves truthful recovery but does not bypass HarmonyOS process or
   power-management limits.
+- The debug-imported installed-app catalog is not refreshed with ordinary app
+  permissions. Clearing app data, changing devices, or installing/removing apps
+  requires another development-host import or manual package maintenance. The
+  catalog is neither committed nor bundled in release builds.
 - sing-box is a preview runtime in the app: it is packaged and selectable, but
   the app only starts it for VPN mode with a single supported outbound.
 

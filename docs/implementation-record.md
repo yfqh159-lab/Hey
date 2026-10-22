@@ -488,3 +488,74 @@ Extension 进程、`18082/18083` 和跨进程心跳均正常。内部 HTTP 入�
 - 平台无关 Go wrapper/适配器测试：`./scripts/device_vpn_smoke_test.sh go-test`；只读依赖且不覆盖随包原生库。
 - 原生核心重建：[`building-native-cores.md`](building-native-cores.md)。
 - 真机逐项证据表：[`device-acceptance.md`](device-acceptance.md)。
+
+## 2026-10-22 日终收口
+
+### 分支、提交与工作区
+
+- 主开发分支：`codex/p0-vpn-mainline`；日终代码 HEAD：`81d4439`。代码提交后工作树干净，未推送、
+  未合并 `main`，没有改写远端历史。
+- 本轮最后三个实现提交：
+  - `f3d9664`：修复分应用白名单为空时错误退化为全应用隧道；在连接控制器和 VPN 配置层双重
+    fail-closed，并增加解析与配置单测。
+  - `0c5b318`：分应用设备目录支持“包名 + 本地化名称”，页面以真实名称为主标题、包名为副标题；
+    兼容旧的纯包名目录格式。
+  - `81d4439`：存在真机目录时只使用实际安装应用，不再混入可能无效的 Android 预设包名；没有
+    目录时保留预设与手工录入作为降级。
+- 涉及实现文件：`PerAppProxy.ets`、`PerApp.ets`、`ConnectionController.ets`、
+  `VpnConstants.ets`、`I18n.ets`、`LocalUnit.test.ets`。私人节点、应用目录、签名配置及诊断临时文件
+  均未提交。
+
+### 分应用目录的能力与边界
+
+- HarmonyOS NEXT 普通三方应用不能申请系统级“枚举全部已安装应用”能力。本轮没有增加特权权限，
+  而是由已连接开发机通过 `bm dump -a -l` 读取目标真机当前目录，生成制表符分隔的“bundle name +
+  本地化 label”文件，再用 `hdc -b com.lmlm.hey` 写入应用私有的
+  `data/storage/el2/base/haps/entry/files/per-app-device-packages.txt`。
+- 真机当前取得 254 条目录记录，全部带本地化名称。目录文件只有包名和显示名，不包含节点、账号、
+  Token 或签名材料；该文件不进入 Git，也不随 HAP 发布。
+- 覆盖安装会保留当前私有目录；清除应用数据、换设备或安装/卸载应用后不会自动刷新，需要开发机
+  重新导入或由用户手工维护包名。应用内仍保留搜索、手工添加、导入/导出和黑白名单选择。
+- “仅代理所选应用”含义为：勾选应用进入系统 TUN，再由 Xray 的全局/规则/直连模式决定实际出站；
+  未勾选应用不进入 Hey。“绕过所选”是反向语义。空白名单现在拒绝启动，不再误代理全部应用。
+- 本阶段确定的日常路径是 **TUN + 仅代理所选应用 + Xray 规则模式**；HarmonyOS 全局系统代理暂不
+  实施，现有“本地代理模式”仍只是用户显式配置应用使用的 SOCKS/HTTP，不宣称能接管系统流量。
+
+### 构建与自动化证据
+
+- `./scripts/verify_source.sh`：通过；包含合规、原生预编译、网络调用点、TUN/本地模式隔离、VPN
+  生命周期、存储边界及中英文资源门禁，当前翻译键为 1155。
+- Windows DevEco Studio / Hvigor 的 ArkTS LocalUnit 于 13:54 生成新报告：`245` cases，
+  `Failure 0`、`Error 0`、`Pass 245`、`Ignore 0`。新增用例覆盖设备目录标签解析、去重、自包排除和
+  空白名单保护。
+- 完整 `assembleHap` 再次通过 ArkTS、CMake/Ninja、资源与 PackageHap，输出无签名 HAP。命令行
+  工作树没有 `signingConfigs`，因此命令行产物按预期未签名；真机覆盖安装由用户本机 DevEco Debug
+  自动签名完成，不能把无签名命令行包误记为可安装产物。
+
+### 当日真机已验证
+
+- 设备：`SGT-AL10`，HarmonyOS 7.0.0.109 / API 26，ARM64；系统具有 VPN 授权组件。
+- 扫码：相机可识别私人节点并显示脱敏待确认信息；修正确认按钮状态后由用户确认保存，未在文档、
+  日志或提交中记录协议、地址或凭据。
+- 本地代理：Xray 本地 SOCKS/HTTP 前台路径曾通过端口转发访问 GitHub（HTTP 200）和 Google
+  `generate_204`（204，TLS 校验正常）。退桌面约 12 秒后连接超时、回前台恢复，因此本地代理不能
+  作为后台常驻方案。
+- TUN：修复 API 26 空 Want 恢复后，Xray + gVisor TUN 真正建立；系统浏览器访问 GitHub 时 VPN
+  流量增长到 30 MB 以上。应用退后台后继续存在真实转发，回前台状态可恢复。正常手动断开后
+  Extension 与内部端口消失，30 秒内没有自动重连。
+- Geo：空闲 Wi-Fi 下完成一次默认双文件下载和校验安装；TUN 运行中再次检查同版本时明确判定
+  “已是最新”，文件时间不变、检查时间更新，且检查期间 VPN 流量增长、内部 HTTP 仅监听回环。
+- 分应用：目录文件覆盖安装后保留；搜索非预设应用时显示真实本地化名称与包名副标题，不再显示
+  “自定义应用”，旧 Android 预设未混入。保持“仅代理所选”、已选 0 点击连接时显示明确错误，
+  Xray、tun2socks 与 VPN Extension 均未启动，持久状态保持 inactive/cleanup complete。
+- 测试目标遵循用户限制，只使用 GitHub 和 Google；没有访问 ChatGPT、Claude、Gemini 或其他 AI 服务。
+
+### 未完成与下一轮入口
+
+- 尚未以“已勾选应用”执行真实分应用流量测试；下一轮首先完成验收表 `V143`，分别证明勾选应用的
+  direct/proxy 规则、未勾选应用绕过、断开恢复，以及 DNS/IPv4/IPv6 行为。当前 UI 和空白名单通过
+  不能替代这项数据面结论。
+- DNS/IPv6 泄漏、锁屏 5/30 分钟、Wi-Fi/蜂窝切换、系统回收后的恢复、两分钟手动停止观察、Geo
+  故障/回滚矩阵、sing-box 分支及 AI 应用均未完成。后台常驻不作超出系统能力的保证。
+- 今日到此停止代码和设备操作。恢复工作时从 `81d4439` 之后开始，先复核工作树与真机目录是否仍
+  匹配当前安装应用，再继续 `device-acceptance.md` 中未执行项。

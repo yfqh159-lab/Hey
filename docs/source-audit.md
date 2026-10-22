@@ -138,3 +138,17 @@ ArkTS 的截止时间能结束上层等待，但不能强制终止已经卡死�
 
 本次只生成无签名 HAP，没有写入或提交用户签名。`hdc list targets` 返回 `[Empty]`，所以安装、
 VPN 授权、模拟器页面和真机网络矩阵仍全部是未验证，不能由编译结果替代。
+
+## 审计后的设备闭环状态（2026-10-22 日终）
+
+上文“无设备/无签名”的内容是静态审计完成当时的历史环境记录。随后已经连接
+`SGT-AL10` / HarmonyOS 7.0.0.109 / API 26 ARM64 真机，使用用户本机 DevEco Debug 自动签名完成
+覆盖安装，并验证节点扫码确认保存、本地 SOCKS/HTTP、Xray + gVisor TUN、正常手动断开、TUN
+运行中 Geo 检查以及分应用目录与空白名单保护。完整时序、脱敏网络证据和未执行项以
+[`implementation-record.md`](implementation-record.md) 与
+[`device-acceptance.md`](device-acceptance.md) 为准；本静态审计文档不回写历史段落来制造当时已有设备的假象。
+
+日终 HEAD 为 `81d4439`。当前 Windows DevEco 验证工作树完成 245/245 ArkTS LocalUnit，完整 ArkTS、
+CMake/Ninja、资源与无签名 HAP 构建通过；签名安装由 DevEco 使用用户本地配置完成，签名材料和
+真机应用目录均未进入仓库。DNS/IPv6 泄漏、锁屏、Wi-Fi/蜂窝切换、系统回收、分应用真实规则分流、
+Geo 故障回滚矩阵和 AI 服务仍未执行，不能写成已通过。
