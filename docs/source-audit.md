@@ -84,11 +84,12 @@ ArkTS 的截止时间能结束上层等待，但不能强制终止已经卡死�
 - `git diff --check`：实现提交前通过；文档提交前再次执行。
 - `bash scripts/verify_source.sh`：通过；翻译键 1153、模块字符串 23、AppScope 字符串 1。
 - `bash scripts/verify_prebuilt_native.sh`：通过；四个 AArch64 库的文件集、SHA-256、桥接符号及 TLSDESC 检查通过。
+- 标准 Linux Go 1.27.3 临时工具链：`libsingbox` 在产物同组 build tags 下的 7 类代表配置全部通过真实 `libbox.NewService`；`tun2socks_adapter` 包编译通过（当前无独立 Go 测试用例）。两者均使用 `GOFLAGS=-mod=readonly`，没有改写依赖文件。
 - 所有 `scripts/*.sh` 执行 `bash -n`：通过。
 - `bash scripts/compliance_scan.sh`：通过；未发现私人节点、签名材料、地区策略或未批准用途。
 - `bash scripts/device_vpn_smoke_test.sh doctor`：按预期未通过；Node.js、unzip 可用，但缺少 `hvigorw`、Harmony SDK、项目级签名 `build-profile.json5`、已签名 HAP 和 `hdc`。
 
-因此本轮**没有运行** ArkTS LocalUnit、Native/HAP 编译、模拟器或真机测试，也不声称这些项目通过。尤其是 `xray_napi.cpp` 的新改动尚未经过目标 Harmony 工具链编译。
+因此本轮**没有运行** ArkTS LocalUnit、OpenHarmony Native/HAP 编译、模拟器或真机测试，也不声称这些项目通过。标准 Linux Go 测试不能替代 OHOS cgo/TLSDESC 交叉编译；尤其是 `xray_napi.cpp` 的新改动尚未经过目标 Harmony 工具链编译。
 
 ## 下一阶段入口
 

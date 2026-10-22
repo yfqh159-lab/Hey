@@ -337,8 +337,26 @@
   - 可选 TUN/本地代理模式选择与启动路径隔离
   - bundle ID、系统入口与 VPN 自包排除一致性
   - 中英文系统资源键与有效值一致性
-  - 中英文翻译键完整性检查（1144 个键）
+  - 中英文翻译键完整性检查（1153 个键）
 ```
+
+2026-10-22 另在不修改系统环境或仓库依赖的前提下，把官方 Go 1.27.3 Linux/amd64 工具链
+下载到临时目录，并用官方 SHA-256 校验后运行平台无关的 Go 测试：
+
+```text
+cd libsingbox
+GOTOOLCHAIN=local GOFLAGS=-mod=readonly \
+  go test -tags "with_gvisor with_utls with_clash_api with_quic" \
+  -run TestGeneratedConfigs -v ./...
+  PASS：VLESS REALITY、VMess、Trojan、Shadowsocks、AnyTLS、TUIC、Hysteria2
+
+cd entry/src/main/cpp/tun2socks_adapter
+GOTOOLCHAIN=local GOFLAGS=-mod=readonly go test ./...
+  PASS：适配器包编译完成；当前包没有独立 Go 测试用例
+```
+
+这证明锁定依赖在标准 Linux Go 环境下可解析/编译，且代表性 sing-box 配置通过真实
+`libbox.NewService` 校验；它不证明 `GOOS=openharmony`、OHOS cgo/TLSDESC、TUN fd 或真机网络行为。
 
 2026-10-22 运行 `./scripts/device_vpn_smoke_test.sh doctor`，脚本一次完成环境探测并准确报告：
 
@@ -352,8 +370,8 @@ MISSING: hdc
 INFO: 当前尚无 signed HAP
 ```
 
-因此本环境只能提供源码与原生预编译库静态证据，不能把 ArkTS LocalUnit、HAP 构建、安装或
-VPN 真机行为写成已通过。
+因此本环境只能提供源码、平台无关 Go 测试与原生预编译库静态证据，不能把 ArkTS LocalUnit、
+OpenHarmony 原生交叉编译、HAP 构建、安装或 VPN 真机行为写成已通过。
 
 2026-10-21 还直接核对了
 [`Loyalsoldier/v2ray-rules-dat` 最新 Release API](https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest)：
