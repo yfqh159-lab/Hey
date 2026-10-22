@@ -3,7 +3,7 @@
 > 审计日期：2026-10-22
 > 审计分支：`codex/p0-vpn-mainline`
 > 远端基线：fork `origin/main` 为 `65bdea3`，上游 `upstream/main` 为 `3371128`
-> 实现审计点：`d11080c`
+> 实现审计点：`02de88d`
 > v2rayNG 只读参考版本：`118cf5b`
 > 范围声明：本文件只记录仓库、源码和当前环境可运行的静态检查结论，不把它们写成编译、模拟器或真机结果。
 
@@ -32,7 +32,7 @@
 | 停止与状态真值 | 会话 ID、持久取消记录、心跳和清理结果共同约束 UI/卡片状态；手动停止后不自动重连，清理未完成不写入虚假 idle/cleanup complete | VPN 状态、停止标志及运行控制器相关 store/controller |
 | 路由、DNS、IPv6 | 全局、规则、直连模式隔离；TUN DNS 由核心接管；关闭 IPv6 时有对应阻断；完整配置会检查可用回环 SOCKS 能力 | `XrayConfig.ets`、`SingboxConfig.ets`、`VpnConstants.ets` |
 | 后台与换网 | Extension 独立维护健康和承载检测；换网在同一会话内有界重载核心，连续异常会清理但不会替用户自动建立新连接 | `HeyVpnAbility.ets`、`NetworkSceneManager.ets`、`NetworkProbe.ets` |
-| 节点导入 | 相机、相册、剪贴板、分享和手动输入均先解析/脱敏预览，经确认后保存；无效、重复、取消、权限错误和混合批量内容有边界处理 | `Scanner.ets`、`QrScan.ets`、`ShareLinkParser.ets`、订阅存储 |
+| 节点导入 | 相机、相册、剪贴板、分享和手动输入均先解析/脱敏预览，经确认后保存；无效、重复、取消、权限错误和混合批量内容有边界处理。API 12+ 剪贴板读取统一由系统 `PasteButton` 的单次用户授权触发，不申请宽泛 `READ_PASTEBOARD` 权限 | `Scanner.ets`、`QrScan.ets`、`ShareLinkParser.ets`、订阅存储 |
 | 外部输入 | Deep Link、Want、控制卡参数、分享文本、订阅响应、配置文本和诊断内容均设置长度/数量上限；超限数据不会整块进入 AppStorage 或持久层 | Ability、Want、导入与共享控制代码；对应 LocalUnit 用例 |
 | 节点/订阅存储 | 原始记录和字段均有限额；非空但全损坏的主数据不能掩盖有效备份；批量解析和规范化工作量有界 | `SubscriptionStore.ets`、数据库与调度索引 |
 | 跨进程状态 | VPN 状态、停止标志、流量、控制卡状态均限制原始大小并验证结构；损坏主记录可回退备份，损坏临时工件不会永久阻塞后续写入 | `VpnRuntimeStateStore.ets`、`NetSceneStopStore.ets` 等 |
@@ -54,6 +54,7 @@
 - `4683061`：VPN 取消历史限额。
 - `85e230a`：持久化及交互输入边界。
 - `d11080c`：剩余存储、Want、控制卡、后台任务、TUN 生命周期及原生校验缺口。
+- `02de88d`：将六处剪贴板读取入口迁移到系统 `PasteButton` 临时授权，并删除始终返回成功的伪权限辅助函数；路由规则仍在读取后等待用户确认才写入。
 
 这些提交之前的主链、扫码、运行模式、Geo 事务和状态修复仍保留在同一分支；上述列表只标识本次最后一轮安全审计的收口提交。
 
@@ -106,9 +107,13 @@ ArkTS 的截止时间能结束上层等待，但不能强制终止已经卡死�
   `libheytun2socks.so`、`libhevsocks5tun.so` 五个 arm64 库。
 - 编译实际发现并修复了 API 21 ArkTS 严格类型、页面编译和测试夹具错误；Hvigor 的 LocalUnit
   任务即使有断言失败也可能返回成功，因此烟测脚本现会额外检查 Hypium 汇总。
+- 后续完整编译发现 API 12+ 剪贴板读取权限提示；六处用户粘贴入口改用系统 `PasteButton` 后，
+  完整应用再次通过 ArkTS/CMake/Ninja/HAP 构建。编译器仍会按 `getData()` 的静态权限标注给出提示，
+  运行时授权由成功的安全组件点击提供，清单不申请可持续读取剪贴板的敏感权限。
 - Windows 默认 8 GB Node 堆上限曾触发错误 1455；项目将 Hvigor 上限收敛到 2 GB 后完成测试。
-  后续两次预览运行时重跑分别停在 `modules.abc` 加载和 `Load current file's panda file failed`，均未
-  开始执行测试用例；这是 DevEco 本地预览运行时的不稳定项，不覆盖前述 243/243 成功证据。
+  后续预览运行时重跑分别停在 `modules.abc`、普通 panda file 与 `arkTheme` panda file 加载，均未
+  产生新的 Hypium 汇总；这是 DevEco 本地预览运行时的不稳定项，不覆盖前述 243/243 成功证据，
+  也不能算当前提交的单测通过。
 
 本次只生成无签名 HAP，没有写入或提交用户签名。`hdc list targets` 返回 `[Empty]`，所以安装、
 VPN 授权、模拟器页面和真机网络矩阵仍全部是未验证，不能由编译结果替代。
