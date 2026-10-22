@@ -674,7 +674,12 @@ struct ExportPage {
     let file: fs.File | null = null;
     try {
       file = fs.openSync(uri, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
-      fs.writeSync(file.fd, content);
+      const bytes = new util.TextEncoder().encodeInto(content);
+      const written = fs.writeSync(file.fd, bytes.buffer);
+      if (written !== bytes.byteLength) {
+        throw new Error('Node export file could not be written completely.');
+      }
+      fs.fsyncSync(file.fd);
     } finally {
       if (file !== null) {
         fs.closeSync(file);

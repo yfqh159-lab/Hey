@@ -52,6 +52,9 @@ export class ProfileStore {
   }
 
   static save(context: common.Context, outboundJson: string, configType: XrayConfigType = 'outbound'): Promise<ProxyProfile> {
+    if (typeof outboundJson !== 'string') {
+      return Promise.reject(new Error('Selected profile payload must be a string.'));
+    }
     const profile: ProxyProfile = {
       id: DEFAULT_PROFILE_ID,
       name: 'Default Xray Profile',
@@ -104,10 +107,11 @@ export class ProfileStore {
       }
       return {
         id: profile.id,
-        name: profile.name ?? 'Default Xray Profile',
+        name: typeof profile.name === 'string' ? profile.name : 'Default Xray Profile',
         outboundJson: profile.outboundJson ?? '',
         configType: ProfileStore.normalizeConfigType(profile.configType, profile.outboundJson ?? ''),
-        updatedAt: profile.updatedAt ?? 0
+        updatedAt: typeof profile.updatedAt === 'number' && Number.isFinite(profile.updatedAt) ?
+          Math.floor(profile.updatedAt) : 0
       };
     } catch (_error) {
       return null;

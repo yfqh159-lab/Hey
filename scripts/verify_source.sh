@@ -585,7 +585,8 @@ if ! grep -Fq 'private static operationTail: Promise<void> = Promise.resolve();'
   ! grep -Fq 'return SettingsStore.saveNow(context, SettingsStore.normalize(settings));' "${settings_store_source}" ||
   ! grep -Fq 'private static enqueueOperation<T>(operation: () => Promise<T>): Promise<T>' "${settings_store_source}" ||
   ! grep -Fq 'SettingsStore.operationTail = task.then(' "${settings_store_source}" ||
-  ! grep -Fq 'return Array.isArray(value) ? value.slice() : fallback.slice();' "${settings_store_source}"; then
+  ! grep -Fq 'return fallback.slice();' "${settings_store_source}" ||
+  ! grep -Fq 'result.push(value[index] as string);' "${settings_store_source}"; then
   printf 'settings store operations are not serialized against cross-page stale snapshots\n' >&2
   exit 1
 fi
@@ -604,6 +605,14 @@ if grep -Fq '${intent.payload}' entry/src/main/ets/pages/Index.ets ||
   exit 1
 fi
 printf 'external import confirmation redaction verification passed\n'
+
+if grep -Fq 'lower.startsWith(SUB_PREFIX)' "entry/src/main/ets/core/DeepLink.ets" || \
+  grep -Fq 'lower.startsWith(CONFIG_PREFIX)' "entry/src/main/ets/core/DeepLink.ets" || \
+  ! grep -Fq "isShortcutHost(lower, 'add-source')" "entry/src/main/ets/core/DeepLink.ets" || \
+  ! grep -Fq "isShortcutHost(lower, 'add-endpoint')" "entry/src/main/ets/core/DeepLink.ets"; then
+  throw_error "external import deep links must match an exact declared host"
+fi
+printf 'external import exact-host verification passed\n'
 
 # Camera, photo, and clipboard results are often complete share links containing UUIDs,
 # passwords, or subscription tokens. Keep the raw value only in page memory for the
@@ -1066,6 +1075,60 @@ if (successCount !== 2) {
 }
 NODE
 printf 'manual link preview confirmation verification passed\n'
+
+json_import="entry/src/main/ets/pages/JsonImport.ets"
+backup_page="entry/src/main/ets/pages/Backup.ets"
+if grep -Fq 'chunks.push(decoder.decode(' "${json_import}" || \
+  grep -Fq 'chunks.push(decoder.decode(' "${backup_page}" || \
+  ! grep -Fq 'chunks.push(new Uint8Array(buffer.slice(0, readLength)))' "${json_import}" || \
+  ! grep -Fq 'chunks.push(new Uint8Array(buffer.slice(0, readLength)))' "${backup_page}" || \
+  ! grep -Fq 'return decoder.decodeToString(merged);' "${json_import}" || \
+  ! grep -Fq 'return decoder.decodeToString(merged);' "${backup_page}"; then
+  throw_error "JSON or backup file import decodes UTF-8 chunks independently"
+fi
+printf 'JSON and backup import UTF-8 boundary verification passed\n'
+
+if ! grep -Fq 'const MAX_ROUTING_IMPORT_FILE_BYTES: number = 2 * 1024 * 1024;' \
+  "entry/src/main/ets/pages/Routing.ets" || \
+  ! grep -Fq 'size > MAX_ROUTING_IMPORT_FILE_BYTES' "entry/src/main/ets/pages/Routing.ets" || \
+  ! grep -Fq 'if (readLength !== size)' "entry/src/main/ets/pages/Routing.ets"; then
+  throw_error "routing rule file import is not size-bounded or does not reject short reads"
+fi
+printf 'bounded routing file import verification passed\n'
+
+if [ "$(grep -c 'written !== bytes.byteLength' "entry/src/main/ets/pages/Backup.ets")" -lt 1 ] || \
+  [ "$(grep -c 'written !== bytes.byteLength' "entry/src/main/ets/pages/Export.ets")" -lt 1 ] || \
+  [ "$(grep -c 'fs.fsyncSync(file.fd)' "entry/src/main/ets/pages/Backup.ets")" -lt 2 ] || \
+  [ "$(grep -c 'fs.fsyncSync(file.fd)' "entry/src/main/ets/pages/Export.ets")" -lt 1 ]; then
+  throw_error "backup or node export can report success after a short or unflushed write"
+fi
+printf 'complete backup and node export write verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
+const settings = fs.readFileSync('entry/src/main/ets/storage/SettingsStore.ets', 'utf8');
+const subscriptions = fs.readFileSync('entry/src/main/ets/storage/SubscriptionStore.ets', 'utf8');
+const profile = fs.readFileSync('entry/src/main/ets/storage/ProfileStore.ets', 'utf8');
+const backup = fs.readFileSync('entry/src/main/ets/core/ConfigBackup.ets', 'utf8');
+const tests = fs.readFileSync('entry/src/test/LocalUnit.test.ets', 'utf8');
+if (!settings.includes("return typeof value === 'boolean' ? value as boolean : fallback;") ||
+  !settings.includes("return typeof value === 'string' ? value as string : fallback;") ||
+  !settings.includes("typeof value !== 'number' || !Number.isFinite(value as number)") ||
+  !settings.includes("typeof value[index] !== 'string'") ||
+  !settings.includes("candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)") ||
+  !subscriptions.includes("node.outboundJson !== undefined && typeof node.outboundJson !== 'string'") ||
+  !subscriptions.includes("const rawGroups = Array.isArray(raw.groups) ? raw.groups : [];") ||
+  !subscriptions.includes("const idCounts = new Map<string, number>();") ||
+  !profile.includes("typeof profile.name === 'string'") ||
+  !profile.includes("Number.isFinite(profile.updatedAt)") ||
+  !backup.includes("typeof profileRecord['outboundJson'] !== 'string'") ||
+  !backup.includes("!Array.isArray(subscriptionRecord['groups']) && !Array.isArray(subscriptionRecord['nodes'])") ||
+  !tests.includes("sanitizes wrong runtime types inside restored settings") ||
+  !tests.includes("skips malformed subscription groups and nodes")) {
+  throw new Error('restored configuration can retain wrong runtime types or throw on malformed nested data');
+}
+NODE
+printf 'restored configuration runtime type verification passed\n'
 
 # Keep the everyday node-add surface deliberately small. Existing full-config,
 # proxy-chain, and policy-group records remain editable from NodeDetail for

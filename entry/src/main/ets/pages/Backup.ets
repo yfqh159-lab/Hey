@@ -320,7 +320,8 @@ struct BackupPage {
     let file: fs.File | null = null;
     try {
       file = fs.openSync(uri, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
-      fs.writeSync(file.fd, content);
+      this.writeCompleteText(file.fd, content);
+      fs.fsyncSync(file.fd);
     } finally {
       if (file !== null) {
         fs.closeSync(file);
@@ -338,7 +339,7 @@ struct BackupPage {
         fs.unlinkSync(tempPath);
       }
       file = fs.openSync(tempPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
-      fs.writeSync(file.fd, content);
+      this.writeCompleteText(file.fd, content);
       fs.fsyncSync(file.fd);
       fs.closeSync(file);
       file = null;
@@ -382,7 +383,7 @@ struct BackupPage {
     try {
       file = fs.openSync(uri, fs.OpenMode.READ_ONLY);
       const decoder = util.TextDecoder.create('utf-8');
-      const chunks = new Array<string>();
+      const chunks = new Array<Uint8Array>();
       let totalBytes = 0;
       let readLength = 0;
       do {
@@ -393,14 +394,28 @@ struct BackupPage {
           if (totalBytes > MAX_IMPORT_FILE_BYTES) {
             throw new Error(this.t('backup.error.tooLarge'));
           }
-          chunks.push(decoder.decode(new Uint8Array(buffer, 0, readLength)));
+          chunks.push(new Uint8Array(buffer.slice(0, readLength)));
         }
       } while (readLength > 0);
-      return chunks.join('');
+      const merged = new Uint8Array(totalBytes);
+      let offset = 0;
+      for (let index = 0; index < chunks.length; index++) {
+        merged.set(chunks[index], offset);
+        offset += chunks[index].byteLength;
+      }
+      return decoder.decodeToString(merged);
     } finally {
       if (file !== null) {
         fs.closeSync(file);
       }
+    }
+  }
+
+  private writeCompleteText(fd: number, content: string): void {
+    const bytes = new util.TextEncoder().encodeInto(content);
+    const written = fs.writeSync(fd, bytes.buffer);
+    if (written !== bytes.byteLength) {
+      throw new Error('Backup file could not be written completely.');
     }
   }
 

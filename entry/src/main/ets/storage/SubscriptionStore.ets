@@ -700,19 +700,18 @@ export class SubscriptionStore {
   }
 
   private static normalize(raw: SubscriptionProfile): SubscriptionProfile {
+    const rawGroups = Array.isArray(raw.groups) ? raw.groups : [];
+    const rawNodes = Array.isArray(raw.nodes) ? raw.nodes : [];
     const profile: SubscriptionProfile = {
-      url: raw.url ?? '',
-      selectedNodeId: raw.selectedNodeId ?? '',
-      nodes: raw.nodes ?? [],
-      updatedAt: raw.updatedAt ?? 0,
-      selectedGroupId: raw.selectedGroupId ?? '',
-      groups: raw.groups ?? []
+      url: SubscriptionStore.stringValue(raw.url),
+      selectedNodeId: SubscriptionStore.stringValue(raw.selectedNodeId),
+      nodes: rawNodes,
+      updatedAt: SubscriptionStore.numberValue(raw.updatedAt, 0),
+      selectedGroupId: SubscriptionStore.stringValue(raw.selectedGroupId),
+      groups: rawGroups
     };
 
-    const normalizedGroups: Array<SubscriptionGroup> = [];
-    for (let index = 0; index < profile.groups.length; index++) {
-      normalizedGroups.push(SubscriptionStore.normalizeGroup(profile.groups[index], index));
-    }
+    const normalizedGroups = SubscriptionStore.normalizeGroups(profile.groups);
 
     if (normalizedGroups.length === 0 && (profile.url.length > 0 || profile.nodes.length > 0)) {
       normalizedGroups.push({
@@ -755,30 +754,43 @@ export class SubscriptionStore {
   }
 
   private static normalizeGroup(group: SubscriptionGroup, index: number): SubscriptionGroup {
-    const url = group.url ?? '';
-    const nodes = SubscriptionStore.normalizeNodes(group.nodes ?? []);
+    const url = SubscriptionStore.stringValue(group.url);
+    const nodes = SubscriptionStore.normalizeNodes(Array.isArray(group.nodes) ? group.nodes : []);
+    const fallbackId = SubscriptionStore.makeGroupId(`${url.length > 0 ? url : 'group'}-${index}`);
+    const rawId = SubscriptionStore.stringValue(group.id).trim();
+    const rawName = SubscriptionStore.stringValue(group.name).trim();
     return {
-      id: group.id ?? SubscriptionStore.makeGroupId(`${url}-${index}`),
-      name: group.name ?? SubscriptionStore.nameFromUrl(url),
+      id: rawId.length > 0 ? rawId : fallbackId,
+      name: rawName.length > 0 ? rawName : SubscriptionStore.nameFromUrl(url),
       url,
-      enabled: group.enabled ?? true,
-      selectedNodeId: SubscriptionStore.resolveSelectedNodeId(nodes, group.selectedNodeId ?? ''),
+      enabled: SubscriptionStore.boolValue(group.enabled, true),
+      selectedNodeId: SubscriptionStore.resolveSelectedNodeId(nodes, SubscriptionStore.stringValue(group.selectedNodeId)),
       nodes,
-      updatedAt: group.updatedAt ?? 0,
-      userAgent: group.userAgent ?? '',
-      filter: group.filter ?? '',
-      prevProfile: group.prevProfile ?? '',
-      nextProfile: group.nextProfile ?? '',
-      allowInsecureUrl: group.allowInsecureUrl ?? false,
-      autoUpdate: group.autoUpdate ?? false,
-      updateIntervalMinutes: normalizeSubscriptionUpdateInterval(group.updateIntervalMinutes)
+      updatedAt: SubscriptionStore.numberValue(group.updatedAt, 0),
+      userAgent: SubscriptionStore.stringValue(group.userAgent),
+      filter: SubscriptionStore.stringValue(group.filter),
+      prevProfile: SubscriptionStore.stringValue(group.prevProfile),
+      nextProfile: SubscriptionStore.stringValue(group.nextProfile),
+      allowInsecureUrl: SubscriptionStore.boolValue(group.allowInsecureUrl, false),
+      autoUpdate: SubscriptionStore.boolValue(group.autoUpdate, false),
+      updateIntervalMinutes: normalizeSubscriptionUpdateInterval(SubscriptionStore.numberValue(
+        group.updateIntervalMinutes,
+        DEFAULT_SUBSCRIPTION_UPDATE_INTERVAL_MINUTES
+      ))
     };
   }
 
   private static normalizeGroups(groups: Array<SubscriptionGroup>): Array<SubscriptionGroup> {
     const normalized = new Array<SubscriptionGroup>();
+    const idCounts = new Map<string, number>();
     for (let index = 0; index < groups.length; index++) {
-      normalized.push(SubscriptionStore.normalizeGroup(groups[index], index));
+      const candidate = groups[index] as Object;
+      if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) {
+        continue;
+      }
+      const group = SubscriptionStore.normalizeGroup(candidate as SubscriptionGroup, index);
+      group.id = SubscriptionStore.uniqueId(group.id, `group-${index}`, idCounts);
+      normalized.push(group);
     }
     return normalized;
   }
@@ -787,35 +799,62 @@ export class SubscriptionStore {
     const normalized = new Array<ProxyNode>();
     const idCounts = new Map<string, number>();
     for (let index = 0; index < nodes.length; index++) {
-      const node = nodes[index];
-      const id = SubscriptionStore.uniqueNodeId(node.id ?? '', index, idCounts);
-      const configType = SubscriptionStore.normalizeNodeConfigType(node);
-      const protocol = node.protocol ?? '';
+      const candidate = nodes[index] as Object;
+      if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) {
+        continue;
+      }
+      const node = candidate as ProxyNode;
+      if (node.outboundJson !== undefined && typeof node.outboundJson !== 'string') {
+        continue;
+      }
+      const id = SubscriptionStore.uniqueNodeId(SubscriptionStore.stringValue(node.id), index, idCounts);
+      const outboundJson = SubscriptionStore.stringValue(node.outboundJson);
+      const configType = SubscriptionStore.normalizeNodeConfigType(node.configType, outboundJson);
+      const protocol = SubscriptionStore.stringValue(node.protocol);
       normalized.push({
         id,
-        name: node.name ?? '',
+        name: SubscriptionStore.stringValue(node.name),
         protocol: protocol.length > 0 ? protocol : SubscriptionStore.protocolForConfigType(configType, ''),
-        outboundJson: node.outboundJson ?? '',
+        outboundJson,
         configType,
-        sourceUrl: node.sourceUrl ?? '',
-        rawLink: node.rawLink ?? '',
-        updatedAt: node.updatedAt ?? 0,
-        delayMs: node.delayMs ?? -1,
-        delayTestAt: node.delayTestAt ?? 0,
-        delayStatus: node.delayStatus ?? ''
+        sourceUrl: SubscriptionStore.stringValue(node.sourceUrl),
+        rawLink: SubscriptionStore.stringValue(node.rawLink),
+        updatedAt: SubscriptionStore.numberValue(node.updatedAt, 0),
+        delayMs: SubscriptionStore.numberValue(node.delayMs, -1),
+        delayTestAt: SubscriptionStore.numberValue(node.delayTestAt, 0),
+        delayStatus: SubscriptionStore.stringValue(node.delayStatus)
       });
     }
     return normalized;
   }
 
   private static uniqueNodeId(rawId: string, index: number, idCounts: Map<string, number>): string {
-    const baseId = rawId.length > 0 ? rawId : `node-${index}`;
+    return SubscriptionStore.uniqueId(rawId, `node-${index}`, idCounts);
+  }
+
+  private static uniqueId(rawId: string, fallback: string, idCounts: Map<string, number>): string {
+    const baseId = rawId.length > 0 ? rawId : fallback;
     const count = idCounts.get(baseId) ?? 0;
     idCounts.set(baseId, count + 1);
     if (count === 0) {
       return baseId;
     }
     return `${baseId}-${count + 1}`;
+  }
+
+  private static stringValue(value: Object | undefined | null, fallback: string = ''): string {
+    return typeof value === 'string' ? value as string : fallback;
+  }
+
+  private static boolValue(value: Object | undefined | null, fallback: boolean): boolean {
+    return typeof value === 'boolean' ? value as boolean : fallback;
+  }
+
+  private static numberValue(value: Object | undefined | null, fallback: number): number {
+    if (typeof value !== 'number' || !Number.isFinite(value as number)) {
+      return fallback;
+    }
+    return Math.floor(value as number);
   }
 
   private static mergeNodeRuntime(existing: Array<ProxyNode>, next: Array<ProxyNode>): Array<ProxyNode> {
@@ -934,17 +973,17 @@ export class SubscriptionStore {
     return `sub-${hash.toString(16)}`;
   }
 
-  private static normalizeNodeConfigType(node: ProxyNode): XrayConfigType {
-    if (node.configType === 'full') {
+  private static normalizeNodeConfigType(configType: Object | undefined | null, outboundJson: string): XrayConfigType {
+    if (configType === 'full') {
       return 'full';
     }
-    if (node.configType === 'proxy-chain') {
+    if (configType === 'proxy-chain') {
       return 'proxy-chain';
     }
-    if (node.configType === 'policy-group') {
+    if (configType === 'policy-group') {
       return 'policy-group';
     }
-    const validation = normalizeConfigInput(node.outboundJson ?? '');
+    const validation = normalizeConfigInput(outboundJson);
     return validation.configType === 'full' || validation.configType === 'proxy-chain' || validation.configType === 'policy-group' ? validation.configType : 'outbound';
   }
 

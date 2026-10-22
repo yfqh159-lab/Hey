@@ -20,6 +20,8 @@ import { isScanCancelled, requestCameraPermission, scanQrCode } from '../utils/Q
 import { AppColor, FontSz, Radius, Space } from '../theme/Theme';
 import { RoutingRuleDialog } from './routing/RoutingRuleDialog';
 
+const MAX_ROUTING_IMPORT_FILE_BYTES: number = 2 * 1024 * 1024;
+
 @Entry
 @Component
 struct RoutingPage {
@@ -737,8 +739,16 @@ struct RoutingPage {
       const file = fs.openSync(uris[0], fs.OpenMode.READ_ONLY);
       try {
         const stat = fs.statSync(file.fd);
-        const buffer = new ArrayBuffer(stat.size);
-        fs.readSync(file.fd, buffer);
+        const size = Number(stat.size);
+        if (!Number.isFinite(size) || Math.floor(size) !== size || size < 0 ||
+          size > MAX_ROUTING_IMPORT_FILE_BYTES) {
+          throw new Error(this.t('jsonImport.fileTooLarge'));
+        }
+        const buffer = new ArrayBuffer(size);
+        const readLength = fs.readSync(file.fd, buffer);
+        if (readLength !== size) {
+          throw new Error('Routing rule file could not be read completely.');
+        }
         const content = util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(buffer));
         await this.importRulesFromText(content, 'log.routingRulesImported');
       } finally {

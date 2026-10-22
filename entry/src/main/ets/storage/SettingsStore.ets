@@ -221,7 +221,7 @@ export class SettingsStore {
   private static normalize(raw: AppSettings): AppSettings {
     const base = SettingsStore.copy(DEFAULT_APP_SETTINGS);
     const useHevTun = SettingsStore.boolValue(raw.useHevTun, base.useHevTun);
-    const runtimeMode = normalizeAppRuntimeMode(raw.mode, base.mode);
+    const runtimeMode = normalizeAppRuntimeMode(SettingsStore.stringValue(raw.mode, base.mode), base.mode);
     // Hev 只是 VPN/TUN 数据面的可选适配器，转发到本次生成或完整配置的 SOCKS 入口；
     // 它不依赖、也不应擅自开启用户可见的本地 SOCKS 监听。
     const localSocksEnabled = SettingsStore.boolValue(raw.localSocksEnabled, base.localSocksEnabled);
@@ -239,8 +239,8 @@ export class SettingsStore {
       }
     }
     return {
-      language: normalizeLanguage(raw.language),
-      uiModeNight: normalizeUiModeNight(raw.uiModeNight, base.uiModeNight),
+      language: normalizeLanguage(SettingsStore.stringValue(raw.language, base.language)),
+      uiModeNight: normalizeUiModeNight(SettingsStore.stringValue(raw.uiModeNight, base.uiModeNight), base.uiModeNight),
       speedEnabled: SettingsStore.boolValue(raw.speedEnabled, base.speedEnabled),
       confirmRemove: SettingsStore.boolValue(raw.confirmRemove, base.confirmRemove),
       startScanImmediate: SettingsStore.boolValue(raw.startScanImmediate, base.startScanImmediate),
@@ -277,22 +277,22 @@ export class SettingsStore {
       proxySharingEnabled: SettingsStore.boolValue(raw.proxySharingEnabled, base.proxySharingEnabled) && localProxyAvailable,
       allowInsecure: SettingsStore.boolValue(raw.allowInsecure, base.allowInsecure),
       localDnsPort,
-      vpnInterfaceAddressIndex: normalizeVpnInterfaceAddressIndex(raw.vpnInterfaceAddressIndex, base.vpnInterfaceAddressIndex),
-      vpnBypassLan: normalizeVpnBypassLanMode(raw.vpnBypassLan, base.vpnBypassLan),
-      vpnMtu: normalizeVpnMtuValue(raw.vpnMtu, base.vpnMtu),
+      vpnInterfaceAddressIndex: normalizeVpnInterfaceAddressIndex(SettingsStore.numberValue(raw.vpnInterfaceAddressIndex, base.vpnInterfaceAddressIndex), base.vpnInterfaceAddressIndex),
+      vpnBypassLan: normalizeVpnBypassLanMode(SettingsStore.stringValue(raw.vpnBypassLan, base.vpnBypassLan), base.vpnBypassLan),
+      vpnMtu: normalizeVpnMtuValue(SettingsStore.numberValue(raw.vpnMtu, base.vpnMtu), base.vpnMtu),
       vpnDns: normalizeOptionalDnsValue(SettingsStore.stringValue(raw.vpnDns, base.vpnDns), false),
       remoteDns: normalizeRemoteDnsValue(SettingsStore.stringValue(raw.remoteDns, base.remoteDns)),
       domesticDns: normalizeOptionalDnsValue(SettingsStore.stringValue(raw.domesticDns, base.domesticDns), true),
       dnsHosts: SettingsStore.stringValue(raw.dnsHosts, base.dnsHosts),
       delayTestUrl: SettingsStore.stringValue(raw.delayTestUrl, base.delayTestUrl),
       ipApiUrl: normalizeHttpsUrl(SettingsStore.stringValue(raw.ipApiUrl, base.ipApiUrl)),
-      realPingConcurrency: normalizeRealPingConcurrency(raw.realPingConcurrency, base.realPingConcurrency),
-      homeDelayTestInterval: normalizeHomeDelayTestInterval(raw.homeDelayTestInterval, base.homeDelayTestInterval),
+      realPingConcurrency: normalizeRealPingConcurrency(SettingsStore.numberValue(raw.realPingConcurrency, base.realPingConcurrency), base.realPingConcurrency),
+      homeDelayTestInterval: normalizeHomeDelayTestInterval(SettingsStore.numberValue(raw.homeDelayTestInterval, base.homeDelayTestInterval), base.homeDelayTestInterval),
       logLevel: normalizeCoreLogLevel(SettingsStore.stringValue(raw.logLevel, base.logLevel), base.logLevel),
-      outboundDomainResolveMethod: normalizeOutboundDomainResolveMethod(raw.outboundDomainResolveMethod, base.outboundDomainResolveMethod),
+      outboundDomainResolveMethod: normalizeOutboundDomainResolveMethod(SettingsStore.stringValue(raw.outboundDomainResolveMethod, base.outboundDomainResolveMethod), base.outboundDomainResolveMethod),
       mode: runtimeMode,
       trafficMode: SettingsStore.trafficModeValue(raw.trafficMode, base.trafficMode),
-      routingDomainStrategy: normalizeRoutingDomainStrategy(raw.routingDomainStrategy, base.routingDomainStrategy),
+      routingDomainStrategy: normalizeRoutingDomainStrategy(SettingsStore.stringValue(raw.routingDomainStrategy, base.routingDomainStrategy), base.routingDomainStrategy),
       routingRules: SettingsStore.routingRulesValue(raw.routingRules),
       autoSortAfterTest: SettingsStore.boolValue(raw.autoSortAfterTest, base.autoSortAfterTest),
       autoRemoveInvalidAfterTest: SettingsStore.boolValue(raw.autoRemoveInvalidAfterTest, base.autoRemoveInvalidAfterTest),
@@ -306,22 +306,22 @@ export class SettingsStore {
     return JSON.parse(JSON.stringify(settings)) as AppSettings;
   }
 
-  private static boolValue(value: boolean | undefined, fallback: boolean): boolean {
-    return value === undefined ? fallback : value;
+  private static boolValue(value: Object | undefined | null, fallback: boolean): boolean {
+    return typeof value === 'boolean' ? value as boolean : fallback;
   }
 
-  private static stringValue(value: string | undefined, fallback: string): string {
-    return value === undefined ? fallback : value;
+  private static stringValue(value: Object | undefined | null, fallback: string): string {
+    return typeof value === 'string' ? value as string : fallback;
   }
 
-  private static numberValue(value: number | undefined, fallback: number): number {
-    if (value === undefined || Number.isNaN(value)) {
+  private static numberValue(value: Object | undefined | null, fallback: number): number {
+    if (typeof value !== 'number' || !Number.isFinite(value as number)) {
       return fallback;
     }
-    return Math.floor(value);
+    return Math.floor(value as number);
   }
 
-  private static portValue(value: number | undefined, fallback: number): number {
+  private static portValue(value: Object | undefined | null, fallback: number): number {
     const port = SettingsStore.numberValue(value, fallback);
     if (port < 1 || port > 65535) {
       return fallback;
@@ -329,32 +329,45 @@ export class SettingsStore {
     return port;
   }
 
-  private static runtimePortValue(value: number | undefined, fallback: number): number {
+  private static runtimePortValue(value: Object | undefined | null, fallback: number): number {
     const port = SettingsStore.portValue(value, fallback);
     return isReservedAppRuntimePort(port) ? fallback : port;
   }
 
-  private static trafficModeValue(value: string | undefined, fallback: string): string {
+  private static trafficModeValue(value: Object | undefined | null, fallback: string): string {
     if (value === 'global' || value === 'rules' || value === 'direct') {
       return value;
     }
     return fallback;
   }
 
-  private static arrayValue(value: string[] | undefined, fallback: string[]): string[] {
+  private static arrayValue(value: Object | undefined | null, fallback: string[]): string[] {
     // save() may wait behind another Preferences operation. Never retain a page-owned
     // array reference in that queued snapshot, otherwise later UI edits mutate the value
     // that has not been written yet and break call-order persistence guarantees.
-    return Array.isArray(value) ? value.slice() : fallback.slice();
+    if (!Array.isArray(value)) {
+      return fallback.slice();
+    }
+    const result = new Array<string>();
+    for (let index = 0; index < value.length; index++) {
+      if (typeof value[index] === 'string') {
+        result.push(value[index] as string);
+      }
+    }
+    return result;
   }
 
-  private static routingRulesValue(value: Array<RoutingRule> | undefined): Array<RoutingRule> {
+  private static routingRulesValue(value: Object | undefined | null): Array<RoutingRule> {
     if (!Array.isArray(value)) {
       return [];
     }
     const rules = new Array<RoutingRule>();
     for (let index = 0; index < value.length; index++) {
-      const item = value[index];
+      const candidate = value[index] as Object;
+      if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) {
+        continue;
+      }
+      const item = candidate as RoutingRule;
       const rule: RoutingRule = {
         id: SettingsStore.nonEmptyString(item.id, `routing-rule-${index + 1}`),
         remarks: SettingsStore.stringValue(item.remarks, '').trim(),
@@ -375,13 +388,16 @@ export class SettingsStore {
     return rules;
   }
 
-  private static cleanStringArray(value: string[] | undefined): string[] {
+  private static cleanStringArray(value: Object | undefined | null): string[] {
     if (!Array.isArray(value)) {
       return [];
     }
     const result = new Array<string>();
     for (let index = 0; index < value.length; index++) {
-      const item = value[index].trim();
+      if (typeof value[index] !== 'string') {
+        continue;
+      }
+      const item = (value[index] as string).trim();
       if (item.length > 0 && result.indexOf(item) < 0) {
         result.push(item);
       }
@@ -389,12 +405,12 @@ export class SettingsStore {
     return result;
   }
 
-  private static nonEmptyString(value: string | undefined, fallback: string): string {
+  private static nonEmptyString(value: Object | undefined | null, fallback: string): string {
     const normalized = SettingsStore.stringValue(value, '').trim();
     return normalized.length > 0 ? normalized : fallback;
   }
 
-  private static outboundTagValue(value: string | undefined): string {
+  private static outboundTagValue(value: Object | undefined | null): string {
     const normalized = SettingsStore.stringValue(value, 'proxy').trim();
     if (normalized === 'direct' || normalized === 'block' || normalized === 'proxy' ||
       normalized === 'proxy-chain' || normalized === 'policy-group') {
@@ -403,7 +419,7 @@ export class SettingsStore {
     return 'proxy';
   }
 
-  private static networkValue(value: string | undefined): string {
+  private static networkValue(value: Object | undefined | null): string {
     const normalized = SettingsStore.stringValue(value, '').trim().toLowerCase();
     if (normalized === 'tcp' || normalized === 'udp' || normalized === 'tcp,udp' || normalized === 'udp,tcp') {
       return normalized === 'udp,tcp' ? 'tcp,udp' : normalized;

@@ -29,8 +29,6 @@ export interface DeepLinkIntent {
   targetNodeId?: string;
 }
 
-const SUB_PREFIX: string = 'hey://add-source';
-const CONFIG_PREFIX: string = 'hey://add-endpoint';
 const CONTROL_PREFIX: string = 'hey://control';
 
 export function parseDeepLink(uri: string): DeepLinkIntent {
@@ -39,10 +37,10 @@ export function parseDeepLink(uri: string): DeepLinkIntent {
     return { kind: 'none', payload: '' };
   }
   const lower = trimmed.toLowerCase();
-  if (lower.startsWith(SUB_PREFIX)) {
+  if (isShortcutHost(lower, 'add-source')) {
     return buildIntent('sub', trimmed);
   }
-  if (lower.startsWith(CONFIG_PREFIX)) {
+  if (isShortcutHost(lower, 'add-endpoint')) {
     return buildIntent('config', trimmed);
   }
   if (isShortcutHost(lower, 'control')) {

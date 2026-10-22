@@ -421,7 +421,7 @@ struct JsonImportPage {
     try {
       file = fs.openSync(uri, fs.OpenMode.READ_ONLY);
       const decoder = util.TextDecoder.create('utf-8');
-      const chunks = new Array<string>();
+      const chunks = new Array<Uint8Array>();
       let totalBytes = 0;
       let readLength = 0;
       do {
@@ -432,10 +432,19 @@ struct JsonImportPage {
           if (totalBytes > MAX_IMPORT_FILE_BYTES) {
             throw new Error(this.t('jsonImport.fileTooLarge'));
           }
-          chunks.push(decoder.decode(new Uint8Array(buffer, 0, readLength)));
+          // UTF-8 code points may straddle the 8 KiB read boundary. Preserve the
+          // raw bytes and decode once after EOF instead of decoding each chunk
+          // independently and corrupting a split multi-byte node name.
+          chunks.push(new Uint8Array(buffer.slice(0, readLength)));
         }
       } while (readLength > 0);
-      return chunks.join('');
+      const merged = new Uint8Array(totalBytes);
+      let offset = 0;
+      for (let index = 0; index < chunks.length; index++) {
+        merged.set(chunks[index], offset);
+        offset += chunks[index].byteLength;
+      }
+      return decoder.decodeToString(merged);
     } finally {
       if (file !== null) {
         fs.closeSync(file);

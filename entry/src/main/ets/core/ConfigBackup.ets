@@ -7,8 +7,8 @@ import { CustomAssetUrl } from '../storage/AssetStore';
 // 路由规则）、自定义 geo 资源 URL。流量统计与桌面控制卡片属设备本地状态，迁移会污染目标
 // 设备，故不纳入。
 //
-// 解析只做结构校验（字段存在性 + 类型），深度归一化交给各 Store 写回时的 normalize，
-// 避免在此重复一套校验逻辑、也更能容忍跨版本的字段增减。
+// 解析校验恢复必需的结构与关键载荷类型；可选字段的深度归一化交给各 Store，
+// 避免在此重复一套版本兼容逻辑，同时不让错误类型把现有配置恢复成空值。
 
 export const CONFIG_BACKUP_APP_TAG: string = 'hey-vpn';
 export const CONFIG_BACKUP_VERSION: number = 1;
@@ -86,6 +86,13 @@ export function parseConfigBackup(text: string): ConfigBackupParseResult {
   const settings = parsed['settings'];
   const assets = parsed['assets'];
   if (!isPlainObject(profile) || !isPlainObject(subscriptions) || !isPlainObject(settings) || !Array.isArray(assets)) {
+    return { ok: false, error: 'missing-fields', backup: null };
+  }
+  const profileRecord = profile as Record<string, Object>;
+  const subscriptionRecord = subscriptions as Record<string, Object>;
+  if (typeof profileRecord['id'] !== 'string' || (profileRecord['id'] as string).length === 0 ||
+    typeof profileRecord['outboundJson'] !== 'string' ||
+    (!Array.isArray(subscriptionRecord['groups']) && !Array.isArray(subscriptionRecord['nodes']))) {
     return { ok: false, error: 'missing-fields', backup: null };
   }
 

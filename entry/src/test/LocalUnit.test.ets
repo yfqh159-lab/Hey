@@ -517,6 +517,79 @@ export default function localUnitTest() {
       expect(empty.settings?.mode ?? '').assertEqual(APP_MODE_VPN);
     });
 
+    it('sanitizes wrong runtime types inside restored settings instead of retaining or throwing', 0, () => {
+      const malformed = JSON.stringify({
+        mode: APP_MODE_PROXY_ONLY,
+        speedEnabled: 'yes',
+        localSocksPort: '19080',
+        perAppProxyList: [100, 'com.example.valid', null],
+        routingRules: [null, {
+          id: 7,
+          remarks: {},
+          domain: [1, 'example.com', null, 'example.com'],
+          enabled: 'no'
+        }]
+      });
+      const selected = SettingsStore.selectStoredSettings(malformed, '');
+      expect(selected.source).assertEqual('primary');
+      expect(selected.settings?.speedEnabled ?? true).assertFalse();
+      expect(selected.settings?.localSocksPort ?? 0).assertEqual(DEFAULT_APP_SETTINGS.localSocksPort);
+      expect(selected.settings?.perAppProxyList.length ?? 0).assertEqual(1);
+      expect(selected.settings?.perAppProxyList[0] ?? '').assertEqual('com.example.valid');
+      expect(selected.settings?.routingRules.length ?? 0).assertEqual(1);
+      expect(selected.settings?.routingRules[0].domain[0] ?? '').assertEqual('example.com');
+      expect(selected.settings?.routingRules[0].enabled ?? false).assertTrue();
+    });
+
+    it('skips malformed subscription groups and nodes while normalizing valid entries', 0, () => {
+      const malformed = JSON.stringify({
+        url: 9,
+        selectedNodeId: {},
+        nodes: [],
+        updatedAt: 'now',
+        selectedGroupId: 4,
+        groups: [null, {
+          id: 3,
+          name: {},
+          url: 'https://example.com/sub',
+          enabled: 'yes',
+          nodes: [null, { id: 'bad', outboundJson: 42 }, {
+            id: 'good',
+            name: 'Good',
+            protocol: 'vless',
+            outboundJson: VLESS_REALITY_OUTBOUND,
+            sourceUrl: '',
+            rawLink: '',
+            updatedAt: 1,
+            delayMs: -1,
+            delayTestAt: 0,
+            delayStatus: ''
+          }]
+        }]
+      });
+      const selected = SubscriptionStore.selectStoredProfile(malformed, '');
+      expect(selected.source).assertEqual('primary');
+      expect(selected.profile?.groups.length ?? 0).assertEqual(1);
+      expect(selected.profile?.groups[0].nodes.length ?? 0).assertEqual(1);
+      expect(selected.profile?.groups[0].nodes[0].id ?? '').assertEqual('good');
+      expect(selected.profile?.groups[0].enabled ?? false).assertTrue();
+    });
+
+    it('rejects selected profiles with wrong payload types and sanitizes optional metadata', 0, () => {
+      const invalidPayload = JSON.stringify({ id: 'default-profile', outboundJson: 42 });
+      expect(ProfileStore.selectStoredProfile(invalidPayload, '').source).assertEqual('invalid');
+
+      const metadata = JSON.stringify({
+        id: 'default-profile',
+        name: 9,
+        outboundJson: VLESS_REALITY_OUTBOUND,
+        updatedAt: 'now'
+      });
+      const selected = ProfileStore.selectStoredProfile(metadata, '');
+      expect(selected.profile?.name ?? '').assertEqual('Default Xray Profile');
+      expect(selected.profile?.updatedAt ?? -1).assertEqual(0);
+    });
+
     it('recovers the persisted local-proxy runtime state without changing it to TUN', 0, () => {
       const state = buildControlCardFormData(
         'zh-rCN', ConnectionStatus.RUNNING, '00:10', '', false, APP_MODE_PROXY_ONLY);
@@ -5312,6 +5385,8 @@ export default function localUnitTest() {
         .assertEqual('sub.example.com');
       expect(subscriptionNameFromDeepLink('https://[2001:db8::1]:8443/sub')).assertEqual('2001:db8::1');
       expect(subscriptionNameFromDeepLink('')).assertEqual('Subscription');
+      expect(parseDeepLink('hey://add-source-evil?url=https%3A%2F%2Fexample.com').kind).assertEqual('none');
+      expect(parseDeepLink('hey://add-endpoint.evil?url=vmess%3A%2F%2Fpayload').kind).assertEqual('none');
     });
 
     it('extracts Harmony sendData text imports ACTION_SEND', 0, () => {
@@ -5613,8 +5688,12 @@ export default function localUnitTest() {
       expect(parseConfigBackup('{"app":"hey-vpn","version":999}').error).assertEqual('unsupported-version');
       expect(parseConfigBackup('{"app":"hey-vpn","version":1,"profile":{},"subscriptions":{},"settings":{}}').error)
         .assertEqual('missing-fields');
-      const complete = '{"app":"hey-vpn","version":1,"exportedAt":5,"profile":{},"subscriptions":{"groups":[]},"settings":{},"assets":[]}';
+      const complete = '{"app":"hey-vpn","version":1,"exportedAt":5,"profile":{"id":"default-profile","outboundJson":""},"subscriptions":{"groups":[]},"settings":{},"assets":[]}';
       expect(parseConfigBackup(complete).ok).assertTrue();
+      const wrongProfilePayload = '{"app":"hey-vpn","version":1,"profile":{"id":"default-profile","outboundJson":42},"subscriptions":{"groups":[]},"settings":{},"assets":[]}';
+      expect(parseConfigBackup(wrongProfilePayload).error).assertEqual('missing-fields');
+      const missingSubscriptionArrays = '{"app":"hey-vpn","version":1,"profile":{"id":"default-profile","outboundJson":""},"subscriptions":{},"settings":{},"assets":[]}';
+      expect(parseConfigBackup(missingSubscriptionArrays).error).assertEqual('missing-fields');
     });
   });
 
