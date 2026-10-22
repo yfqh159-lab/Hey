@@ -576,6 +576,17 @@ export default function localUnitTest() {
       expect(selected.profile?.groups[0].enabled ?? false).assertTrue();
     });
 
+    it('does not derive a visible legacy subscription name from URL credentials', 0, () => {
+      const legacy = JSON.stringify({
+        url: 'https://user:password@sub.example.com:8443/private?token=secret',
+        selectedNodeId: '',
+        nodes: [],
+        updatedAt: 0
+      });
+      const selected = SubscriptionStore.selectStoredProfile(legacy, '');
+      expect(selected.profile?.groups[0].name ?? '').assertEqual('sub.example.com');
+    });
+
     it('rejects selected profiles with wrong payload types and sanitizes optional metadata', 0, () => {
       const invalidPayload = JSON.stringify({ id: 'default-profile', outboundJson: 42 });
       expect(ProfileStore.selectStoredProfile(invalidPayload, '').source).assertEqual('invalid');
@@ -5713,15 +5724,22 @@ export default function localUnitTest() {
       expect(parseConfigBackup('[]').error).assertEqual('invalid-format');
       expect(parseConfigBackup('{"app":"other","version":1}').error).assertEqual('not-hey-backup');
       expect(parseConfigBackup('{"app":"hey-vpn","version":0}').error).assertEqual('unsupported-version');
+      expect(parseConfigBackup('{"app":"hey-vpn","version":0.5}').error).assertEqual('unsupported-version');
       expect(parseConfigBackup('{"app":"hey-vpn","version":999}').error).assertEqual('unsupported-version');
       expect(parseConfigBackup('{"app":"hey-vpn","version":1,"profile":{},"subscriptions":{},"settings":{}}').error)
         .assertEqual('missing-fields');
-      const complete = '{"app":"hey-vpn","version":1,"exportedAt":5,"profile":{"id":"default-profile","outboundJson":""},"subscriptions":{"groups":[]},"settings":{},"assets":[]}';
+      const complete = '{"app":"hey-vpn","version":1,"exportedAt":5,"profile":{"id":"default-profile","outboundJson":""},"subscriptions":{"groups":[]},"settings":{"language":"auto","mode":"VPN","speedEnabled":false,"routingRules":[]},"assets":[]}';
       expect(parseConfigBackup(complete).ok).assertTrue();
-      const wrongProfilePayload = '{"app":"hey-vpn","version":1,"profile":{"id":"default-profile","outboundJson":42},"subscriptions":{"groups":[]},"settings":{},"assets":[]}';
+      const wrongProfilePayload = '{"app":"hey-vpn","version":1,"profile":{"id":"default-profile","outboundJson":42},"subscriptions":{"groups":[]},"settings":{"language":"auto","mode":"VPN","speedEnabled":false,"routingRules":[]},"assets":[]}';
       expect(parseConfigBackup(wrongProfilePayload).error).assertEqual('missing-fields');
-      const missingSubscriptionArrays = '{"app":"hey-vpn","version":1,"profile":{"id":"default-profile","outboundJson":""},"subscriptions":{},"settings":{},"assets":[]}';
+      const missingSubscriptionArrays = '{"app":"hey-vpn","version":1,"profile":{"id":"default-profile","outboundJson":""},"subscriptions":{},"settings":{"language":"auto","mode":"VPN","speedEnabled":false,"routingRules":[]},"assets":[]}';
       expect(parseConfigBackup(missingSubscriptionArrays).error).assertEqual('missing-fields');
+      const emptySettings = '{"app":"hey-vpn","version":1,"profile":{"id":"default-profile","outboundJson":""},"subscriptions":{"groups":[]},"settings":{},"assets":[]}';
+      expect(parseConfigBackup(emptySettings).error).assertEqual('missing-fields');
+      const malformedGroup = '{"app":"hey-vpn","version":1,"profile":{"id":"default-profile","outboundJson":""},"subscriptions":{"groups":[null]},"settings":{"language":"auto","mode":"VPN","speedEnabled":false,"routingRules":[]},"assets":[]}';
+      expect(parseConfigBackup(malformedGroup).error).assertEqual('missing-fields');
+      const malformedAsset = '{"app":"hey-vpn","version":1,"profile":{"id":"default-profile","outboundJson":""},"subscriptions":{"groups":[]},"settings":{"language":"auto","mode":"VPN","speedEnabled":false,"routingRules":[]},"assets":[null]}';
+      expect(parseConfigBackup(malformedAsset).error).assertEqual('missing-fields');
     });
   });
 

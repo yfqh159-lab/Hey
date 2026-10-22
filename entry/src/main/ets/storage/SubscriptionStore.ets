@@ -9,6 +9,7 @@ import {
 } from '../core/SubscriptionGroups';
 import { resolveGlobalSelectedNodeId, resolveRetainedSelectedNodeId } from '../core/SubscriptionSelection';
 import { normalizeConfigInput } from '../core/XrayConfig';
+import { subscriptionNameFromDeepLink } from '../core/DeepLink';
 
 const PREFERENCES_NAME: string = 'hey_vpn_subscription';
 const SUBSCRIPTION_KEY: string = 'subscription_profile';
@@ -956,12 +957,9 @@ export class SubscriptionStore {
   }
 
   private static nameFromUrl(url: string): string {
-    if (url.length === 0) {
-      return 'Subscription';
-    }
-    const stripped = url.replace('https://', '').replace('http://', '');
-    const slash = stripped.indexOf('/');
-    return slash >= 0 ? stripped.substring(0, slash) : stripped;
+    // Subscription URLs can embed Basic Auth or token-like userinfo. Derived group names
+    // are rendered and logged, so reuse the credential-stripping authority parser.
+    return subscriptionNameFromDeepLink(url);
   }
 
   private static makeGroupId(value: string): string {

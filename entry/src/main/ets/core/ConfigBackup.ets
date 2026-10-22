@@ -77,7 +77,7 @@ export function parseConfigBackup(text: string): ConfigBackupParseResult {
   }
 
   const version = typeof parsed['version'] === 'number' ? parsed['version'] as number : 0;
-  if (version <= 0 || version > CONFIG_BACKUP_VERSION) {
+  if (!Number.isFinite(version) || Math.floor(version) !== version || version !== CONFIG_BACKUP_VERSION) {
     return { ok: false, error: 'unsupported-version', backup: null };
   }
 
@@ -90,9 +90,14 @@ export function parseConfigBackup(text: string): ConfigBackupParseResult {
   }
   const profileRecord = profile as Record<string, Object>;
   const subscriptionRecord = subscriptions as Record<string, Object>;
+  const settingsRecord = settings as Record<string, Object>;
   if (typeof profileRecord['id'] !== 'string' || (profileRecord['id'] as string).length === 0 ||
     typeof profileRecord['outboundJson'] !== 'string' ||
-    (!Array.isArray(subscriptionRecord['groups']) && !Array.isArray(subscriptionRecord['nodes']))) {
+    !Array.isArray(subscriptionRecord['groups']) ||
+    typeof settingsRecord['language'] !== 'string' || typeof settingsRecord['mode'] !== 'string' ||
+    typeof settingsRecord['speedEnabled'] !== 'boolean' || !Array.isArray(settingsRecord['routingRules']) ||
+    !isValidSubscriptionGroups(subscriptionRecord['groups'] as Array<Object>) ||
+    !isValidAssetRecords(assets as Array<Object>)) {
     return { ok: false, error: 'missing-fields', backup: null };
   }
 
@@ -111,4 +116,46 @@ export function parseConfigBackup(text: string): ConfigBackupParseResult {
 
 function isPlainObject(value: Object | undefined): boolean {
   return value !== undefined && value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isValidSubscriptionGroups(groups: Array<Object>): boolean {
+  for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
+    const group = groups[groupIndex];
+    if (!isPlainObject(group)) {
+      return false;
+    }
+    const record = group as Record<string, Object>;
+    if (typeof record['id'] !== 'string' || typeof record['name'] !== 'string' ||
+      typeof record['url'] !== 'string' || !Array.isArray(record['nodes'])) {
+      return false;
+    }
+    const nodes = record['nodes'] as Array<Object>;
+    for (let nodeIndex = 0; nodeIndex < nodes.length; nodeIndex++) {
+      const node = nodes[nodeIndex];
+      if (!isPlainObject(node)) {
+        return false;
+      }
+      const nodeRecord = node as Record<string, Object>;
+      if (typeof nodeRecord['id'] !== 'string' || typeof nodeRecord['name'] !== 'string' ||
+        typeof nodeRecord['outboundJson'] !== 'string') {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+function isValidAssetRecords(assets: Array<Object>): boolean {
+  for (let index = 0; index < assets.length; index++) {
+    const asset = assets[index];
+    if (!isPlainObject(asset)) {
+      return false;
+    }
+    const record = asset as Record<string, Object>;
+    if (typeof record['id'] !== 'string' || typeof record['name'] !== 'string' ||
+      typeof record['url'] !== 'string') {
+      return false;
+    }
+  }
+  return true;
 }

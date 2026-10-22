@@ -1122,9 +1122,13 @@ if (!settings.includes("return typeof value === 'boolean' ? value as boolean : f
   !profile.includes("typeof profile.name === 'string'") ||
   !profile.includes("Number.isFinite(profile.updatedAt)") ||
   !backup.includes("typeof profileRecord['outboundJson'] !== 'string'") ||
-  !backup.includes("!Array.isArray(subscriptionRecord['groups']) && !Array.isArray(subscriptionRecord['nodes'])") ||
+  !backup.includes("!Array.isArray(subscriptionRecord['groups'])") ||
+  !backup.includes("typeof settingsRecord['speedEnabled'] !== 'boolean'") ||
+  !backup.includes('!isValidSubscriptionGroups(') ||
+  !backup.includes('!isValidAssetRecords(') ||
   !tests.includes("sanitizes wrong runtime types inside restored settings") ||
-  !tests.includes("skips malformed subscription groups and nodes")) {
+  !tests.includes("skips malformed subscription groups and nodes") ||
+  !tests.includes('const malformedGroup =') || !tests.includes('const malformedAsset =')) {
   throw new Error('restored configuration can retain wrong runtime types or throw on malformed nested data');
 }
 NODE
@@ -1172,6 +1176,16 @@ if (!limits.includes('MAX_EXTERNAL_IMPORT_TEXT_CHARS: number = 2 * 1024 * 1024')
 }
 NODE
 printf 'bounded external configuration input verification passed\n'
+
+if ! grep -Fq "import { subscriptionNameFromDeepLink } from '../core/DeepLink';" \
+  "entry/src/main/ets/storage/SubscriptionStore.ets" || \
+  ! grep -Fq 'return subscriptionNameFromDeepLink(url);' \
+  "entry/src/main/ets/storage/SubscriptionStore.ets" || \
+  ! grep -Fq 'does not derive a visible legacy subscription name from URL credentials' \
+  "entry/src/test/LocalUnit.test.ets"; then
+  throw_error "legacy subscription names can expose URL credentials"
+fi
+printf 'credential-safe legacy subscription naming verification passed\n'
 
 # Keep the everyday node-add surface deliberately small. Existing full-config,
 # proxy-chain, and policy-group records remain editable from NodeDetail for
