@@ -2,6 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
+import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { markRuntimeSettingsRestartNeeded } from '../core/SettingsChange';
 import {
   clearVisiblePerAppPackages,
@@ -621,19 +622,33 @@ struct PerAppPage {
   }
 
   private async exportProxyAppsToClipboard(): Promise<void> {
-    const systemPasteboard = pasteboard.getSystemPasteboard();
-    const pasteData = pasteboard.createData(
-      pasteboard.MIMETYPE_TEXT_PLAIN,
-      exportPerAppProxyList(this.perAppProxyBypass, this.perAppProxyList, SELF_BUNDLE_NAME)
-    );
-    await systemPasteboard.setData(pasteData);
-    const message = this.f1('perApp.exported', 'count', this.perAppProxyList.length.toString());
     try {
-      this.getUIContext().getPromptAction().showToast({ message });
-    } catch (err) {
-      // ignore
+      const systemPasteboard = pasteboard.getSystemPasteboard();
+      const pasteData = pasteboard.createData(
+        pasteboard.MIMETYPE_TEXT_PLAIN,
+        exportPerAppProxyList(this.perAppProxyBypass, this.perAppProxyList, SELF_BUNDLE_NAME)
+      );
+      await systemPasteboard.setData(pasteData);
+      const message = this.f1('perApp.exported', 'count', this.perAppProxyList.length.toString());
+      try {
+        this.getUIContext().getPromptAction().showToast({ message });
+      } catch (_toastError) {
+        // Clipboard write already succeeded; UI feedback is best effort.
+      }
+      SHARED_RUNTIME_CONTROLLER.appendLog(message);
+    } catch (error) {
+      const message = this.f1(
+        'export.copyFailed',
+        'error',
+        redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error))
+      );
+      SHARED_RUNTIME_CONTROLLER.appendLog(message);
+      try {
+        this.getUIContext().getPromptAction().showToast({ message });
+      } catch (_toastError) {
+        // The diagnostic log remains available if the page is detached.
+      }
     }
-    SHARED_RUNTIME_CONTROLLER.appendLog(message);
   }
 
   private async loadState(): Promise<void> {

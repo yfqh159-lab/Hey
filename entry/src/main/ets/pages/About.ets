@@ -241,7 +241,7 @@ struct AboutPage {
         showDivider: false,
         onAction: () => {
           SHARED_RUNTIME_CONTROLLER.appendLog(this.f1('log.presetOpened', 'title', this.t('about.license.title')));
-          promptAction.showToast({ message: this.t('about.license.detail') });
+          this.toast(this.t('about.license.detail'));
         }
       })
     }
@@ -287,9 +287,9 @@ struct AboutPage {
         const systemPasteboard = pasteboard.getSystemPasteboard();
         const pasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, url);
         systemPasteboard.setDataSync(pasteData);
-        promptAction.showToast({ message: this.t('about.action.copied') });
+        this.toast(this.t('about.action.copied'));
       } catch (clipboardError) {
-        promptAction.showToast({ message: this.t('about.action.failed') });
+        this.toast(this.t('about.action.failed'));
       }
     }
   }
@@ -323,6 +323,14 @@ struct AboutPage {
 
   private t(key: string): string {
     return translate(this.language, key);
+  }
+
+  private toast(message: string): void {
+    try {
+      promptAction.showToast({ message });
+    } catch (_error) {
+      // Opening/copying remains complete even if the page has detached.
+    }
   }
 
   private f1(key: string, name: string, value: string): string {

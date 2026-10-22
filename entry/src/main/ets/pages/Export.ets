@@ -463,7 +463,12 @@ struct ExportPage {
   }
 
   private showToast(text: string): void {
-    promptAction.showToast({ message: text });
+    try {
+      promptAction.showToast({ message: text });
+    } catch (_error) {
+      // Export/share results must not become unhandled failures after the page
+      // loses its active window.
+    }
   }
 
   private previewLines(): Array<ExportLine> {

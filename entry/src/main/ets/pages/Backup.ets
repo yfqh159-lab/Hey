@@ -174,10 +174,10 @@ struct BackupPage {
         return;
       }
       this.writeTextToUri(uris[0], text);
-      promptAction.showToast({ message: this.t('backup.export.success') });
+      this.toast(this.t('backup.export.success'));
       SHARED_RUNTIME_CONTROLLER.appendLog(this.t('backup.export.success'));
     } catch (error) {
-      promptAction.showToast({ message: this.f1('backup.export.failed', 'error', this.stringifyError(error)) });
+      this.toast(this.f1('backup.export.failed', 'error', this.stringifyError(error)));
     } finally {
       this.busy = false;
     }
@@ -200,12 +200,12 @@ struct BackupPage {
       const content = this.readTextFromUri(uris[0]);
       const result = parseConfigBackup(content);
       if (!result.ok || result.backup === null) {
-        promptAction.showToast({ message: this.mapParseError(result.error) });
+        this.toast(this.mapParseError(result.error));
         return;
       }
       this.confirmImport(result.backup);
     } catch (error) {
-      promptAction.showToast({ message: this.f1('backup.import.failed', 'error', this.stringifyError(error)) });
+      this.toast(this.f1('backup.import.failed', 'error', this.stringifyError(error)));
     } finally {
       this.busy = false;
     }
@@ -213,7 +213,7 @@ struct BackupPage {
 
   private confirmImport(backup: ConfigBackup): void {
     if (SHARED_RUNTIME_CONTROLLER.mayOwnNetwork()) {
-      promptAction.showToast({ message: this.t('backup.import.disconnectFirst') });
+      this.toast(this.t('backup.import.disconnectFirst'));
       return;
     }
     const detail = this.f1('backup.import.confirmMessage', 'count', this.countNodes(backup).toString());
@@ -249,7 +249,7 @@ struct BackupPage {
     // Re-check at execution time so the ordinary UI flow cannot restore over a session that
     // became active while the dialog was visible.
     if (SHARED_RUNTIME_CONTROLLER.mayOwnNetwork()) {
-      promptAction.showToast({ message: this.t('backup.import.disconnectFirst') });
+      this.toast(this.t('backup.import.disconnectFirst'));
       return;
     }
     this.busy = true;
@@ -260,10 +260,10 @@ struct BackupPage {
       this.writeFilesDirFile(context, PRE_IMPORT_BACKUP_FILE, serializeConfigBackup(current));
       await BackupManager.applyBackup(context, backup);
       this.refreshSummary(backup);
-      promptAction.showToast({ message: this.t('backup.import.success') });
+      this.toast(this.t('backup.import.success'));
       SHARED_RUNTIME_CONTROLLER.appendLog(this.t('backup.import.success'));
     } catch (error) {
-      promptAction.showToast({ message: this.f1('backup.import.failed', 'error', this.stringifyError(error)) });
+      this.toast(this.f1('backup.import.failed', 'error', this.stringifyError(error)));
     } finally {
       this.busy = false;
     }
@@ -438,6 +438,15 @@ struct BackupPage {
 
   private t(key: string): string {
     return translate(this.language, key);
+  }
+
+  private toast(message: string): void {
+    try {
+      promptAction.showToast({ message });
+    } catch (_error) {
+      // File transaction outcome is authoritative even if ArkUI feedback is no
+      // longer available after returning from a system document picker.
+    }
   }
 
   private f1(key: string, name: string, value: string): string {

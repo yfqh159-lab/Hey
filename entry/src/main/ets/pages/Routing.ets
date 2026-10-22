@@ -789,15 +789,32 @@ struct RoutingPage {
       }
       return;
     }
-    const systemPasteboard = pasteboard.getSystemPasteboard();
-    const pasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, exportRoutingRulesJson(this.routingRules));
-    await systemPasteboard.setData(pasteData);
-    const message = this.f1('log.routingRulesExported', 'count', this.routingRules.length.toString());
-    SHARED_RUNTIME_CONTROLLER.appendLog(message);
     try {
-      this.getUIContext().getPromptAction().showToast({ message });
-    } catch (err) {
-      // ignore
+      const systemPasteboard = pasteboard.getSystemPasteboard();
+      const pasteData = pasteboard.createData(
+        pasteboard.MIMETYPE_TEXT_PLAIN,
+        exportRoutingRulesJson(this.routingRules)
+      );
+      await systemPasteboard.setData(pasteData);
+      const message = this.f1('log.routingRulesExported', 'count', this.routingRules.length.toString());
+      SHARED_RUNTIME_CONTROLLER.appendLog(message);
+      try {
+        this.getUIContext().getPromptAction().showToast({ message });
+      } catch (_toastError) {
+        // Clipboard write already succeeded; UI feedback is best effort.
+      }
+    } catch (error) {
+      const message = this.f1(
+        'export.copyFailed',
+        'error',
+        redactDiagnosticText(error instanceof Error ? error.message : JSON.stringify(error))
+      );
+      SHARED_RUNTIME_CONTROLLER.appendLog(message);
+      try {
+        this.getUIContext().getPromptAction().showToast({ message });
+      } catch (_toastError) {
+        // The diagnostic log remains available if the page is detached.
+      }
     }
   }
 

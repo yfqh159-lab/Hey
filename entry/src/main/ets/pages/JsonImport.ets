@@ -94,7 +94,7 @@ struct JsonImportPage {
                     if (result === PasteButtonOnClickResult.SUCCESS) {
                       this.pasteFromClipboard();
                     } else {
-                      promptAction.showToast({ message: this.t('prompt.clipboardReadFailed') });
+                      this.toast(this.t('prompt.clipboardReadFailed'));
                     }
                   })
 
@@ -328,7 +328,7 @@ struct JsonImportPage {
         return;
       }
       SHARED_RUNTIME_CONTROLLER.appendLog(this.t('jsonImport.imported'));
-      promptAction.showToast({ message: this.t('jsonImport.imported') });
+      this.toast(this.t('jsonImport.imported'));
       router.back();
     } catch (error) {
       this.lastError = this.f1('jsonImport.importFailed', 'error', this.stringifyError(error));
@@ -367,7 +367,7 @@ struct JsonImportPage {
         markRuntimeSettingsRestartNeeded();
       }
       SHARED_RUNTIME_CONTROLLER.appendLog(this.t('jsonImport.updated'));
-      promptAction.showToast({ message: this.t('jsonImport.updated') });
+      this.toast(this.t('jsonImport.updated'));
       router.back();
     } catch (error) {
       this.lastError = this.f1('jsonImport.saveFailed', 'error', this.stringifyError(error));
@@ -391,15 +391,15 @@ struct JsonImportPage {
           }
           this.outboundJson = text.trim();
           this.validateConfig();
-          promptAction.showToast({ message: this.t('prompt.pastedJsonConfig') });
+          this.toast(this.t('prompt.pastedJsonConfig'));
         } else {
-          promptAction.showToast({ message: this.t('prompt.clipboardTextEmpty') });
+          this.toast(this.t('prompt.clipboardTextEmpty'));
         }
       } else {
-        promptAction.showToast({ message: this.t('prompt.clipboardNoData') });
+        this.toast(this.t('prompt.clipboardNoData'));
       }
     } catch (error) {
-      promptAction.showToast({ message: this.t('prompt.clipboardReadFailed') });
+      this.toast(this.t('prompt.clipboardReadFailed'));
     }
   }
 
@@ -422,7 +422,7 @@ struct JsonImportPage {
       this.outboundJson = content.trim();
       this.lastError = '';
       this.validateConfig();
-      promptAction.showToast({ message: this.t('jsonImport.fileLoaded') });
+      this.toast(this.t('jsonImport.fileLoaded'));
     } catch (error) {
       this.lastError = this.f1('jsonImport.fileReadFailed', 'error', this.stringifyError(error));
     }
@@ -476,6 +476,15 @@ struct JsonImportPage {
 
   private t(key: string): string {
     return translate(this.language, key);
+  }
+
+  private toast(message: string): void {
+    try {
+      promptAction.showToast({ message });
+    } catch (_error) {
+      // Saving/importing and navigation must not be reclassified as failed just
+      // because the page lost its window before secondary feedback was shown.
+    }
   }
 
   private f1(key: string, name: string, value: string): string {
