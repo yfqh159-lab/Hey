@@ -57,6 +57,11 @@ CMake copies the prebuilt `.so` files from
 `entry/src/main/cpp/prebuilt/arm64-v8a/` into the HAP native library directory
 after building `libheyvpn.so`.
 
+`prebuilt/arm64-v8a/SHA256SUMS` pins the four reviewed native artifacts. After
+intentionally rebuilding any packaged core or TUN adapter, review the resulting
+binary and update that manifest in the same commit; the source verification gate
+rejects an unreviewed binary replacement.
+
 `XRAY_LOCATION_ASSET` is initialized before any Go c-shared library is loaded:
 the UI process does this during `EntryAbility.onCreate`, while the VPN extension
 does it before starting either Xray or sing-box. The bridge refuses a late

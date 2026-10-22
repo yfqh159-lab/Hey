@@ -640,6 +640,22 @@ if grep -Fq 'lower.startsWith(SUB_PREFIX)' "entry/src/main/ets/core/DeepLink.ets
 fi
 printf 'external import exact-host verification passed\n'
 
+node <<'NODE'
+const fs = require('fs');
+const deepLink = fs.readFileSync('entry/src/main/ets/core/DeepLink.ets', 'utf8');
+const sharedText = fs.readFileSync('entry/src/main/ets/core/SharedTextImport.ets', 'utf8');
+const tests = fs.readFileSync('entry/src/test/LocalUnit.test.ets', 'utf8');
+if (!deepLink.includes('isExternalUriTooLarge(uri)') ||
+  !deepLink.includes("return isExternalUriTooLarge(uri) ? '' : uri;") ||
+  !sharedText.includes('MAX_EXTERNAL_IMPORT_TEXT_CHARS') ||
+  !sharedText.includes('return oversizedSharedTextMarker();') ||
+  !sharedText.includes('if (totalLength > MAX_EXTERNAL_IMPORT_TEXT_CHARS)') ||
+  !tests.includes('expect(bounded.length).assertEqual(MAX_EXTERNAL_IMPORT_TEXT_CHARS + 1);')) {
+  throw new Error('external Want payloads can reach AppStorage without an entry-point bound');
+}
+NODE
+printf 'bounded external Want staging verification passed\n'
+
 # Camera, photo, and clipboard results are often complete share links containing UUIDs,
 # passwords, or subscription tokens. Keep the raw value only in page memory for the
 # explicit confirmation action; the screenshot-visible TextArea and preview receive no
@@ -864,6 +880,7 @@ printf 'subscription mutation transaction verification passed\n'
 node <<'NODE'
 const fs = require('fs');
 const store = fs.readFileSync('entry/src/main/ets/storage/ControlCardStore.ets', 'utf8');
+const model = fs.readFileSync('entry/src/main/ets/core/ControlCard.ets', 'utf8');
 for (const name of ['loadFormIds', 'loadState', 'saveState']) {
   const methodAt = store.indexOf(`  static ${name}(`);
   const nextMethodAt = store.indexOf('\n  static ', methodAt + 1);
@@ -887,7 +904,13 @@ if (!store.slice(saveIdsAt, operationAt).includes('return ControlCardStore.enque
   !store.includes('private static formMutationTail: Promise<void> = Promise.resolve();') ||
   !store.includes('ControlCardStore.operationTail = task.then(') ||
   !store.includes('ControlCardStore.formMutationTail = task.then(') ||
-  !store.includes('const idsSnapshot = ControlCardStore.uniqueIds(ids);')) {
+  !store.includes('const idsSnapshot = ControlCardStore.uniqueIds(ids);') ||
+  !store.includes('export function isValidControlCardFormId(formId: string): boolean') ||
+  !model.includes('const storedPrimaryActionUri = normalizePrimaryActionUri(data.primaryActionUri);') ||
+  !model.includes('toggleUri: CONTROL_CARD_TOGGLE_URI,') ||
+  !model.includes('startUri: CONTROL_CARD_START_URI,') ||
+  !model.includes('stopUri: CONTROL_CARD_STOP_URI,') ||
+  !model.includes('scanUri: CONTROL_CARD_SCAN_URI,')) {
   throw new Error('control-card operation queues or form-ID input snapshot are missing');
 }
 NODE
@@ -918,6 +941,9 @@ printf 'authoritative control-card VPN reconciliation verification passed\n'
 node <<'NODE'
 const fs = require('fs');
 const source = fs.readFileSync('entry/src/main/ets/services/ControlCardManager.ets', 'utf8');
+if ((source.match(/if \(!isValidControlCardFormId\(formId\)\)/g) ?? []).length < 3) {
+  throw new Error('control-card system callbacks accept unbounded form identifiers');
+}
 for (const method of ['registerForm', 'unregisterForm', 'refreshForm', 'sync']) {
   const methodAt = source.indexOf(`  async ${method}(`);
   const nextPrivateAt = source.indexOf('\n  private async ', methodAt);
@@ -978,6 +1004,12 @@ const scheduler = fs.readFileSync('entry/src/main/ets/services/SubscriptionBackg
 const worker = fs.readFileSync('entry/src/main/ets/work/SubscriptionUpdateWorkAbility.ets', 'utf8');
 const groups = fs.readFileSync('entry/src/main/ets/core/SubscriptionGroups.ets', 'utf8');
 const controller = fs.readFileSync('entry/src/main/ets/features/subscriptions/SubscriptionsController.ets', 'utf8');
+if (!worker.includes('let subscriptionWorkInFlight: Promise<void> | null = null;') ||
+  !worker.includes('if (subscriptionWorkInFlight !== null)') ||
+  !worker.includes('this.releaseWork(operation)') ||
+  !worker.includes('normalized.length <= MAX_LEGACY_WORK_GROUP_ID_CHARS')) {
+  throw new Error('WorkScheduler callbacks can accumulate behind one stuck subscription update');
+}
 const tests = fs.readFileSync('entry/src/test/LocalUnit.test.ets', 'utf8');
 if (!scheduler.includes('workScheduler.startWork(SubscriptionBackgroundScheduler.buildWorkInfo(plan));') ||
   !scheduler.includes('workId: SUBSCRIPTION_AUTO_UPDATE_WORK_ID,') ||
@@ -1086,6 +1118,38 @@ if (loadAt < 0 || saveAt < 0 || enqueueAt < 0 ||
 }
 NODE
 printf 'traffic-total storage ordering verification passed\n'
+
+# Every persisted collection/state parser that can run during startup must reject an
+# oversized record before JSON.parse/readTextSync and must not normalize wholly malformed
+# primary data into an empty value that hides a valid backup.
+node <<'NODE'
+const fs = require('fs');
+const safety = fs.readFileSync('entry/src/main/ets/core/SubscriptionSafety.ets', 'utf8');
+const subscriptions = fs.readFileSync('entry/src/main/ets/storage/SubscriptionStore.ets', 'utf8');
+const scheduler = fs.readFileSync('entry/src/main/ets/services/SubscriptionBackgroundScheduler.ets', 'utf8');
+const cards = fs.readFileSync('entry/src/main/ets/storage/ControlCardStore.ets', 'utf8');
+const traffic = fs.readFileSync('entry/src/main/ets/storage/TrafficTotalsStore.ets', 'utf8');
+const stopFlag = fs.readFileSync('entry/src/main/ets/services/NetSceneStopFlag.ets', 'utf8');
+const runtime = fs.readFileSync('entry/src/main/ets/services/VpnRuntimeStateStore.ets', 'utf8');
+const tests = fs.readFileSync('entry/src/test/LocalUnit.test.ets', 'utf8');
+if (!safety.includes('MAX_SUBSCRIPTION_PROFILE_JSON_CHARS') ||
+  subscriptions.split('MAX_SUBSCRIPTION_PROFILE_JSON_CHARS').length < 4 ||
+  !scheduler.includes('raw.length > MAX_SCHEDULED_WORKS_RAW_CHARS') ||
+  !scheduler.includes('parsed.length > MAX_SCHEDULED_WORK_RECORDS') ||
+  !cards.includes('raw.length > MAX_CONTROL_CARD_STATE_RAW_CHARS') ||
+  !cards.includes('raw.length > MAX_CONTROL_CARD_FORM_IDS_RAW_CHARS') ||
+  !cards.includes('parsed.length > 0 && ids.length === 0') ||
+  !traffic.includes('raw.length > MAX_TRAFFIC_TOTALS_RAW_CHARS') ||
+  !stopFlag.includes('const stat = fs.statSync(path);') ||
+  !stopFlag.includes('stat.size > MAX_NET_SCENE_STOP_FLAG_BYTES') ||
+  !runtime.includes('stat.size > MAX_VPN_RUNTIME_STATE_BYTES') ||
+  !runtime.includes('content.length > MAX_VPN_RUNTIME_STATE_BYTES') ||
+  !tests.includes("selectStoredFormIds('[42,{}]', '[\"form-c\"]')") ||
+  !tests.includes("parseNetSceneStopRecord('x'.repeat(4096 + 1))")) {
+  throw new Error('startup persistence is missing bounded reads or backup-safe malformed-primary handling');
+}
+NODE
+printf 'bounded startup persistence verification passed\n'
 
 # Manual link entry is a separate daily add path from camera/photo scanning. It must
 # parse into a redacted summary on the first action and require a second action for the
@@ -1242,7 +1306,7 @@ if (!limits.includes('MAX_EXTERNAL_IMPORT_TEXT_CHARS: number = 2 * 1024 * 1024')
   !nativeShare.includes('if (isExternalImportTextTooLarge(text))') ||
   !subscriptions.includes('if (isExternalUriTooLarge(trimmedUrl))') ||
   !subscriptions.includes('if (content.length > MAX_SUBSCRIPTION_RESPONSE_BYTES)') ||
-  !deepLink.includes('if (isExternalImportTextTooLarge(uri))') ||
+  !deepLink.includes('if (isExternalImportTextTooLarge(uri) || isExternalUriTooLarge(uri))') ||
   !sharedText.includes('if (depth >= 8)') ||
   !sharedText.includes('const count = Math.min(values.length, 256);') ||
   !index.includes('if (isExternalImportTextTooLarge(payload))') ||
@@ -2310,7 +2374,7 @@ if (!runtimeStateStore.includes('static readWithEvidence(context: common.Context
   !runtimeStateStore.includes('state: selectPersistedVpnRuntimeState(primary.content, backup.content, temp.content)') ||
   !runtimeStateStore.includes('authoritativeArtifactInvalid: authoritative.exists &&') ||
   !runtimeStateStore.includes('private static readArtifactSnapshot(path: string): VpnRuntimeArtifactSnapshot') ||
-  !runtimeStateStore.includes('return { exists: true, content: fs.readTextSync(path) };') ||
+  !runtimeStateStore.includes('return { exists: true, content: VpnRuntimeStateStore.readBoundedText(path) };') ||
   !runtimeStateStore.includes('const first = VpnRuntimeStateStore.readArtifactSet(context);') ||
   !runtimeStateStore.includes('const confirmed = VpnRuntimeStateStore.readArtifactSet(context);') ||
   !runtimeStateStore.includes('if (!VpnRuntimeStateStore.sameArtifactSet(first, confirmed))') ||
@@ -3154,7 +3218,7 @@ const recoverAt = store.indexOf('  private static recoverInterruptedWrite(');
 const recoverEnd = store.indexOf('\n  private static readArtifactSnapshot(', recoverAt);
 const recover = store.slice(recoverAt, recoverEnd);
 const tempCheckAt = recover.indexOf('if (fs.accessSync(tempPath))');
-const parseAt = recover.indexOf('parsePersistedVpnRuntimeState(fs.readTextSync(tempPath))', tempCheckAt);
+const parseAt = recover.indexOf('parsePersistedVpnRuntimeState(VpnRuntimeStateStore.readBoundedText(tempPath))', tempCheckAt);
 const backupRemoveAt = recover.indexOf('removeIfExists(backupPath)', parseAt);
 const targetBackupAt = recover.indexOf('fs.renameSync(targetPath, backupPath);', backupRemoveAt);
 const promoteAt = recover.indexOf('fs.renameSync(tempPath, targetPath);', targetBackupAt);
@@ -3170,6 +3234,7 @@ printf 'VPN runtime temp promotion verification passed\n'
 node <<'NODE'
 const fs = require('fs');
 const vpn = fs.readFileSync('entry/src/main/ets/vpn/HeyVpnAbility.ets', 'utf8');
+const native = fs.readFileSync('entry/src/main/cpp/napi_init.cpp', 'utf8');
 const dataPlaneAt = vpn.indexOf('const useHevTun = settings.useHevTun;');
 const activeStateAt = vpn.indexOf('const activeAt = Date.now();', dataPlaneAt);
 const dataPlane = vpn.slice(dataPlaneAt, activeStateAt);
@@ -3177,7 +3242,12 @@ if (dataPlaneAt < 0 || activeStateAt < 0 ||
   !dataPlane.includes('buildHevTunConfigYaml(vpnMtu, VPN_DATA_SOCKS_HOST, this.runtimeHealthProbePort,') ||
   !dataPlane.includes('startNativeTun2Socks(this.tunFd, VPN_DATA_SOCKS_HOST, this.runtimeHealthProbePort, vpnMtu)') ||
   !dataPlane.includes('${VPN_DATA_SOCKS_HOST}:${this.runtimeHealthProbePort}') ||
-  dataPlane.includes('VPN_DATA_SOCKS_PORT')) {
+  dataPlane.includes('VPN_DATA_SOCKS_PORT') ||
+  !native.includes('constexpr int HEV_START_STABILITY_MS = 100;') ||
+  !native.includes('if (!g_hevWorkerRunning.load()) {') ||
+  !native.includes('hev tun engine exited during startup') ||
+  !native.includes('CreateResult(env, false, "hev tun stop is still pending after timeout.")') ||
+  !native.includes('CreateResult(env, false, "tun2socks stop is still pending after timeout.")')) {
   throw new Error('TUN data-plane engines are not bound to the verified runtime SOCKS port');
 }
 NODE

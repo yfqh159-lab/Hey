@@ -5,6 +5,10 @@ export const MAX_SUBSCRIPTION_GROUP_COUNT: number = 128;
 export const MAX_SUBSCRIPTION_NODE_COUNT: number = 4096;
 export const MAX_SUBSCRIPTION_NODE_INPUT_CHARS: number = 256 * 1024;
 export const MAX_STORED_NODE_CONFIG_CHARS: number = 2 * 1024 * 1024;
+// The subscription database is rewritten as one Preferences value. Per-node and
+// per-group limits alone still permit a corrupt/injected profile to occupy hundreds
+// of megabytes before normalization, so bound the complete serialized record too.
+export const MAX_SUBSCRIPTION_PROFILE_JSON_CHARS: number = 32 * 1024 * 1024;
 export const MAX_SUBSCRIPTION_NAME_CHARS: number = 512;
 export const MAX_SUBSCRIPTION_GROUP_NAME_CHARS: number = 256;
 export const MAX_SUBSCRIPTION_USER_AGENT_CHARS: number = 512;

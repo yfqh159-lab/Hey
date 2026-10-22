@@ -14,6 +14,7 @@ import { isValidVpnSessionId } from '../vpn/VpnConstants';
 const FLAG_FILE_NAME: string = 'net_scene_stopped_at';
 const FLAG_TEMP_FILE_NAME: string = 'net_scene_stopped_at.tmp';
 const FLAG_BACKUP_FILE_NAME: string = 'net_scene_stopped_at.bak';
+const MAX_NET_SCENE_STOP_FLAG_BYTES: number = 4096;
 
 export interface NetSceneStopRecord {
   sessionId: string;
@@ -102,7 +103,7 @@ export class NetSceneStopFlag {
 }
 
 export function parseNetSceneStopRecord(content: string | null): NetSceneStopRecord | null {
-  if (content === null || content.trim().length === 0) {
+  if (content === null || content.length > MAX_NET_SCENE_STOP_FLAG_BYTES || content.trim().length === 0) {
     return null;
   }
   const trimmed = content.trim();
@@ -124,7 +125,7 @@ export function parseNetSceneStopRecord(content: string | null): NetSceneStopRec
 }
 
 export function parseNetSceneStopTimestamp(content: string | null): number | null {
-  if (content === null || content.trim().length === 0) {
+  if (content === null || content.length > MAX_NET_SCENE_STOP_FLAG_BYTES || content.trim().length === 0) {
     return null;
   }
   const value = Number(content.trim());
@@ -178,7 +179,13 @@ export function wasNetSceneStoppedForSession(
 
 function recoverInterruptedWrite(targetPath: string, tempPath: string, backupPath: string): void {
   if (fs.accessSync(tempPath)) {
-    const temp = parseNetSceneStopRecord(fs.readTextSync(tempPath));
+    let temp: NetSceneStopRecord | null = null;
+    try {
+      temp = parseNetSceneStopRecord(readBoundedText(tempPath));
+    } catch (_error) {
+      // Oversized/unreadable temp is an incomplete transaction, not a reason to
+      // prevent a new stop marker from replacing it.
+    }
     if (temp !== null) {
       removeIfExists(backupPath);
       if (fs.accessSync(targetPath)) {
@@ -197,6 +204,14 @@ function recoverInterruptedWrite(targetPath: string, tempPath: string, backupPat
 function readTextIfExists(path: string): string | null {
   if (!fs.accessSync(path)) {
     return null;
+  }
+  return readBoundedText(path);
+}
+
+function readBoundedText(path: string): string {
+  const stat = fs.statSync(path);
+  if (!Number.isFinite(stat.size) || stat.size < 0 || stat.size > MAX_NET_SCENE_STOP_FLAG_BYTES) {
+    throw new Error('Network scene stop flag is too large.');
   }
   return fs.readTextSync(path);
 }

@@ -32,7 +32,7 @@ import { buildSingboxConfig } from '../main/ets/core/SingboxConfig';
 import { MAX_ROUTING_RULE_COUNT, exportRoutingRulesJson, importRoutingRulesJson } from '../main/ets/core/RoutingRules';
 import { buildConfigBackup, parseConfigBackup, serializeConfigBackup, CONFIG_BACKUP_APP_TAG, CONFIG_BACKUP_VERSION } from '../main/ets/core/ConfigBackup';
 import { AssetStore, CustomAssetUrl, GeoUpdateMetadata } from '../main/ets/storage/AssetStore';
-import { ControlCardStore } from '../main/ets/storage/ControlCardStore';
+import { ControlCardStore, isValidControlCardFormId } from '../main/ets/storage/ControlCardStore';
 import { ProfileStore } from '../main/ets/storage/ProfileStore';
 import { SubscriptionStore } from '../main/ets/storage/SubscriptionStore';
 import { ProxyProfile, SubscriptionProfile } from '../main/ets/core/Profile';
@@ -61,7 +61,7 @@ import {
 } from '../main/ets/core/SubscriptionGroups';
 import { SUBSCRIPTION_AUTO_UPDATE_WORK_ID, buildSubscriptionAutoUpdateGroupSchedulePlans, buildSubscriptionAutoUpdateSchedulePlan, subscriptionAutoUpdateWorkIdForGroup } from '../main/ets/core/SubscriptionSchedulerPlan';
 import { findMatchedSubscriptionNode, findSelectedNodeInGroup, resolveGlobalSelectedNodeId, resolveRetainedSelectedNodeId, shouldRefreshProfileForNode } from '../main/ets/core/SubscriptionSelection';
-import { MAX_SUBSCRIPTION_FILTER_CHARS, MAX_SUBSCRIPTION_NODE_COUNT, isSafeSubscriptionFilterPattern, limitSubscriptionText } from '../main/ets/core/SubscriptionSafety';
+import { MAX_SUBSCRIPTION_FILTER_CHARS, MAX_SUBSCRIPTION_NODE_COUNT, MAX_SUBSCRIPTION_PROFILE_JSON_CHARS, isSafeSubscriptionFilterPattern, limitSubscriptionText } from '../main/ets/core/SubscriptionSafety';
 import { buildSpeedNotificationAdditionalText, buildSpeedNotificationText, calculateSpeedNotificationRates, sampleSpeedNotificationStats, shouldPublishSpeedNotification } from '../main/ets/core/SpeedNotification';
 import { BROWSER_DIALER_MODE_OPTIONS, CORE_LOG_LEVEL_OPTIONS, DEFAULT_BROWSER_DIALER_MODE, DEFAULT_CORE_LOG_LEVEL, DEFAULT_FRAGMENT_PACKETS, DEFAULT_HYSTERIA2_SECURITY, DEFAULT_MUX_XUDP_QUIC, DEFAULT_STREAM_ALPN, DEFAULT_VMESS_SECURITY, FLOW_OPTIONS, FRAGMENT_PACKET_OPTIONS, GRPC_MODE_OPTIONS, HYSTERIA2_SECURITY_OPTIONS, KCP_HEADER_TYPE_OPTIONS, MUX_XUDP_QUIC_OPTIONS, SS_SECURITY_OPTIONS, STREAM_ALPN_OPTIONS, SUPPORTED_TRANSPORT_OPTIONS, TCP_HEADER_TYPE_OPTIONS, UTLS_FINGERPRINT_OPTIONS, VMESS_SECURITY_OPTIONS, XHTTP_MODE_OPTIONS, normalizeBrowserDialerMode, normalizeCoreLogLevel, normalizeFragmentPackets, normalizeHysteria2Security, normalizeMuxXudpQuic, normalizeStreamAlpn, normalizeStreamAlpnWithFallback, normalizeXhttpMode } from '../main/ets/core/ProtocolOptions';
 import { countLogLevels, filterLogEntries, filterLogItems, formatLogcatText, formatLogEntriesText } from '../main/ets/features/logs/LogOperations';
@@ -468,6 +468,9 @@ export default function localUnitTest() {
       expect(recovered.source).assertEqual('backup');
       expect(recovered.profile?.groups.length ?? 0).assertEqual(1);
 
+      const malformedCollection = SubscriptionStore.selectStoredProfile('{"groups":[42, null]}', raw);
+      expect(malformedCollection.source).assertEqual('backup');
+
       const invalid = SubscriptionStore.selectStoredProfile('{}', '{also-broken');
       expect(invalid.source).assertEqual('invalid');
       expect(invalid.profile === null).assertTrue();
@@ -475,6 +478,9 @@ export default function localUnitTest() {
       const empty = SubscriptionStore.selectStoredProfile('', '');
       expect(empty.source).assertEqual('empty');
       expect(empty.profile?.groups.length ?? -1).assertEqual(0);
+
+      const oversized = 'x'.repeat(MAX_SUBSCRIPTION_PROFILE_JSON_CHARS + 1);
+      expect(SubscriptionStore.selectStoredProfile(oversized, raw).source).assertEqual('backup');
     });
 
     it('uses a valid selected profile primary and falls back to the last valid backup', 0, () => {
@@ -649,6 +655,21 @@ export default function localUnitTest() {
       expect(selected.state?.appName ?? '').assertEqual('Hey');
       expect(selected.state?.statusLabel ?? '').assertEqual(buildControlCardFormData().statusLabel);
       expect(selected.state?.primaryColor ?? '').assertEqual('#F97316');
+
+      const hostileUris = ControlCardStore.selectStoredState(JSON.stringify({
+        runtimeStatus: ConnectionStatus.IDLE,
+        runtimeMode: APP_MODE_PROXY_ONLY,
+        primaryActionUri: 'https://evil.example/action',
+        toggleUri: 'https://evil.example/toggle',
+        startUri: 'https://evil.example/start',
+        stopUri: 'https://evil.example/stop',
+        scanUri: 'https://evil.example/scan'
+      }), '');
+      expect(hostileUris.state?.primaryActionUri ?? '').assertEqual(CONTROL_CARD_START_URI);
+      expect(hostileUris.state?.toggleUri ?? '').assertEqual(CONTROL_CARD_TOGGLE_URI);
+      expect(hostileUris.state?.startUri ?? '').assertEqual(CONTROL_CARD_START_URI);
+      expect(hostileUris.state?.stopUri ?? '').assertEqual(CONTROL_CARD_STOP_URI);
+      expect(hostileUris.state?.scanUri ?? '').assertEqual(CONTROL_CARD_SCAN_URI);
     });
 
     it('recovers and validates persisted control-card identifiers', 0, () => {
@@ -663,6 +684,9 @@ export default function localUnitTest() {
       expect(recovered.source).assertEqual('backup');
       expect(recovered.ids?.[0] ?? '').assertEqual('form-c');
 
+      const malformedPrimary = ControlCardStore.selectStoredFormIds('[42,{}]', '["form-c"]');
+      expect(malformedPrimary.source).assertEqual('backup');
+
       const invalid = ControlCardStore.selectStoredFormIds('{}', '{also-broken');
       expect(invalid.source).assertEqual('invalid');
       expect(invalid.ids === null).assertTrue();
@@ -670,6 +694,9 @@ export default function localUnitTest() {
       const empty = ControlCardStore.selectStoredFormIds('', '');
       expect(empty.source).assertEqual('empty');
       expect(empty.ids?.length ?? -1).assertEqual(0);
+      expect(isValidControlCardFormId('12345')).assertTrue();
+      expect(isValidControlCardFormId('')).assertFalse();
+      expect(isValidControlCardFormId('x'.repeat(129))).assertFalse();
     });
 
     it('recovers the persisted subscription background task index', 0, () => {
@@ -697,6 +724,8 @@ export default function localUnitTest() {
       expect(aggregate.records?.length ?? 0).assertEqual(1);
       expect(SubscriptionBackgroundScheduler.selectStoredWorks(
         '[{"groupId":"","workId":261001}]', '').source).assertEqual('invalid');
+      expect(SubscriptionBackgroundScheduler.selectStoredWorks(
+        'x'.repeat(64 * 1024 + 1), raw).source).assertEqual('backup');
     });
 
     it('recovers custom Geo sources and verified update metadata independently', 0, () => {
@@ -3708,6 +3737,7 @@ export default function localUnitTest() {
       expect(parsePersistedVpnRuntimeState(JSON.stringify(healthy))).assertEqual(null);
       healthy.profileUpdatedAt = 123456;
       expect(parsePersistedVpnRuntimeState('{"active":true}')).assertEqual(null);
+      expect(parsePersistedVpnRuntimeState('x'.repeat(64 * 1024 + 1))).assertEqual(null);
       expect(parsePersistedVpnRuntimeState('{"sessionId":"../invalid","active":true,"startedAt":1,' +
         '"heartbeatAt":2,"coreType":"xray","xrayRunning":true,"tunRunning":true}')).assertEqual(null);
       expect(parsePersistedVpnRuntimeState('{"sessionId":"session-1","active":true,"startedAt":1.5,' +
@@ -3951,6 +3981,7 @@ export default function localUnitTest() {
       expect(parseNetSceneStopRecord('{"sessionId":"../escape","stoppedAt":300}')).assertEqual(null);
       expect(parseNetSceneStopRecord('{"sessionId":"vpn-current","stoppedAt":1e309}')).assertEqual(null);
       expect(parseNetSceneStopRecord('{"sessionId":"vpn-current","stoppedAt":-1}')).assertEqual(null);
+      expect(parseNetSceneStopRecord('x'.repeat(4096 + 1))).assertEqual(null);
     });
 
     it('prefers complete session-bound network-scene writes', 0, () => {
@@ -5529,6 +5560,7 @@ export default function localUnitTest() {
       expect(validation.valid).assertFalse();
       expect(validation.message).assertEqual(IMPORT_TEXT_TOO_LARGE_MESSAGE);
       expect(parseDeepLink(`hey://add-endpoint?url=${oversized}`).kind).assertEqual('none');
+      expect(deepLinkUriFromWant({ uri: `hey://scan?value=${'x'.repeat(8192)}` })).assertEqual('');
     });
 
     it('extracts Harmony sendData text imports ACTION_SEND', 0, () => {
@@ -5566,6 +5598,15 @@ export default function localUnitTest() {
         parameters
       };
       expect(extractSharedTextFromWant(viewData)).assertEqual('');
+
+      const oversizedParameters: Record<string, Object> = {};
+      oversizedParameters[HARMONY_SHARE_URL_KEY] = 'x'.repeat(MAX_EXTERNAL_IMPORT_TEXT_CHARS + 100);
+      const bounded = extractSharedTextFromWant({
+        action: HARMONY_SEND_DATA_ACTION,
+        type: HARMONY_TEXT_MIME_TYPE,
+        parameters: oversizedParameters
+      });
+      expect(bounded.length).assertEqual(MAX_EXTERNAL_IMPORT_TEXT_CHARS + 1);
     });
 
     it('parses control deep links for shortcut actions', 0, () => {

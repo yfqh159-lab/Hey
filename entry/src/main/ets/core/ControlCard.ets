@@ -85,7 +85,7 @@ export function normalizeControlCardFormData(data: ControlCardFormData | null | 
     return buildControlCardFormData();
   }
   const fallback = buildControlCardFormData();
-  const storedPrimaryActionUri = nonEmpty(data.primaryActionUri, fallback.primaryActionUri);
+  const storedPrimaryActionUri = normalizePrimaryActionUri(data.primaryActionUri);
   const runtimeStatus = normalizeRuntimeStatus(data.runtimeStatus, storedPrimaryActionUri);
   const cleanupRequired = typeof data.cleanupRequired === 'boolean' ? data.cleanupRequired : false;
   const runtimeStartedAt = normalizeRuntimeStartedAt(data.runtimeStartedAt);
@@ -108,10 +108,12 @@ export function normalizeControlCardFormData(data: ControlCardFormData | null | 
     cleanupRequired,
     appName: nonEmpty(data.appName, fallback.appName),
     subtitle: nonEmpty(data.subtitle, fallback.subtitle),
-    toggleUri: nonEmpty(data.toggleUri, fallback.toggleUri),
-    startUri: nonEmpty(data.startUri, fallback.startUri),
-    stopUri: nonEmpty(data.stopUri, fallback.stopUri),
-    scanUri: nonEmpty(data.scanUri, fallback.scanUri),
+    // Card actions are executable Wants. Persisted presentation data must never
+    // be able to replace these with an arbitrary external URI.
+    toggleUri: CONTROL_CARD_TOGGLE_URI,
+    startUri: CONTROL_CARD_START_URI,
+    stopUri: CONTROL_CARD_STOP_URI,
+    scanUri: CONTROL_CARD_SCAN_URI,
     statusLabel: nonEmpty(data.statusLabel, fallback.statusLabel),
     statusDetail: nonEmpty(data.statusDetail, fallback.statusDetail),
     primaryActionLabel: mustStop
@@ -217,4 +219,8 @@ function nonEmpty(value: Object | undefined | null, fallback: string): string {
     return fallback;
   }
   return value as string;
+}
+
+function normalizePrimaryActionUri(value: Object | undefined | null): string {
+  return value === CONTROL_CARD_STOP_URI ? CONTROL_CARD_STOP_URI : CONTROL_CARD_START_URI;
 }

@@ -6,7 +6,7 @@ import { AppLanguage } from '../core/Profile';
 import { SETTINGS_CONTROLLER } from '../features/settings/SettingsController';
 import { SHARED_RUNTIME_CONTROLLER } from '../features/runtime/RuntimeController';
 import { BUNDLED_XRAY_VERSION, BUNDLED_SINGBOX_VERSION } from '../core/CoreInfo';
-// [SING-BOX SPIKE — TEMP] Phase 0 验证入口，验证完连同探测行一起删。
+// sing-box remains an explicitly labelled preview; this probe reports packaged ABI readiness.
 import { SectionHeader } from '../components/SectionHeader';
 import { PageHeader } from '../shell/PageHeader';
 import { formatOne } from '../utils/LocalizationPresenter';

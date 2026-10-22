@@ -7,7 +7,7 @@
 // EntryAbility stashes the raw Want uri or shortcut parameters; the Index page
 // parses and handles it.
 
-import { isExternalImportTextTooLarge } from './ExternalInput';
+import { isExternalImportTextTooLarge, isExternalUriTooLarge } from './ExternalInput';
 
 export type DeepLinkKind = 'sub' | 'config' | 'control' | 'none';
 export type DeepLinkControlAction = 'start' | 'stop' | 'toggle' | 'scan' | '';
@@ -32,9 +32,10 @@ export interface DeepLinkIntent {
 }
 
 const CONTROL_PREFIX: string = 'hey://control';
+const MAX_CONTROL_TARGET_NODE_ID_CHARS: number = 512;
 
 export function parseDeepLink(uri: string): DeepLinkIntent {
-  if (isExternalImportTextTooLarge(uri)) {
+  if (isExternalImportTextTooLarge(uri) || isExternalUriTooLarge(uri)) {
     return { kind: 'none', payload: '' };
   }
   const trimmed = uri.trim();
@@ -61,9 +62,10 @@ export function parseDeepLink(uri: string): DeepLinkIntent {
 export function deepLinkUriFromWant(want: DeepLinkWantLike): string {
   const uri = (want.uri ?? '').trim();
   if (uri.length > 0) {
-    return uri;
+    return isExternalUriTooLarge(uri) ? '' : uri;
   }
-  return controlUriFromShortcutParameters(want.parameters);
+  const generated = controlUriFromShortcutParameters(want.parameters);
+  return isExternalUriTooLarge(generated) ? '' : generated;
 }
 
 export function controlUriFromShortcutParameters(parameters: Record<string, Object> | undefined): string {
@@ -71,7 +73,7 @@ export function controlUriFromShortcutParameters(parameters: Record<string, Obje
     return '';
   }
   const directUri = parameterText(parameters[CONTROL_SHORTCUT_URI_PARAM]);
-  if (directUri.length > 0 && parseDeepLink(directUri).kind !== 'none') {
+  if (directUri.length > 0 && !isExternalUriTooLarge(directUri) && parseDeepLink(directUri).kind !== 'none') {
     return directUri;
   }
   const action = controlActionFromShortcutParameters(parameters);
@@ -135,7 +137,7 @@ function extractControlTargetNodeId(uri: string): string {
   const keys = ['guid', 'nodeId', 'nodeid', 'id', 'node'];
   for (let index = 0; index < keys.length; index++) {
     const value = extractQueryParam(uri, keys[index]).trim();
-    if (value.length > 0) {
+    if (value.length > 0 && value.length <= MAX_CONTROL_TARGET_NODE_ID_CHARS) {
       return value;
     }
   }
@@ -175,7 +177,7 @@ function controlActionFromTaskerSwitch(value: Object | undefined): DeepLinkContr
 
 function appendControlTarget(uri: string, targetNodeId: string): string {
   const target = targetNodeId.trim();
-  if (target.length === 0) {
+  if (target.length === 0 || target.length > MAX_CONTROL_TARGET_NODE_ID_CHARS) {
     return uri;
   }
   return `${uri}&guid=${encodeURIComponent(target)}`;

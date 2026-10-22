@@ -7,6 +7,14 @@ const FORM_IDS_KEY: string = 'form_ids';
 const FORM_IDS_BACKUP_KEY: string = 'form_ids_backup';
 const STATE_KEY: string = 'state';
 const STATE_BACKUP_KEY: string = 'state_backup';
+const MAX_CONTROL_CARD_STATE_RAW_CHARS: number = 64 * 1024;
+const MAX_CONTROL_CARD_FORM_IDS_RAW_CHARS: number = 64 * 1024;
+const MAX_CONTROL_CARD_FORM_IDS: number = 256;
+const MAX_CONTROL_CARD_FORM_ID_CHARS: number = 128;
+
+export function isValidControlCardFormId(formId: string): boolean {
+  return formId.length > 0 && formId.length <= MAX_CONTROL_CARD_FORM_ID_CHARS;
+}
 
 export interface StoredControlCardStateSelection {
   state: ControlCardFormData | null;
@@ -46,11 +54,14 @@ export class ControlCardStore {
 
   static addFormId(context: common.Context, formId: string): Promise<Array<string>> {
     return ControlCardStore.enqueueFormMutation(async (): Promise<Array<string>> => {
-      if (formId.length === 0) {
+      if (!isValidControlCardFormId(formId)) {
         return ControlCardStore.loadFormIds(context);
       }
       const ids = await ControlCardStore.loadFormIds(context);
       if (ids.indexOf(formId) < 0) {
+        if (ids.length >= MAX_CONTROL_CARD_FORM_IDS) {
+          throw new Error('Too many control card identifiers are registered.');
+        }
         ids.push(formId);
         await ControlCardStore.saveFormIds(context, ids);
       }
@@ -126,6 +137,9 @@ export class ControlCardStore {
     return ControlCardStore.enqueueOperation(async (): Promise<ControlCardFormData> => {
       const store = await preferences.getPreferences(context, PREFERENCES_NAME);
       const nextRaw = JSON.stringify(normalized);
+      if (nextRaw.length > MAX_CONTROL_CARD_STATE_RAW_CHARS) {
+        throw new Error('Control card state is too large.');
+      }
       const currentRaw = (await store.get(STATE_KEY, '')).toString();
       const current = ControlCardStore.parseState(currentRaw);
       if (current !== null && !sameControlCardRuntimeIdentity(current, normalized)) {
@@ -147,6 +161,10 @@ export class ControlCardStore {
     return ControlCardStore.enqueueOperation(async (): Promise<void> => {
       const store = await preferences.getPreferences(context, PREFERENCES_NAME);
       const nextRaw = JSON.stringify(idsSnapshot);
+      if (idsSnapshot.length > MAX_CONTROL_CARD_FORM_IDS ||
+        nextRaw.length > MAX_CONTROL_CARD_FORM_IDS_RAW_CHARS) {
+        throw new Error('Control card identifier list is too large.');
+      }
       const currentRaw = (await store.get(FORM_IDS_KEY, '')).toString();
       if (ControlCardStore.parseIds(currentRaw) !== null) {
         await store.put(FORM_IDS_BACKUP_KEY, currentRaw);
@@ -186,7 +204,7 @@ export class ControlCardStore {
   }
 
   private static parseState(raw: string): ControlCardFormData | null {
-    if (raw.length === 0) {
+    if (raw.length === 0 || raw.length > MAX_CONTROL_CARD_STATE_RAW_CHARS) {
       return null;
     }
     try {
@@ -206,19 +224,25 @@ export class ControlCardStore {
   }
 
   private static parseIds(raw: string): Array<string> | null {
-    if (raw.length === 0) {
+    if (raw.length === 0 || raw.length > MAX_CONTROL_CARD_FORM_IDS_RAW_CHARS) {
       return null;
     }
     try {
       const parsed = JSON.parse(raw) as Array<Object>;
-      if (!Array.isArray(parsed)) {
+      if (!Array.isArray(parsed) || parsed.length > MAX_CONTROL_CARD_FORM_IDS) {
         return null;
       }
       const ids = new Array<string>();
       for (let index = 0; index < parsed.length; index++) {
-        if (typeof parsed[index] === 'string') {
+        if (typeof parsed[index] === 'string' && isValidControlCardFormId(parsed[index] as string)) {
           ids.push(parsed[index] as string);
         }
+      }
+      // Keep compatibility with older mixed arrays by salvaging valid IDs, but do not
+      // turn a non-empty wholly malformed primary record into a valid empty list that
+      // would hide a recoverable backup.
+      if (parsed.length > 0 && ids.length === 0) {
+        return null;
       }
       return ControlCardStore.uniqueIds(ids);
     } catch (_error) {
@@ -228,9 +252,9 @@ export class ControlCardStore {
 
   private static uniqueIds(ids: Array<string>): Array<string> {
     const result = new Array<string>();
-    for (let index = 0; index < ids.length; index++) {
+    for (let index = 0; index < ids.length && result.length < MAX_CONTROL_CARD_FORM_IDS; index++) {
       const id = ids[index];
-      if (id.length > 0 && result.indexOf(id) < 0) {
+      if (isValidControlCardFormId(id) && result.indexOf(id) < 0) {
         result.push(id);
       }
     }

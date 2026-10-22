@@ -13,6 +13,7 @@
 #include <fcntl.h>
 #include <hilog/log.h>
 #include <memory>
+#include <limits>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -108,6 +109,7 @@ constexpr int TUN_ENGINE_GVISOR = 1;
 constexpr int TUN_ENGINE_HEV = 2;
 constexpr int TUN_STOP_WAIT_MS = 3000;
 constexpr int TUN_STOP_POLL_MS = 20;
+constexpr int HEV_START_STABILITY_MS = 100;
 std::atomic<int> g_tunEngine(TUN_ENGINE_NONE);
 
 // 旧版 setTunFd/SingboxSetTunFd 路径由核心直接持有 TUN，此时停止核心也会停止
@@ -1303,15 +1305,33 @@ napi_value StartHevTun(napi_env env, napi_callback_info info)
         g_hevThread.join();
     }
     HevStartFunc start = g_hevStart;
+    auto startResult = std::make_shared<std::atomic_int>(std::numeric_limits<int>::min());
     g_hevWorkerRunning.store(true);
-    g_hevThread = std::thread([start, configYaml, tunFd]() {
-        start(reinterpret_cast<const unsigned char*>(configYaml.c_str()),
+    g_hevThread = std::thread([start, startResult, configYaml, tunFd]() {
+        const int result = start(reinterpret_cast<const unsigned char*>(configYaml.c_str()),
             static_cast<unsigned int>(configYaml.size()), tunFd);
+        startResult->store(result);
         g_hevWorkerRunning.store(false);
         // 正常运行时该值本来就是 false；若 stop 已超时并把线程 detach，这里负责在
         // main 最终退出后解除启动门闩。
         g_tunStopPending.store(false);
     });
+    // A malformed YAML or immediate native initialization error returns from hev main
+    // almost at once. Give that failure a short bounded window to surface before telling
+    // ArkTS that the VPN data plane started successfully.
+    const auto startupDeadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(HEV_START_STABILITY_MS);
+    while (g_hevWorkerRunning.load() && std::chrono::steady_clock::now() < startupDeadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(TUN_STOP_POLL_MS));
+    }
+    if (!g_hevWorkerRunning.load()) {
+        if (g_hevThread.joinable()) {
+            g_hevThread.join();
+        }
+        const int result = startResult->load();
+        return CreateResult(env, false,
+            "hev tun engine exited during startup (code " + std::to_string(result) + ").");
+    }
     g_tunRunning.store(true);
     g_tunEngine.store(TUN_ENGINE_HEV);
     return CreateResult(env, true, "hev tun engine started.");
@@ -1322,7 +1342,7 @@ napi_value StopTun2Socks(napi_env env, napi_callback_info info)
     (void)info;
     if (!g_tunRunning.load() && g_tunEngine.load() == TUN_ENGINE_NONE) {
         if (g_tunStopPending.load()) {
-            return CreateResult(env, true, "tun2socks stop is already pending.");
+            return CreateResult(env, false, "tun2socks stop is still pending.");
         }
         return CreateResult(env, true, "tun data plane already stopped.");
     }
@@ -1353,7 +1373,7 @@ napi_value StopTun2Socks(napi_env env, napi_callback_info info)
             // Defensive fallback: no worker owns the pending flag.
             g_tunStopPending.store(false);
         }
-        return CreateResult(env, true, "hev tun stop is still pending after timeout.");
+        return CreateResult(env, false, "hev tun stop is still pending after timeout.");
     }
     if (engine == TUN_ENGINE_NONE) {
         // g_tunRunning may also be used by legacy native-TUN callers. Do not accidentally
@@ -1388,7 +1408,7 @@ napi_value StopTun2Socks(napi_env env, napi_callback_info info)
         return CreateResult(env, true, "tun2socks adapter stopped.");
     }
     stopThread.detach();
-    return CreateResult(env, true, "tun2socks stop is still pending after timeout.");
+    return CreateResult(env, false, "tun2socks stop is still pending after timeout.");
 }
 
 // ===================== sing-box second core (optional, preview) =====================

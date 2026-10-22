@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PREBUILT_DIR="${ROOT_DIR}/entry/src/main/cpp/prebuilt/arm64-v8a"
+CHECKSUM_MANIFEST="${PREBUILT_DIR}/SHA256SUMS"
 
 if [[ -n "${READELF:-}" ]]; then
   READELF_BIN="${READELF}"
@@ -41,6 +42,41 @@ require_go_tls() {
     fail "missing AArch64 TLSDESC relocation: ${file}"
 }
 
+sha256_file() {
+  local file="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "${file}" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "${file}" | awk '{print $1}'
+  elif command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 "${file}" | awk '{print $NF}'
+  else
+    fail "sha256sum, shasum, or openssl is required to verify bundled native libraries"
+  fi
+}
+
+verify_checksum_manifest() {
+  [[ -f "${CHECKSUM_MANIFEST}" ]] || fail "missing native checksum manifest: ${CHECKSUM_MANIFEST}"
+  local count=0
+  while read -r expected name; do
+    [[ "${expected}" =~ ^[0-9a-f]{64}$ && -n "${name}" ]] ||
+      fail "invalid native checksum manifest line"
+    [[ "${name}" != */* && "${name}" == *.so ]] || fail "invalid native checksum target: ${name}"
+    local file="${PREBUILT_DIR}/${name}"
+    [[ -f "${file}" ]] || fail "checksum target is missing: ${file}"
+    local actual
+    actual="$(sha256_file "${file}")"
+    [[ "${actual}" == "${expected}" ]] || fail "native checksum mismatch: ${name}"
+    count=$((count + 1))
+  done < "${CHECKSUM_MANIFEST}"
+  [[ "${count}" -eq 4 ]] || fail "native checksum manifest must contain exactly four libraries"
+  local required
+  for required in libxray.so libsingbox.so libheytun2socks.so libhevsocks5tun.so; do
+    [[ "$(awk -v name="${required}" '$2 == name { count++ } END { print count + 0 }' "${CHECKSUM_MANIFEST}")" -eq 1 ]] ||
+      fail "native checksum manifest must contain ${required} exactly once"
+  done
+}
+
 XRAY="${PREBUILT_DIR}/libxray.so"
 SINGBOX="${PREBUILT_DIR}/libsingbox.so"
 TUN2SOCKS="${PREBUILT_DIR}/libheytun2socks.so"
@@ -49,6 +85,8 @@ HEV="${PREBUILT_DIR}/libhevsocks5tun.so"
 for library in "${XRAY}" "${SINGBOX}" "${TUN2SOCKS}" "${HEV}"; do
   require_file "${library}"
 done
+
+verify_checksum_manifest
 
 require_symbol "${XRAY}" CGoInvoke
 require_symbol "${XRAY}" CGoFree

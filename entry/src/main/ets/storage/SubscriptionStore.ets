@@ -10,6 +10,7 @@ import {
 import { resolveGlobalSelectedNodeId, resolveRetainedSelectedNodeId } from '../core/SubscriptionSelection';
 import { normalizeConfigInput } from '../core/XrayConfig';
 import { subscriptionNameFromDeepLink } from '../core/DeepLink';
+import { MAX_EXTERNAL_URI_CHARS } from '../core/ExternalInput';
 import {
   MAX_SUBSCRIPTION_FILTER_CHARS,
   MAX_SUBSCRIPTION_GROUP_COUNT,
@@ -17,6 +18,7 @@ import {
   MAX_SUBSCRIPTION_NAME_CHARS,
   MAX_SUBSCRIPTION_NODE_COUNT,
   MAX_SUBSCRIPTION_PROFILE_NOTE_CHARS,
+  MAX_SUBSCRIPTION_PROFILE_JSON_CHARS,
   MAX_SUBSCRIPTION_USER_AGENT_CHARS,
   MAX_STORED_NODE_CONFIG_CHARS,
   limitSubscriptionText
@@ -25,6 +27,9 @@ import {
 const PREFERENCES_NAME: string = 'hey_vpn_subscription';
 const SUBSCRIPTION_KEY: string = 'subscription_profile';
 const SUBSCRIPTION_BACKUP_KEY: string = 'subscription_profile_backup';
+const MAX_SUBSCRIPTION_ID_CHARS: number = 512;
+const MAX_SUBSCRIPTION_PROTOCOL_CHARS: number = 64;
+const MAX_SUBSCRIPTION_DELAY_STATUS_CHARS: number = 128;
 
 export interface ManualNodeUpdateResult {
   updated: boolean;
@@ -673,6 +678,9 @@ export class SubscriptionStore {
       // 内存中看似成功，应用重启后却恢复旧数据。
       const store = await preferences.getPreferences(context, PREFERENCES_NAME);
       const nextRaw = JSON.stringify(profile);
+      if (nextRaw.length > MAX_SUBSCRIPTION_PROFILE_JSON_CHARS) {
+        throw new Error('The node database is too large to save safely.');
+      }
       if (preservePrevious) {
         const currentRaw = (await store.get(SUBSCRIPTION_KEY, '')).toString();
         if (SubscriptionStore.parseStoredProfile(currentRaw) !== null) {
@@ -691,7 +699,7 @@ export class SubscriptionStore {
   }
 
   private static parseStoredProfile(raw: string): SubscriptionProfile | null {
-    if (raw.length === 0) {
+    if (raw.length === 0 || raw.length > MAX_SUBSCRIPTION_PROFILE_JSON_CHARS) {
       return null;
     }
     try {
@@ -705,7 +713,12 @@ export class SubscriptionStore {
       if (!Array.isArray(record['groups']) && !Array.isArray(record['nodes'])) {
         return null;
       }
-      return SubscriptionStore.normalize(parsed);
+      const normalized = SubscriptionStore.normalize(parsed);
+      if (Array.isArray(record['groups']) && (record['groups'] as Array<Object>).length > 0 &&
+        normalized.groups.length === 0) {
+        return null;
+      }
+      return normalized;
     } catch (_error) {
       return null;
     }
@@ -715,11 +728,11 @@ export class SubscriptionStore {
     const rawGroups = Array.isArray(raw.groups) ? raw.groups : [];
     const rawNodes = Array.isArray(raw.nodes) ? raw.nodes : [];
     const profile: SubscriptionProfile = {
-      url: SubscriptionStore.stringValue(raw.url),
-      selectedNodeId: SubscriptionStore.stringValue(raw.selectedNodeId),
+      url: SubscriptionStore.boundedUri(raw.url),
+      selectedNodeId: SubscriptionStore.boundedText(raw.selectedNodeId, MAX_SUBSCRIPTION_ID_CHARS),
       nodes: rawNodes,
       updatedAt: SubscriptionStore.numberValue(raw.updatedAt, 0),
-      selectedGroupId: SubscriptionStore.stringValue(raw.selectedGroupId),
+      selectedGroupId: SubscriptionStore.boundedText(raw.selectedGroupId, MAX_SUBSCRIPTION_ID_CHARS),
       groups: rawGroups
     };
 
@@ -766,10 +779,10 @@ export class SubscriptionStore {
   }
 
   private static normalizeGroup(group: SubscriptionGroup, index: number): SubscriptionGroup {
-    const url = SubscriptionStore.stringValue(group.url);
+    const url = SubscriptionStore.boundedUri(group.url);
     const nodes = SubscriptionStore.normalizeNodes(Array.isArray(group.nodes) ? group.nodes : []);
     const fallbackId = SubscriptionStore.makeGroupId(`${url.length > 0 ? url : 'group'}-${index}`);
-    const rawId = SubscriptionStore.stringValue(group.id).trim();
+    const rawId = SubscriptionStore.boundedText(group.id, MAX_SUBSCRIPTION_ID_CHARS).trim();
     const rawName = SubscriptionStore.stringValue(group.name).trim();
     return {
       id: rawId.length > 0 ? rawId : fallbackId,
@@ -779,7 +792,8 @@ export class SubscriptionStore {
       ),
       url,
       enabled: SubscriptionStore.boolValue(group.enabled, true),
-      selectedNodeId: SubscriptionStore.resolveSelectedNodeId(nodes, SubscriptionStore.stringValue(group.selectedNodeId)),
+      selectedNodeId: SubscriptionStore.resolveSelectedNodeId(nodes,
+        SubscriptionStore.boundedText(group.selectedNodeId, MAX_SUBSCRIPTION_ID_CHARS)),
       nodes,
       updatedAt: SubscriptionStore.numberValue(group.updatedAt, 0),
       userAgent: limitSubscriptionText(SubscriptionStore.stringValue(group.userAgent),
@@ -826,7 +840,8 @@ export class SubscriptionStore {
       if (node.outboundJson !== undefined && typeof node.outboundJson !== 'string') {
         continue;
       }
-      const id = SubscriptionStore.uniqueNodeId(SubscriptionStore.stringValue(node.id), index, idCounts);
+      const id = SubscriptionStore.uniqueNodeId(
+        SubscriptionStore.boundedText(node.id, MAX_SUBSCRIPTION_ID_CHARS), index, idCounts);
       const outboundJson = SubscriptionStore.stringValue(node.outboundJson);
       const rawLink = SubscriptionStore.stringValue(node.rawLink);
       if (outboundJson.length > MAX_STORED_NODE_CONFIG_CHARS ||
@@ -834,19 +849,19 @@ export class SubscriptionStore {
         continue;
       }
       const configType = SubscriptionStore.normalizeNodeConfigType(node.configType, outboundJson);
-      const protocol = SubscriptionStore.stringValue(node.protocol);
+      const protocol = SubscriptionStore.boundedText(node.protocol, MAX_SUBSCRIPTION_PROTOCOL_CHARS);
       normalized.push({
         id,
         name: limitSubscriptionText(SubscriptionStore.stringValue(node.name), MAX_SUBSCRIPTION_NAME_CHARS),
         protocol: protocol.length > 0 ? protocol : SubscriptionStore.protocolForConfigType(configType, ''),
         outboundJson,
         configType,
-        sourceUrl: SubscriptionStore.stringValue(node.sourceUrl),
+        sourceUrl: SubscriptionStore.boundedUri(node.sourceUrl),
         rawLink,
         updatedAt: SubscriptionStore.numberValue(node.updatedAt, 0),
         delayMs: SubscriptionStore.numberValue(node.delayMs, -1),
         delayTestAt: SubscriptionStore.numberValue(node.delayTestAt, 0),
-        delayStatus: SubscriptionStore.stringValue(node.delayStatus)
+        delayStatus: SubscriptionStore.boundedText(node.delayStatus, MAX_SUBSCRIPTION_DELAY_STATUS_CHARS)
       });
     }
     return normalized;
@@ -868,6 +883,15 @@ export class SubscriptionStore {
 
   private static stringValue(value: Object | undefined | null, fallback: string = ''): string {
     return typeof value === 'string' ? value as string : fallback;
+  }
+
+  private static boundedText(value: Object | undefined | null, maxChars: number): string {
+    const text = SubscriptionStore.stringValue(value);
+    return text.length <= maxChars ? text : '';
+  }
+
+  private static boundedUri(value: Object | undefined | null): string {
+    return SubscriptionStore.boundedText(value, MAX_EXTERNAL_URI_CHARS);
   }
 
   private static boolValue(value: Object | undefined | null, fallback: boolean): boolean {

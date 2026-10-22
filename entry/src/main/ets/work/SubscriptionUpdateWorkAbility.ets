@@ -8,9 +8,30 @@ import { PersistedVpnRuntimeStateReadResult, VpnRuntimeStateStore } from '../ser
 import { ConnectionStatus } from '../core/Profile';
 import { ControlCardStore } from '../storage/ControlCardStore';
 
+const MAX_LEGACY_WORK_GROUP_ID_CHARS: number = 512;
+// WorkScheduler can redeliver while a framework/storage Promise from the previous
+// callback is still pending. Keep at most one update pipeline per process so a broken
+// provider cannot accumulate queued credential-bearing subscription operations.
+let subscriptionWorkInFlight: Promise<void> | null = null;
+
 export default class SubscriptionUpdateWorkAbility extends WorkSchedulerExtensionAbility {
   onWorkStart(work: workScheduler.WorkInfo): void {
-    this.runSubscriptionUpdate(work);
+    if (subscriptionWorkInFlight !== null) {
+      DiagnosticLog.append(this.context as common.Context, {
+        at: Date.now(),
+        level: 'warn',
+        source: 'subscription-work',
+        message: 'Subscription background work skipped because the previous callback is still pending.',
+        details: `workId=${work.workId}`
+      });
+      return;
+    }
+    const operation = this.runSubscriptionUpdate(work);
+    subscriptionWorkInFlight = operation;
+    operation.then(
+      (): void => this.releaseWork(operation),
+      (_error: Object): void => this.releaseWork(operation)
+    );
   }
 
   onWorkStop(work: workScheduler.WorkInfo): void {
@@ -70,7 +91,17 @@ export default class SubscriptionUpdateWorkAbility extends WorkSchedulerExtensio
       return '';
     }
     const groupId = parameters['groupId'];
-    return typeof groupId === 'string' ? groupId.trim() : '';
+    if (typeof groupId !== 'string') {
+      return '';
+    }
+    const normalized = groupId.trim();
+    return normalized.length <= MAX_LEGACY_WORK_GROUP_ID_CHARS ? normalized : '';
+  }
+
+  private releaseWork(operation: Promise<void>): void {
+    if (subscriptionWorkInFlight === operation) {
+      subscriptionWorkInFlight = null;
+    }
   }
 
   private vpnMayOwnNetwork(read: PersistedVpnRuntimeStateReadResult): boolean {

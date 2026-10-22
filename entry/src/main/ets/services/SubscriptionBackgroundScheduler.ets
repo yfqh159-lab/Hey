@@ -15,6 +15,9 @@ import { SubscriptionStore } from '../storage/SubscriptionStore';
 const PREFERENCES_NAME: string = 'hey_subscription_background_scheduler';
 const SCHEDULED_WORKS_KEY: string = 'scheduled_works';
 const SCHEDULED_WORKS_BACKUP_KEY: string = 'scheduled_works_backup';
+const MAX_SCHEDULED_WORKS_RAW_CHARS: number = 64 * 1024;
+const MAX_SCHEDULED_WORK_RECORDS: number = 129;
+const MAX_SCHEDULED_WORK_GROUP_ID_CHARS: number = 512;
 
 export interface SubscriptionBackgroundScheduleResult {
   ok: boolean;
@@ -237,6 +240,9 @@ export class SubscriptionBackgroundScheduler {
     }
     const store = await preferences.getPreferences(context, PREFERENCES_NAME);
     const nextRaw = JSON.stringify(records);
+    if (records.length > MAX_SCHEDULED_WORK_RECORDS || nextRaw.length > MAX_SCHEDULED_WORKS_RAW_CHARS) {
+      throw new Error('Subscription background task index is too large.');
+    }
     const currentRaw = (await store.get(SCHEDULED_WORKS_KEY, '')).toString();
     if (currentRaw === nextRaw) {
       return;
@@ -270,12 +276,12 @@ export class SubscriptionBackgroundScheduler {
   }
 
   private static parseScheduledWorks(raw: string): Array<SubscriptionScheduledWorkRecord> | null {
-    if (raw.length === 0) {
+    if (raw.length === 0 || raw.length > MAX_SCHEDULED_WORKS_RAW_CHARS) {
       return null;
     }
     try {
       const parsed = JSON.parse(raw) as Array<Object>;
-      if (!Array.isArray(parsed)) {
+      if (!Array.isArray(parsed) || parsed.length > MAX_SCHEDULED_WORK_RECORDS) {
         return null;
       }
       const records = new Array<SubscriptionScheduledWorkRecord>();
@@ -283,7 +289,8 @@ export class SubscriptionBackgroundScheduler {
         const record = parsed[index] as Record<string, Object>;
         const groupId = record['groupId'];
         const workId = record['workId'];
-        if (typeof groupId !== 'string' || typeof workId !== 'number' ||
+        if (typeof groupId !== 'string' || groupId.length > MAX_SCHEDULED_WORK_GROUP_ID_CHARS ||
+          typeof workId !== 'number' ||
           (groupId.length === 0 && workId !== SUBSCRIPTION_AUTO_UPDATE_WORK_ID) ||
           !Number.isFinite(workId) || Math.floor(workId) !== workId || workId <= 0) {
           return null;

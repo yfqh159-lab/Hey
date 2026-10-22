@@ -50,6 +50,10 @@ ArkTS／外来线程里正常工作，几个库也能在 musl 上干净地 `dlop
 CMake 会在编完 `libheyvpn.so` 之后，把
 `entry/src/main/cpp/prebuilt/arm64-v8a/` 下预编译好的 `.so` 拷进 HAP 的原生库目录。
 
+`prebuilt/arm64-v8a/SHA256SUMS` 固定了四个已审查原生产物的 SHA-256。主动重编任一内核或
+TUN 适配器后，应先审查新二进制，再在同一提交中更新该清单；源码校验会拒绝未经记录的
+二进制替换。
+
 ## 环境变量与 `dlopen`
 
 `napi_init.cpp` 的 `PrepareXrayAssetDir` 负责设置 `XRAY_LOCATION_ASSET`（Geo 资源目录；

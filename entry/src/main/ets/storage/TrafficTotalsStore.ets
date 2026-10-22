@@ -20,6 +20,7 @@ export const EMPTY_TRAFFIC_TOTALS: TrafficTotals = {
 
 const PREFERENCES_NAME: string = 'hey_vpn_traffic';
 const TOTALS_KEY: string = 'traffic_totals';
+const MAX_TRAFFIC_TOTALS_RAW_CHARS: number = 4096;
 
 function sanitize(value: number): number {
   // Number.isFinite 不做隐式转换：非 number / NaN / Infinity 一律判 false，落到 0。
@@ -46,10 +47,14 @@ export class TrafficTotalsStore {
       try {
         const store = await preferences.getPreferences(context, PREFERENCES_NAME);
         const raw = (await store.get(TOTALS_KEY, '')).toString();
-        if (raw.length === 0) {
+        if (raw.length === 0 || raw.length > MAX_TRAFFIC_TOTALS_RAW_CHARS) {
           return normalize(EMPTY_TRAFFIC_TOTALS);
         }
-        return normalize(JSON.parse(raw) as TrafficTotals);
+        const parsed = JSON.parse(raw) as TrafficTotals;
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          return normalize(EMPTY_TRAFFIC_TOTALS);
+        }
+        return normalize(parsed);
       } catch (error) {
         return normalize(EMPTY_TRAFFIC_TOTALS);
       }

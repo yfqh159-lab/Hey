@@ -9,7 +9,7 @@ import {
   sameControlCardRuntimeIdentity
 } from '../core/ControlCard';
 import { LOCAL_HTTP_PROXY_PORT, VPN_DATA_SOCKS_PORT } from '../core/XrayConfig';
-import { ControlCardStore } from '../storage/ControlCardStore';
+import { ControlCardStore, isValidControlCardFormId } from '../storage/ControlCardStore';
 import { DiagnosticLog } from './DiagnosticLog';
 import { isPersistedVpnCleanupIncomplete, isPersistedVpnRuntimeHealthy, VpnRuntimeStateStore } from './VpnRuntimeStateStore';
 import { translate } from '../core/I18n';
@@ -49,7 +49,7 @@ export class ControlCardManager {
   }
 
   private async registerFormNow(context: common.Context, formId: string): Promise<void> {
-    if (formId.length === 0) {
+    if (!isValidControlCardFormId(formId)) {
       return;
     }
     await ControlCardStore.addFormId(context, formId);
@@ -61,7 +61,7 @@ export class ControlCardManager {
   }
 
   private async unregisterFormNow(context: common.Context, formId: string): Promise<void> {
-    if (formId.length === 0) {
+    if (!isValidControlCardFormId(formId)) {
       return;
     }
     this.invalidateFormUpdate(formId);
@@ -73,7 +73,7 @@ export class ControlCardManager {
   }
 
   private async refreshFormNow(context: common.Context, formId: string): Promise<void> {
-    if (formId.length === 0) {
+    if (!isValidControlCardFormId(formId)) {
       return;
     }
     await this.updateOne(context, formId, await this.loadReconciledState(context));

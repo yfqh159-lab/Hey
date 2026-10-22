@@ -16,8 +16,8 @@ target_link_libraries(heyvpn PUBLIC
     libhilog_ndk.z.so
     libdl.so)
 
-# [SING-BOX SPIKE — TEMP] libsingbox.so 由 scripts/build_libsingbox_ohos.sh 产出；
-# if(EXISTS) 守卫保证它还没编出来时不影响正常构建。验证完连同 napi 的临时导出一起删。
+# libsingbox.so 由 scripts/build_libsingbox_ohos.sh 产出，作为可选预览内核；
+# if(EXISTS) 守卫保证它还没编出来时不影响 Xray 主路径构建。
 #
 # 拷贝挂在一个 ALL 的独立目标上，而不是 heyvpn 的 POST_BUILD。原因：POST_BUILD 只在
 # heyvpn 被重新链接时才触发；若只重编了 prebuilt 的 .so（没动任何 .cpp），heyvpn 不会

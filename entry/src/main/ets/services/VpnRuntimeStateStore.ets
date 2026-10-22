@@ -10,6 +10,7 @@ const VPN_RUNTIME_STATE_BACKUP_FILE: string = 'hey-vpn-runtime-state.bak';
 export const VPN_RUNTIME_HEARTBEAT_STALE_MS: number = 30000;
 export const VPN_RUNTIME_STATE_WRITE_FAILURE_LIMIT: number = 3;
 export const VPN_RUNTIME_STATE_SCHEMA_VERSION: number = 2;
+const MAX_VPN_RUNTIME_STATE_BYTES: number = 64 * 1024;
 
 export interface PersistedVpnRuntimeState {
   schemaVersion?: number;
@@ -47,6 +48,9 @@ function isValidPersistedTimestamp(value: number, allowZero: boolean): boolean {
 }
 
 export function parsePersistedVpnRuntimeState(content: string): PersistedVpnRuntimeState | null {
+  if (content.length === 0 || content.length > MAX_VPN_RUNTIME_STATE_BYTES) {
+    return null;
+  }
   try {
     const value = JSON.parse(content) as PersistedVpnRuntimeState;
     const legacyState = value.schemaVersion === undefined;
@@ -298,7 +302,13 @@ export class VpnRuntimeStateStore {
 
   private static recoverInterruptedWrite(targetPath: string, tempPath: string, backupPath: string): void {
     if (fs.accessSync(tempPath)) {
-      const tempState = parsePersistedVpnRuntimeState(fs.readTextSync(tempPath));
+      let tempState: PersistedVpnRuntimeState | null = null;
+      try {
+        tempState = parsePersistedVpnRuntimeState(VpnRuntimeStateStore.readBoundedText(tempPath));
+      } catch (_error) {
+        // An oversized/unreadable temp is an incomplete transaction. Discard it
+        // below so the live owner can publish a fresh heartbeat immediately.
+      }
       if (tempState !== null) {
         // 完整 temp 已经 fsync，代表比主文件更新的提交意图（尤其可能是 active → stopped）。
         // 与读取侧的 temp > primary > backup 顺序保持一致，不能因为旧主文件仍在就删除它。
@@ -321,7 +331,7 @@ export class VpnRuntimeStateStore {
       if (!fs.accessSync(path)) {
         return { exists: false, content: null };
       }
-      return { exists: true, content: fs.readTextSync(path) };
+      return { exists: true, content: VpnRuntimeStateStore.readBoundedText(path) };
     } catch (error) {
       // 无法确认是瞬时访问错误还是损坏，涉及订阅凭据时必须保守处理。
       return { exists: true, content: null };
@@ -348,6 +358,14 @@ export class VpnRuntimeStateStore {
 
   private static sameArtifact(left: VpnRuntimeArtifactSnapshot, right: VpnRuntimeArtifactSnapshot): boolean {
     return left.exists === right.exists && left.content === right.content;
+  }
+
+  private static readBoundedText(path: string): string {
+    const stat = fs.statSync(path);
+    if (!Number.isFinite(stat.size) || stat.size < 0 || stat.size > MAX_VPN_RUNTIME_STATE_BYTES) {
+      throw new Error('VPN runtime state is too large.');
+    }
+    return fs.readTextSync(path);
   }
 
   private static removeIfExists(path: string): void {

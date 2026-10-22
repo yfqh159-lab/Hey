@@ -1,3 +1,5 @@
+import { MAX_EXTERNAL_IMPORT_TEXT_CHARS } from './ExternalInput';
+
 export const HARMONY_SEND_DATA_ACTION: string = 'ohos.want.action.sendData';
 export const HARMONY_TEXT_MIME_TYPE: string = 'text/plain';
 export const HARMONY_CONTENT_TITLE_KEY: string = 'ohos.extra.param.key.contentTitle';
@@ -57,7 +59,7 @@ function sharedTextValue(value: Object | undefined, depth: number = 0): string {
     return '';
   }
   if (typeof value === 'string') {
-    return value.trim();
+    return boundedSharedText(value);
   }
   if (Array.isArray(value)) {
     // Want parameters are untrusted runtime objects. Bound recursive array flattening so
@@ -67,11 +69,16 @@ function sharedTextValue(value: Object | undefined, depth: number = 0): string {
       return '';
     }
     const parts = new Array<string>();
+    let totalLength = 0;
     const values = value as Array<Object>;
     const count = Math.min(values.length, 256);
     for (let index = 0; index < count; index++) {
       const text = sharedTextValue(values[index], depth + 1);
       if (text.length > 0) {
+        totalLength += text.length + (parts.length > 0 ? 1 : 0);
+        if (totalLength > MAX_EXTERNAL_IMPORT_TEXT_CHARS) {
+          return oversizedSharedTextMarker();
+        }
         parts.push(text);
       }
     }
@@ -81,4 +88,17 @@ function sharedTextValue(value: Object | undefined, depth: number = 0): string {
     return value.toString().trim();
   }
   return '';
+}
+
+function boundedSharedText(value: string): string {
+  if (value.length > MAX_EXTERNAL_IMPORT_TEXT_CHARS) {
+    // Preserve the existing UI's "too large" classification without trimming or
+    // retaining an arbitrarily large external Want value in AppStorage.
+    return oversizedSharedTextMarker();
+  }
+  return value.trim();
+}
+
+function oversizedSharedTextMarker(): string {
+  return 'x'.repeat(MAX_EXTERNAL_IMPORT_TEXT_CHARS + 1);
 }
