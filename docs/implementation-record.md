@@ -400,6 +400,10 @@ Toast 失败保持非致命，避免页面退后台后把已完成导入误报�
 或缺少 `com.huawei.hmos.vpndialog` 都会阻止把环境标成可验收。`cc80c75` 又把 SDK 自带的
 `hap-sign-tool.jar verify-app` 接入两端 `build`/`install`，安装前同时验证真实 HAP 签名与五个关键
 arm64 库；已用当前无签名产物执行负向测试，验证器按预期以非零状态拒绝，脚本没有进入安装步骤。
+`ab93aae` 进一步提供独立 `verify-hap` 动作：用 SDK 公共测试密钥在系统临时目录生成一次性七天测试
+证书/Profile，为当前无签名 HAP 建立 v3 签名块后，项目脚本成功验证签名、代码摘要及五个核心库；
+同一动作仍拒绝原无签名包。测试包、证书、Profile 和临时 keystore 随后全部删除，未进入仓库，
+也不把此测试签名当作设备安装或用户发布签名。
 
 2026-10-21 还直接核对了
 [`Loyalsoldier/v2ray-rules-dat` 最新 Release API](https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest)：
