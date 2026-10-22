@@ -1064,8 +1064,13 @@ if (!worker.includes('let subscriptionWorkInFlight: Promise<void> | null = null;
   throw new Error('WorkScheduler callbacks can accumulate behind one stuck subscription update');
 }
 const tests = fs.readFileSync('entry/src/test/LocalUnit.test.ets', 'utf8');
+const cancelInfoAt = scheduler.indexOf('  private static buildCancelWorkInfo(');
+const loadScheduledAt = scheduler.indexOf('  private static async loadScheduledWorks(', cancelInfoAt);
 if (!scheduler.includes('workScheduler.startWork(SubscriptionBackgroundScheduler.buildWorkInfo(plan));') ||
   !scheduler.includes('workId: SUBSCRIPTION_AUTO_UPDATE_WORK_ID,') ||
+  cancelInfoAt < 0 || loadScheduledAt < 0 ||
+  !scheduler.slice(cancelInfoAt, loadScheduledAt)
+    .includes('networkType: workScheduler.NetworkType.NETWORK_TYPE_ANY') ||
   scheduler.includes('startWork(SubscriptionBackgroundScheduler.buildWorkInfo(plan.groupPlans[index], plan))') ||
   !scheduler.includes('Continue to replace an unreadable index with the known empty state.') ||
   !worker.includes('SUBSCRIPTIONS_CONTROLLER.updateNextDue(') ||

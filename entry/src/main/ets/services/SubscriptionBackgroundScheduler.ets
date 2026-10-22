@@ -203,7 +203,10 @@ export class SubscriptionBackgroundScheduler {
     return {
       workId,
       bundleName: SUBSCRIPTION_AUTO_UPDATE_WORK_BUNDLE_NAME,
-      abilityName: SUBSCRIPTION_AUTO_UPDATE_WORK_ABILITY
+      abilityName: SUBSCRIPTION_AUTO_UPDATE_WORK_ABILITY,
+      // API 26 validates stopWork with the same rule as startWork: at least one
+      // trigger condition must be present even though cancellation is keyed by workId.
+      networkType: workScheduler.NetworkType.NETWORK_TYPE_ANY
     };
   }
 
