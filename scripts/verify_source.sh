@@ -2482,7 +2482,7 @@ if (!controlCard.includes('runtimeStartedAt: number;') ||
   !controlCard.includes('left.runtimeStartedAt === right.runtimeStartedAt') ||
   !controlCardStore.includes('sameControlCardRuntimeIdentity(current, normalized)') ||
   !controlCardManager.includes('runtimeStartedAt: number = 0') ||
-  !indexPage.includes('SHARED_RUNTIME_CONTROLLER.requiresCleanup(),\n      this.startedAt') ||
+  !indexPage.includes('SHARED_RUNTIME_CONTROLLER.requiresCleanup(),\n      this.connectionStartedAt') ||
   localCardAt < 0 || localCardEnd < localCardAt ||
   !localCard.includes('const latestState = await ControlCardStore.loadState(context);') ||
   !localCard.includes('!sameControlCardRuntimeIdentity(state, latestState)') ||

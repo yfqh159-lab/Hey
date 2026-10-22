@@ -355,7 +355,7 @@ struct BackupPage {
         if (!fs.accessSync(path) && fs.accessSync(backupPath)) {
           fs.renameSync(backupPath, path);
         }
-        throw error;
+        throw new Error(error instanceof Error ? error.message : JSON.stringify(error));
       }
       if (fs.accessSync(backupPath)) {
         fs.unlinkSync(backupPath);

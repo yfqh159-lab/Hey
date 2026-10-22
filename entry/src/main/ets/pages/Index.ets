@@ -4,7 +4,7 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import { IconButton } from '../components/IconButton';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { BOTTOM_SAFE_HEIGHT_KEY, TOP_SAFE_HEIGHT_KEY } from '../core/Immersive';
-import { APP_MODE_VPN, AppLanguage, AppRuntimeMode, AppSettings, ConnectionStatus, DELAY_STATUS_UDP_ONLY, DELAY_STATUS_UNAVAILABLE, isNeutralDelayStatus, isProxyOnlyRuntimeMode, normalizeAppRuntimeMode, normalizeHomeDelayTestInterval, normalizeRealPingConcurrency, ProxyNode, ProxyProfile, resolveDelayTestUrl, RuntimeStats, SubscriptionGroup, SubscriptionProfile, XrayConfigType } from '../core/Profile';
+import { APP_MODE_VPN, AppLanguage, AppRuntimeMode, AppSettings, ConnectionStatus, DEFAULT_PROFILE_ID, DELAY_STATUS_UDP_ONLY, DELAY_STATUS_UNAVAILABLE, isNeutralDelayStatus, isProxyOnlyRuntimeMode, normalizeAppRuntimeMode, normalizeHomeDelayTestInterval, normalizeRealPingConcurrency, ProxyNode, ProxyProfile, resolveDelayTestUrl, RuntimeStats, SubscriptionGroup, SubscriptionProfile, XrayConfigType } from '../core/Profile';
 import { CoreSelectionStore, CoreType, requiredCoreForProtocol, CORE_TYPE_SINGBOX } from '../core/CoreSelection';
 import { DELAY_TEST_BATCH_PORT_BASE, normalizeOutboundInput } from '../core/XrayConfig';
 import { DeepLinkControlAction, DeepLinkIntent, parseDeepLink, subscriptionNameFromDeepLink } from '../core/DeepLink';
@@ -3013,6 +3013,8 @@ struct Index {
       let state = await SHARED_RUNTIME_CONTROLLER.refresh(context, this.language, strict);
       if (state.status === ConnectionStatus.RUNNING && this.outboundJson.trim().length > 0) {
         const profile: ProxyProfile = {
+          id: this.selectedNodeId.length > 0 ? this.selectedNodeId : DEFAULT_PROFILE_ID,
+          name: this.selectedNodeId.length > 0 ? this.findSelectedNodeName() : 'Default Xray Profile',
           outboundJson: this.outboundJson,
           updatedAt: this.profileUpdatedAtValue,
           configType: this.configType
@@ -3233,7 +3235,7 @@ struct Index {
       SHARED_RUNTIME_CONTROLLER.isVpnRunning(),
       this.runtimeMode,
       SHARED_RUNTIME_CONTROLLER.requiresCleanup(),
-      this.startedAt
+      this.connectionStartedAt
     )
       .catch((error: Error) => {
         SHARED_RUNTIME_CONTROLLER.appendLog(redactDiagnosticText(JSON.stringify(error)));
