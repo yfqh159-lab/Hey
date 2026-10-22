@@ -15,7 +15,6 @@ import { SETTINGS_CONTROLLER, SettingsDraft } from '../features/settings/Setting
 import { SHARED_RUNTIME_CONTROLLER } from '../features/runtime/RuntimeController';
 import { PageHeader } from '../shell/PageHeader';
 import { formatOne } from '../utils/LocalizationPresenter';
-import { ensureReadPasteboardPermission } from '../utils/ClipboardPermission';
 import { BOTTOM_SAFE_HEIGHT_KEY } from '../core/Immersive';
 import { AppColor, FontSz, Radius, Space } from '../theme/Theme';
 
@@ -276,9 +275,21 @@ struct PerAppPage {
         this.Pill(this.t('perApp.action.clear'), () => {
           this.clearVisibleApps();
         })
-        this.Pill(this.t('perApp.action.import'), () => {
-          this.importProxyAppsFromClipboard();
-        })
+        PasteButton({ text: PasteDescription.PASTE, buttonType: ButtonType.Capsule })
+          .fontSize(FontSz.footnote)
+          .fontColor(AppColor.textPrimary)
+          .padding({ left: 14, right: 14, top: 6, bottom: 6 })
+          .backgroundColor(AppColor.surface)
+          .borderRadius(Radius.pill)
+          .borderWidth(0.5)
+          .borderColor(AppColor.border)
+          .onClick((_event: ClickEvent, result: PasteButtonOnClickResult) => {
+            if (result === PasteButtonOnClickResult.SUCCESS) {
+              this.importProxyAppsFromClipboard();
+            } else {
+              this.showClipboardReadFailure();
+            }
+          })
         this.Pill(this.t('perApp.action.export'), () => {
           this.exportProxyAppsToClipboard();
         })
@@ -550,15 +561,6 @@ struct PerAppPage {
 
   private async importProxyAppsFromClipboard(): Promise<void> {
     try {
-      const context = this.getUIContext().getHostContext() as common.Context;
-      if (!await ensureReadPasteboardPermission(context)) {
-        try {
-          this.getUIContext().getPromptAction().showToast({ message: this.t('prompt.clipboardEmpty') });
-        } catch (err) {
-          // ignore
-        }
-        return;
-      }
       const systemPasteboard = pasteboard.getSystemPasteboard();
       if (!systemPasteboard.hasDataSync()) {
         try {
@@ -606,6 +608,14 @@ struct PerAppPage {
         // ignore
       }
       SHARED_RUNTIME_CONTROLLER.appendLog(JSON.stringify(error));
+    }
+  }
+
+  private showClipboardReadFailure(): void {
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: this.t('prompt.clipboardReadFailed') });
+    } catch (err) {
+      // ignore
     }
   }
 

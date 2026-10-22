@@ -15,7 +15,6 @@ import { SubscriptionStore } from '../storage/SubscriptionStore';
 import { SectionHeader } from '../components/SectionHeader';
 import { PageHeader } from '../shell/PageHeader';
 import { formatOne } from '../utils/LocalizationPresenter';
-import { ensureReadPasteboardPermission } from '../utils/ClipboardPermission';
 import { isScanCancelled, requestCameraPermission, scanQrCode } from '../utils/QrScan';
 import { AppColor, FontSz, Radius, Space } from '../theme/Theme';
 import { RoutingRuleDialog } from './routing/RoutingRuleDialog';
@@ -319,7 +318,20 @@ struct RoutingPage {
 
       Row({ space: Space.xs }) {
         this.RuleHeaderActionButton($r('app.media.ic_cloud_download'), 'fileImport')
-        this.RuleHeaderActionButton($r('app.media.ic_article'), 'import')
+        PasteButton({ icon: PasteIconStyle.LINES, buttonType: ButtonType.Normal })
+          .iconSize(17)
+          .iconColor(AppColor.textSecondary)
+          .width(34)
+          .height(34)
+          .backgroundColor(AppColor.surfaceAlt)
+          .borderRadius(17)
+          .onClick((_event: ClickEvent, result: PasteButtonOnClickResult) => {
+            if (result === PasteButtonOnClickResult.SUCCESS) {
+              this.importRulesFromClipboard();
+            } else {
+              this.showClipboardReadFailure();
+            }
+          })
         this.RuleHeaderActionButton($r('app.media.ic_qr_code'), 'qrImport')
         this.RuleHeaderActionButton($r('app.media.ic_share'), 'export')
         this.RuleHeaderActionButton($r('app.media.ic_add'), 'add')
@@ -523,8 +535,6 @@ struct RoutingPage {
   private handleRuleHeaderAction(action: string): void {
     if (action === 'fileImport') {
       this.importRulesFromFile();
-    } else if (action === 'import') {
-      this.confirmClipboardImport();
     } else if (action === 'qrImport') {
       this.scanRulesFromQr();
     } else if (action === 'export') {
@@ -534,7 +544,7 @@ struct RoutingPage {
     }
   }
 
-  private confirmClipboardImport(): void {
+  private confirmClipboardImport(content: string): void {
     try {
       this.getUIContext().showAlertDialog({
       title: this.t('action.import'),
@@ -547,7 +557,7 @@ struct RoutingPage {
         fontColor: AppColor.onBrand,
         backgroundColor: AppColor.brand,
         action: () => {
-          this.importRulesFromClipboard();
+          this.importRulesFromText(content, 'log.routingRulesImported');
         }
       },
       secondaryButton: {
@@ -564,15 +574,6 @@ struct RoutingPage {
 
   private async importRulesFromClipboard(): Promise<void> {
     try {
-      const context = this.getUIContext().getHostContext() as common.Context;
-      if (!await ensureReadPasteboardPermission(context)) {
-        try {
-          this.getUIContext().getPromptAction().showToast({ message: this.t('prompt.clipboardEmpty') });
-        } catch (err) {
-          // ignore
-        }
-        return;
-      }
       const systemPasteboard = pasteboard.getSystemPasteboard();
       if (!systemPasteboard.hasDataSync()) {
         try {
@@ -593,7 +594,7 @@ struct RoutingPage {
         return;
       }
 
-      await this.importRulesFromText(text, 'log.routingRulesImported');
+      this.confirmClipboardImport(text);
     } catch (error) {
       try {
         this.getUIContext().getPromptAction().showToast({ message: this.t('routing.rule.importFailed') });
@@ -601,6 +602,14 @@ struct RoutingPage {
         // ignore
       }
       SHARED_RUNTIME_CONTROLLER.appendLog(JSON.stringify(error));
+    }
+  }
+
+  private showClipboardReadFailure(): void {
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: this.t('prompt.clipboardReadFailed') });
+    } catch (err) {
+      // ignore
     }
   }
 

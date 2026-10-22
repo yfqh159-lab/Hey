@@ -10,7 +10,6 @@ import { SHARED_RUNTIME_CONTROLLER } from '../features/runtime/RuntimeController
 import { AppColor, FontSz, Radius, Space } from '../theme/Theme';
 import { PageHeader } from '../shell/PageHeader';
 import { formatOne } from '../utils/LocalizationPresenter';
-import { ensureReadPasteboardPermission } from '../utils/ClipboardPermission';
 import { isScanCancelled, requestCameraPermission, scanQrCode } from '../utils/QrScan';
 import { router, promptAction } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
@@ -118,9 +117,20 @@ struct SubscriptionDetailPage {
               })
 
             Row() {
-              this.ToolbarIcon($r('app.media.ic_article'), () => {
-                this.pasteFromClipboard();
-              })
+              PasteButton({ icon: PasteIconStyle.LINES, buttonType: ButtonType.Normal })
+                .iconSize(18)
+                .iconColor(AppColor.textTertiary)
+                .backgroundColor(Color.Transparent)
+                .width(34)
+                .height(34)
+                .borderRadius(Radius.sm)
+                .onClick((_event: ClickEvent, result: PasteButtonOnClickResult) => {
+                  if (result === PasteButtonOnClickResult.SUCCESS) {
+                    this.pasteFromClipboard();
+                  } else {
+                    this.showClipboardReadFailure();
+                  }
+                })
               this.ToolbarIcon($r('app.media.ic_qr_code'), () => {
                 this.scanSubscriptionUrl();
               })
@@ -353,15 +363,6 @@ struct SubscriptionDetailPage {
 
   private async pasteFromClipboard() {
     try {
-      const context = this.getUIContext().getHostContext() as common.Context;
-      if (!await ensureReadPasteboardPermission(context)) {
-        try {
-          this.getUIContext().getPromptAction().showToast({ message: this.t('prompt.clipboardReadFailed') });
-        } catch (err) {
-          // ignore
-        }
-        return;
-      }
       const systemPasteboard = pasteboard.getSystemPasteboard();
       if (systemPasteboard.hasDataSync()) {
         const pasteData = await systemPasteboard.getData();
@@ -397,6 +398,14 @@ struct SubscriptionDetailPage {
       } catch (err) {
         // ignore
       }
+    }
+  }
+
+  private showClipboardReadFailure(): void {
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: this.t('prompt.clipboardReadFailed') });
+    } catch (err) {
+      // ignore
     }
   }
 

@@ -15,7 +15,6 @@ import { SUBSCRIPTIONS_CONTROLLER } from '../features/subscriptions/Subscription
 import { AppRoute } from '../shell/AppRoute';
 import { PageHeader } from '../shell/PageHeader';
 import { formatOne, localizeCoreMessage } from '../utils/LocalizationPresenter';
-import { ensureReadPasteboardPermission } from '../utils/ClipboardPermission';
 import { isScanCancelled, requestCameraPermission, scanQrCode } from '../utils/QrScan';
 import { SubscriptionStore } from '../storage/SubscriptionStore';
 import { convertNativeShareTextToOutbounds } from '../services/NativeShareConverter';
@@ -214,15 +213,19 @@ struct ScannerPage {
               Blank()
 
               Row({ space: 8 }) {
-                Button(this.t('action.paste'))
+                PasteButton({ text: PasteDescription.PASTE, buttonType: ButtonType.Normal })
                   .fontSize(12)
                   .fontColor(AppColor.textSecondary)
                   .backgroundColor(AppColor.border)
                   .height(28)
                   .padding({ left: 10, right: 10 })
                   .borderRadius(6)
-                  .onClick(() => {
-                    this.pasteFromClipboard();
+                  .onClick((_event: ClickEvent, result: PasteButtonOnClickResult) => {
+                    if (result === PasteButtonOnClickResult.SUCCESS) {
+                      this.pasteFromClipboard();
+                    } else {
+                      promptAction.showToast({ message: this.t('prompt.clipboardReadFailed') });
+                    }
                   })
 
                 if (this.hasImportValue()) {
@@ -565,13 +568,6 @@ struct ScannerPage {
     this.isBusy = true;
     const pageGeneration = this.pageGeneration;
     try {
-      const context = getContext(this) as common.Context;
-      if (!await ensureReadPasteboardPermission(context)) {
-        if (this.isCurrentPage(pageGeneration)) {
-          promptAction.showToast({ message: this.t('prompt.clipboardReadFailed') });
-        }
-        return;
-      }
       if (!this.isCurrentPage(pageGeneration)) {
         return;
       }

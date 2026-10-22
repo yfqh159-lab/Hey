@@ -14,7 +14,6 @@ import { SHARED_RUNTIME_CONTROLLER } from '../features/runtime/RuntimeController
 import { SubscriptionStore } from '../storage/SubscriptionStore';
 import { SectionHeader } from '../components/SectionHeader';
 import { PageHeader } from '../shell/PageHeader';
-import { ensureReadPasteboardPermission } from '../utils/ClipboardPermission';
 import { formatOne, localizeCoreMessage } from '../utils/LocalizationPresenter';
 import { BOTTOM_SAFE_HEIGHT_KEY } from '../core/Immersive';
 import { AppColor, FontSz, Radius, Space } from '../theme/Theme';
@@ -84,15 +83,19 @@ struct JsonImportPage {
               // 粘贴 / 清空 操作行
               Row({ space: Space.sm }) {
                 Blank()
-                Button(this.t('action.paste'))
+                PasteButton({ text: PasteDescription.PASTE, buttonType: ButtonType.Normal })
                   .fontSize(FontSz.footnote)
                   .fontColor(AppColor.brand)
                   .backgroundColor(AppColor.brandTint)
                   .height(30)
                   .padding({ left: Space.md, right: Space.md })
                   .borderRadius(Radius.sm)
-                  .onClick(() => {
-                    this.pasteFromClipboard();
+                  .onClick((_event: ClickEvent, result: PasteButtonOnClickResult) => {
+                    if (result === PasteButtonOnClickResult.SUCCESS) {
+                      this.pasteFromClipboard();
+                    } else {
+                      promptAction.showToast({ message: this.t('prompt.clipboardReadFailed') });
+                    }
                   })
 
                 Button(this.t('jsonImport.chooseFile'))
@@ -375,11 +378,6 @@ struct JsonImportPage {
 
   private async pasteFromClipboard() {
     try {
-      const context = getContext(this) as common.Context;
-      if (!await ensureReadPasteboardPermission(context)) {
-        promptAction.showToast({ message: this.t('prompt.clipboardReadFailed') });
-        return;
-      }
       const systemPasteboard = pasteboard.getSystemPasteboard();
       if (systemPasteboard.hasDataSync()) {
         const pasteData = await systemPasteboard.getData();

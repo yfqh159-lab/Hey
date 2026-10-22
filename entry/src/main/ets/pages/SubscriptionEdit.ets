@@ -10,7 +10,6 @@ import { SUBSCRIPTIONS_CONTROLLER, SubscriptionsControllerState } from '../featu
 import { DEFAULT_SUBSCRIPTION_USER_AGENT } from '../services/SubscriptionManager';
 import { SETTINGS_CONTROLLER } from '../features/settings/SettingsController';
 import { PageHeader } from '../shell/PageHeader';
-import { ensureReadPasteboardPermission } from '../utils/ClipboardPermission';
 import { isScanCancelled, requestCameraPermission, scanQrCode } from '../utils/QrScan';
 import { formatOne, formatTwo } from '../utils/LocalizationPresenter';
 import { router, promptAction } from '@kit.ArkUI';
@@ -177,18 +176,19 @@ struct SubscriptionEditPage {
                     })
                   }
 
-                  Button() {
-                    Image($r('app.media.ic_article'))
-                      .width(15)
-                      .height(15)
-                      .fillColor(AppColor.textSecondary)
-                  }
+                  PasteButton({ icon: PasteIconStyle.LINES, buttonType: ButtonType.Normal })
+                  .iconSize(15)
+                  .iconColor(AppColor.textSecondary)
                   .backgroundColor(AppColor.surfaceAlt)
                   .width(28)
                   .height(28)
                   .borderRadius(14)
-                  .onClick(() => {
-                    this.pasteFromClipboard();
+                  .onClick((_event: ClickEvent, result: PasteButtonOnClickResult) => {
+                    if (result === PasteButtonOnClickResult.SUCCESS) {
+                      this.pasteFromClipboard();
+                    } else {
+                      this.showClipboardReadFailure();
+                    }
                   })
 
                   Button() {
@@ -510,15 +510,6 @@ struct SubscriptionEditPage {
 
   private async pasteFromClipboard() {
     try {
-      const context = this.getUIContext().getHostContext() as common.Context;
-      if (!await ensureReadPasteboardPermission(context)) {
-        try {
-          this.getUIContext().getPromptAction().showToast({ message: this.t('prompt.clipboardReadFailed') });
-        } catch (err) {
-          // ignore
-        }
-        return;
-      }
       const systemPasteboard = pasteboard.getSystemPasteboard();
       if (systemPasteboard.hasDataSync()) {
         const pasteData = await systemPasteboard.getData();
@@ -554,6 +545,14 @@ struct SubscriptionEditPage {
       } catch (err) {
         // ignore
       }
+    }
+  }
+
+  private showClipboardReadFailure(): void {
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: this.t('prompt.clipboardReadFailed') });
+    } catch (err) {
+      // ignore
     }
   }
 

@@ -69,6 +69,41 @@ if [[ "${actual_http_request_files}" != "${expected_http_request_files}" ]]; the
 fi
 printf 'ArkTS HTTP request allowlist verification passed\n'
 
+# API 12+ protects clipboard reads. Keep every read behind the system PasteButton,
+# which grants one user-triggered temporary authorization, instead of declaring a
+# broad READ_PASTEBOARD permission or reintroducing a helper that merely claims the
+# read is authorized. New clipboard-read pages must be reviewed and added explicitly.
+expected_clipboard_read_files="$(printf '%s\n' \
+  entry/src/main/ets/pages/JsonImport.ets \
+  entry/src/main/ets/pages/PerApp.ets \
+  entry/src/main/ets/pages/Routing.ets \
+  entry/src/main/ets/pages/Scanner.ets \
+  entry/src/main/ets/pages/SubscriptionDetail.ets \
+  entry/src/main/ets/pages/SubscriptionEdit.ets)"
+actual_clipboard_read_files="$(
+  find entry/src/main/ets -type f -name '*.ets' \
+    -exec grep -lE '[.]getData[[:space:]]*[(]' {} + 2>/dev/null | sort || true
+)"
+if [[ "${actual_clipboard_read_files}" != "${expected_clipboard_read_files}" ]]; then
+  printf 'unexpected clipboard read call sites:\n' >&2
+  printf 'expected:\n%s\n' "${expected_clipboard_read_files}" >&2
+  printf 'actual:\n%s\n' "${actual_clipboard_read_files}" >&2
+  exit 1
+fi
+if grep -q 'ohos[.]permission[.]READ_PASTEBOARD' entry/src/main/module.json5 ||
+  [[ -e entry/src/main/ets/utils/ClipboardPermission.ets ]]; then
+  printf 'clipboard reads use broad permission or a bypass helper instead of PasteButton\n' >&2
+  exit 1
+fi
+while IFS= read -r clipboard_file; do
+  if ! grep -q 'PasteButton({' "${clipboard_file}" ||
+    ! grep -q 'PasteButtonOnClickResult[.]SUCCESS' "${clipboard_file}"; then
+    printf '%s: clipboard read is not guarded by a successful PasteButton click\n' "${clipboard_file}" >&2
+    exit 1
+  fi
+done <<< "${actual_clipboard_read_files}"
+printf 'temporary-authorized clipboard read verification passed\n'
+
 # Exit-IP verification is user-visible proof of the active egress. It must require a
 # valid loopback proxy and an authenticated HTTPS endpoint; neither an unavailable proxy
 # nor a custom plaintext endpoint may fall back to the physical network or claim success.
