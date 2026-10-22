@@ -2866,6 +2866,22 @@ printf 'VPN runtime temp promotion verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');
+const vpn = fs.readFileSync('entry/src/main/ets/vpn/HeyVpnAbility.ets', 'utf8');
+const dataPlaneAt = vpn.indexOf('const useHevTun = settings.useHevTun;');
+const activeStateAt = vpn.indexOf('const activeAt = Date.now();', dataPlaneAt);
+const dataPlane = vpn.slice(dataPlaneAt, activeStateAt);
+if (dataPlaneAt < 0 || activeStateAt < 0 ||
+  !dataPlane.includes('buildHevTunConfigYaml(vpnMtu, VPN_DATA_SOCKS_HOST, this.runtimeHealthProbePort,') ||
+  !dataPlane.includes('startNativeTun2Socks(this.tunFd, VPN_DATA_SOCKS_HOST, this.runtimeHealthProbePort, vpnMtu)') ||
+  !dataPlane.includes('${VPN_DATA_SOCKS_HOST}:${this.runtimeHealthProbePort}') ||
+  dataPlane.includes('VPN_DATA_SOCKS_PORT')) {
+  throw new Error('TUN data-plane engines are not bound to the verified runtime SOCKS port');
+}
+NODE
+printf 'verified runtime SOCKS port routing verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
 const source = fs.readFileSync('entry/src/main/ets/core/I18n.ets', 'utf8');
 
 function translationMapKeys(name) {

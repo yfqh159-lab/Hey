@@ -39,7 +39,7 @@ import {
   stopNativeTun2Socks,
   stopNativeXray
 } from '../native/HeyNative';
-import { VPN_DATA_SOCKS_HOST, VPN_DATA_SOCKS_PORT } from '../core/XrayConfig';
+import { VPN_DATA_SOCKS_HOST } from '../core/XrayConfig';
 import { buildHevTunConfigYaml } from '../core/HevTunConfig';
 import { isSingboxCore } from '../core/CoreSelection';
 import { DiagnosticLog } from '../services/DiagnosticLog';
@@ -362,8 +362,8 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       }
       this.ensureStartAllowed('VPN process network protection', sessionGeneration);
 
-      // 两个内核统一走 tun2socks 数据面：内核在 127.0.0.1:VPN_DATA_SOCKS_PORT 起本地
-      // SOCKS 入站，再把 Harmony TUN fd 的流量转发进去。sing-box 因此不需要把 tun fd
+      // 两个内核统一走 tun2socks 数据面：内核在已生成或完整配置声明的本地
+      // SOCKS 入站启动，再把 Harmony TUN fd 的流量转发进去。sing-box 因此不需要把 tun fd
       // 交给核心（无 OpenTun / gvisor tun 栈），与 Xray 路径一致。
       // 首次检查之后已经经过设置读取、网络探测和系统 VPN 创建；UI 进程可能在这些
       // await 期间开始 Geo rename，因此在真正进入原生核心前必须再次 fail-closed。
@@ -397,14 +397,14 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       const tun2socksResult = useHevTun
         ? startNativeHevTun(
             this.tunFd,
-            buildHevTunConfigYaml(vpnMtu, VPN_DATA_SOCKS_HOST, VPN_DATA_SOCKS_PORT, settings.hevTunLogLevel, settings.hevTunRwTimeout)
+            buildHevTunConfigYaml(vpnMtu, VPN_DATA_SOCKS_HOST, this.runtimeHealthProbePort, settings.hevTunLogLevel, settings.hevTunRwTimeout)
           )
-        : startNativeTun2Socks(this.tunFd, VPN_DATA_SOCKS_HOST, VPN_DATA_SOCKS_PORT, vpnMtu);
+        : startNativeTun2Socks(this.tunFd, VPN_DATA_SOCKS_HOST, this.runtimeHealthProbePort, vpnMtu);
       if (!tun2socksResult.ok) {
         throw new Error(tun2socksResult.message);
       }
       this.ensureStartAllowed('TUN data-plane startup', sessionGeneration);
-      this.emitInfo('tun data plane started.', `engine=${useHevTun ? 'hev' : 'gvisor'}, ${VPN_DATA_SOCKS_HOST}:${VPN_DATA_SOCKS_PORT}, mtu=${vpnMtu}, core=${useSingbox ? 'singbox' : 'xray'}, ${tun2socksResult.message}`);
+      this.emitInfo('tun data plane started.', `engine=${useHevTun ? 'hev' : 'gvisor'}, ${VPN_DATA_SOCKS_HOST}:${this.runtimeHealthProbePort}, mtu=${vpnMtu}, core=${useSingbox ? 'singbox' : 'xray'}, ${tun2socksResult.message}`);
 
       const activeAt = Date.now();
       const activeStateStored = VpnRuntimeStateStore.write(this.context, {
