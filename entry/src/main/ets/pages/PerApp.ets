@@ -1,6 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
+import { fileIo as fs } from '@kit.CoreFileKit';
 import { DEFAULT_LANGUAGE, translate } from '../core/I18n';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { markRuntimeSettingsRestartNeeded } from '../core/SettingsChange';
@@ -9,6 +10,8 @@ import {
   exportPerAppProxyList,
   importPerAppProxyList,
   invertVisiblePerAppPackages,
+  parsePerAppPackageCatalog,
+  PER_APP_DEVICE_PACKAGE_CATALOG_FILE,
   selectAllPerAppPackages
 } from '../core/PerAppProxy';
 import { AppLanguage } from '../core/Profile';
@@ -89,6 +92,23 @@ struct PerAppPage {
       }
     });
 
+    const context = this.getUIContext().getHostContext() as common.Context;
+    const devicePackages = this.loadDevicePackageCatalog(context);
+    devicePackages.forEach((pkg: string) => {
+      if (!list.some(item => item.bundleName === pkg)) {
+        list.push({
+          bundleName: pkg,
+          label: this.f1('perApp.customLabel', 'package', pkg),
+          isSystem: false
+        });
+      }
+    });
+    if (devicePackages.length > 0) {
+      SHARED_RUNTIME_CONTROLLER.appendLog(
+        this.f1('perApp.log.deviceCatalogLoaded', 'count', devicePackages.length.toString())
+      );
+    }
+
     // 确保之前用户保存的已经在 list 中（万一有用户手动输入的，也把它加进去，并过滤剔除可能残留的自身包名）
     this.perAppProxyList.forEach(pkg => {
       if (pkg !== SELF_BUNDLE_NAME && !list.some(item => item.bundleName === pkg)) {
@@ -101,6 +121,25 @@ struct PerAppPage {
     });
 
     this.allApps = list;
+  }
+
+  private loadDevicePackageCatalog(context: common.Context): Array<string> {
+    const path = `${context.filesDir}/${PER_APP_DEVICE_PACKAGE_CATALOG_FILE}`;
+    try {
+      if (!fs.accessSync(path)) {
+        return [];
+      }
+      const stat = fs.statSync(path);
+      if (stat.size <= 0 || stat.size > 2 * 1024 * 1024) {
+        return [];
+      }
+      return parsePerAppPackageCatalog(fs.readTextSync(path), SELF_BUNDLE_NAME);
+    } catch (error) {
+      SHARED_RUNTIME_CONTROLLER.appendLog(
+        this.f1('perApp.log.deviceCatalogFailed', 'error', redactDiagnosticText(JSON.stringify(error)))
+      );
+      return [];
+    }
   }
 
   // 过滤后的应用列表（按搜索关键字过滤名称 / 包名）

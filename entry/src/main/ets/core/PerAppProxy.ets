@@ -6,7 +6,27 @@ export interface PerAppProxyImportResult {
 }
 
 export const MAX_PER_APP_PACKAGE_COUNT: number = 4096;
+export const PER_APP_DEVICE_PACKAGE_CATALOG_FILE: string = 'per-app-device-packages.txt';
 const MAX_PER_APP_IMPORT_CHARS: number = 2 * 1024 * 1024;
+
+export function hasEmptyPerAppProxyWhitelist(
+  enabled: boolean,
+  bypass: boolean,
+  packages: Array<string>,
+  selfPackageName: string = ''
+): boolean {
+  return enabled && !bypass && normalizePerAppPackageList(packages, selfPackageName).length === 0;
+}
+
+export function parsePerAppPackageCatalog(
+  content: string,
+  selfPackageName: string = ''
+): Array<string> {
+  if (content.length > MAX_PER_APP_IMPORT_CHARS) {
+    return [];
+  }
+  return normalizePerAppPackageList(content.split(/[\s,]+/), selfPackageName);
+}
 
 export function normalizePerAppPackageList(packages: Array<string>, selfPackageName: string = ''): Array<string> {
   const normalized = new Array<string>();

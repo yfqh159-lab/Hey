@@ -17,7 +17,7 @@ import { defaultJsonConfigNodeName, resolveJsonConfigNodeName } from '../main/et
 import { selectRuntimeLocalSocksPort, shouldExposeLocalHttpProxy, shouldUseDynamicLocalSocksPort, withRuntimeLocalSocksPort } from '../main/ets/core/LocalProxy';
 import { parseManualOutboundEditState } from '../main/ets/core/ManualOutboundEditState';
 import { buildManualHysteria2Outbound, buildManualWireguardOutbound } from '../main/ets/core/ManualOutboundBuilder';
-import { MAX_PER_APP_PACKAGE_COUNT, clearVisiblePerAppPackages, exportPerAppProxyList, importPerAppProxyList, invertVisiblePerAppPackages, normalizePerAppPackageList, selectAllPerAppPackages } from '../main/ets/core/PerAppProxy';
+import { MAX_PER_APP_PACKAGE_COUNT, clearVisiblePerAppPackages, exportPerAppProxyList, hasEmptyPerAppProxyWhitelist, importPerAppProxyList, invertVisiblePerAppPackages, normalizePerAppPackageList, parsePerAppPackageCatalog, selectAllPerAppPackages } from '../main/ets/core/PerAppProxy';
 import { shouldShowProxySharingStartWarning } from '../main/ets/core/ProxySharingWarning';
 import { canCancelStartingConnection, shouldDeferBusyControlAction, shouldOfferConnectionStop } from '../main/ets/core/ConnectionInteraction';
 import { shouldStartScannerImmediately } from '../main/ets/core/ScannerLaunch';
@@ -3211,6 +3211,19 @@ export default function localUnitTest() {
       expect(normalizePerAppPackageList([`com.${'a'.repeat(260)}`]).length).assertEqual(0);
       expect(importPerAppProxyList('x'.repeat(2 * 1024 * 1024 + 1), false).success).assertFalse();
 
+      const deviceCatalog = parsePerAppPackageCatalog(
+        'ID: 100:\n  com.example.one\n  com.example.two\n  com.example.one\n  com.lmlm.hey',
+        selfPackage
+      );
+      expect(deviceCatalog.length).assertEqual(2);
+      expect(deviceCatalog[0]).assertEqual('com.example.one');
+      expect(deviceCatalog[1]).assertEqual('com.example.two');
+      expect(hasEmptyPerAppProxyWhitelist(true, false, [], selfPackage)).assertTrue();
+      expect(hasEmptyPerAppProxyWhitelist(true, false, [selfPackage], selfPackage)).assertTrue();
+      expect(hasEmptyPerAppProxyWhitelist(true, false, ['com.example.one'], selfPackage)).assertFalse();
+      expect(hasEmptyPerAppProxyWhitelist(true, true, [], selfPackage)).assertFalse();
+      expect(hasEmptyPerAppProxyWhitelist(false, false, [], selfPackage)).assertFalse();
+
     });
 
     it('maps per-app vpn package lists', 0, () => {
@@ -3218,14 +3231,21 @@ export default function localUnitTest() {
       const disabledBlocked = disabled.blockedApplications ?? [];
       expect(disabledBlocked[0]).assertEqual(BUNDLE_NAME);
 
-      const enabledEmpty = createDefaultVpnConfig(true, false, []);
-      const emptyBlocked = enabledEmpty.blockedApplications ?? [];
-      expect(emptyBlocked[0]).assertEqual(BUNDLE_NAME);
+      let emptyRejected = false;
+      try {
+        createDefaultVpnConfig(true, false, []);
+      } catch (_error) {
+        emptyRejected = true;
+      }
+      expect(emptyRejected).assertTrue();
 
-      const selfOnly = createDefaultVpnConfig(true, false, [BUNDLE_NAME]);
-      const selfOnlyBlocked = selfOnly.blockedApplications ?? [];
-      expect(selfOnlyBlocked[0]).assertEqual(BUNDLE_NAME);
-      expect(selfOnly.trustedApplications === undefined).assertTrue();
+      let selfOnlyRejected = false;
+      try {
+        createDefaultVpnConfig(true, false, [BUNDLE_NAME]);
+      } catch (_error) {
+        selfOnlyRejected = true;
+      }
+      expect(selfOnlyRejected).assertTrue();
 
       const proxySelected = createDefaultVpnConfig(true, false, [BUNDLE_NAME, 'com.tencent.mm']);
       const trusted = proxySelected.trustedApplications ?? [];

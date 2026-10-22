@@ -11,7 +11,7 @@ import { CORE_TYPE_SINGBOX, CORE_TYPE_XRAY, CoreSelectionStore, CoreType, isSing
 import { buildSingboxConfig, GeneratedSingboxConfig } from '../core/SingboxConfig';
 import { redactDiagnosticText } from '../core/DiagnosticRedaction';
 import { SubscriptionStore } from '../storage/SubscriptionStore';
-import { createStopCommandVpnWant, createStopVpnWant, createVpnWant, isMatchingVpnSessionDetails, isValidVpnSessionId } from '../vpn/VpnConstants';
+import { BUNDLE_NAME, createStopCommandVpnWant, createStopVpnWant, createVpnWant, isMatchingVpnSessionDetails, isValidVpnSessionId } from '../vpn/VpnConstants';
 import { getNativeFreePorts, getNativeStats, nativeXrayAssetReadiness, startNativeXray, stopNativeXray, testNativeXrayConfig } from '../native/HeyNative';
 import { DiagnosticEvent, DiagnosticLog } from './DiagnosticLog';
 import { clearCoreLog, clearSingboxLog } from './CoreLogReader';
@@ -21,6 +21,7 @@ import { assertGeoAssetsStableForCore } from './GeoCoreReadiness';
 import { VpnStartCancellationStore } from './VpnStartCancellationStore';
 import { VpnStartRequestStore } from './VpnStartRequestStore';
 import { canConfirmVpnReleasedAfterSystemStop } from '../core/RuntimeHealth';
+import { hasEmptyPerAppProxyWhitelist } from '../core/PerAppProxy';
 import {
   VpnRuntimeStateStore,
   isPersistedVpnRuntimeSessionReady,
@@ -160,6 +161,17 @@ export class ConnectionController {
     // 不必要地向 VPN Extension 下发停止命令。
     const requestedMode = normalizeAppRuntimeMode(settings?.mode, APP_MODE_VPN);
     this.runtimeMode = requestedMode;
+
+    if (requestedMode === APP_MODE_VPN && settings !== undefined && hasEmptyPerAppProxyWhitelist(
+      settings.perAppProxyEnabled,
+      settings.perAppProxyBypass ?? false,
+      settings.perAppProxyList ?? [],
+      BUNDLE_NAME
+    )) {
+      this.status = ConnectionStatus.ERROR;
+      this.lastError = '分应用隧道为“仅代理选中应用”时，请至少选择一个应用。';
+      return this.getSnapshot();
+    }
 
     const validation = normalizeConfigInput(profile.outboundJson, profile.configType);
     if (!validation.valid) {

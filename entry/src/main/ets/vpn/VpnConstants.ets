@@ -1,6 +1,7 @@
 import { vpnExtension } from '@kit.NetworkKit';
 import Want from '@ohos.app.ability.Want';
 import { DNS_VPN, normalizeVpnDnsServers } from '../core/DnsAddresses';
+import { hasEmptyPerAppProxyWhitelist } from '../core/PerAppProxy';
 import {
   DEFAULT_VPN_MTU,
   AppSettings,
@@ -154,7 +155,11 @@ export function createDefaultVpnConfig(
   let trustedApps: string[] = [];
   const selectedApps = appList.filter(app => app !== selfBundle);
 
-  if (!perAppEnabled || selectedApps.length === 0) {
+  if (hasEmptyPerAppProxyWhitelist(perAppEnabled, bypassMode, selectedApps, selfBundle)) {
+    throw new Error('分应用隧道为“仅代理选中应用”时，请至少选择一个应用。');
+  }
+
+  if (!perAppEnabled) {
     // 默认防回路拦截自己
     blockedApps = [selfBundle];
   } else {
