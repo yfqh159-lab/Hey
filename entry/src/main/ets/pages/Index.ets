@@ -1060,11 +1060,7 @@ struct Index {
             .fontSize(FontSz.footnote)
             .fontColor(AppColor.textSecondary)
           if (this.shouldShowLocalProxyEndpoints()) {
-            Text(this.f2(
-              'home.localProxyEndpoints',
-              'socks', this.localProxySocksPort.toString(),
-              'http', this.localProxyHttpPort.toString()
-            ))
+            Text(this.localProxyEndpointText())
               .fontSize(FontSz.caption)
               .fontColor(AppColor.textTertiary)
               .textAlign(TextAlign.Center)
@@ -3379,7 +3375,21 @@ struct Index {
 
   private shouldShowLocalProxyEndpoints(): boolean {
     return this.isRunning() && isProxyOnlyRuntimeMode(this.runtimeMode) &&
-      this.localProxySocksPort > 0 && this.localProxyHttpPort > 0;
+      (this.localProxySocksPort > 0 || this.localProxyHttpPort > 0);
+  }
+
+  private localProxyEndpointText(): string {
+    if (this.localProxySocksPort > 0 && this.localProxyHttpPort > 0) {
+      return this.f2(
+        'home.localProxyEndpoints',
+        'socks', this.localProxySocksPort.toString(),
+        'http', this.localProxyHttpPort.toString()
+      );
+    }
+    if (this.localProxySocksPort > 0) {
+      return this.f1('home.localProxySocksEndpoint', 'port', this.localProxySocksPort.toString());
+    }
+    return this.f1('home.localProxyHttpEndpoint', 'port', this.localProxyHttpPort.toString());
   }
 
   private t(key: string): string {

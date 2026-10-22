@@ -21,7 +21,7 @@ import { canCancelStartingConnection, shouldDeferBusyControlAction, shouldOfferC
 import { shouldStartScannerImmediately } from '../main/ets/core/ScannerLaunch';
 import { APP_MODE_PROXY_ONLY, APP_MODE_VPN, AppSettings, ConnectionStatus, DEFAULT_DELAY_TEST_URL, DEFAULT_HEV_TUN_LOG_LEVEL, DEFAULT_HEV_TUN_RW_TIMEOUT, DEFAULT_IP_API_URL, DEFAULT_VPN_MTU, DELAY_STATUS_CORE_UNAVAILABLE, DELAY_STATUS_UDP_ONLY, DELAY_STATUS_UNAVAILABLE, OUTBOUND_DOMAIN_RESOLVE_DNS_HOSTS, OUTBOUND_DOMAIN_RESOLVE_NONE, OUTBOUND_DOMAIN_RESOLVE_REPLACE, OutboundDomainResolveMethod, normalizeAppRuntimeMode, normalizeHevTunLogLevel, normalizeHevTunRwTimeout, normalizeRealPingConcurrency, normalizeRoutingDomainStrategy, normalizeUiModeNight, ProxyNode, resolveDelayTestUrl, RoutingRule, RuntimeStats, SubscriptionGroup } from '../main/ets/core/Profile';
 import { BUILTIN_GEO_DATA_FILE_NAMES, DEFAULT_GEO_RELEASE_API, DEFAULT_GEO_RELEASE_DOWNLOAD_PREFIX, GEOIP_FILE_NAME, GEOSITE_FILE_NAME, areAllowedGeoAssetRedirects, buildAssetDownloadUrl, buildGeoChecksumUrl, encodeGeoTransactionState, hasPendingGeoReplacementArtifacts, isAllowedGeoAssetRedirect, isPlausibleGeoData, isValidGeoCommitMarker, normalizeGeoAssetDownloadUrl, parseDefaultGeoRelease, parseGeoTransactionState, parseHttpRedirectLocation, parseSha256Checksum, resolveGeoRecoveryAction, resolveGeoUpdateNotice, resolveStandaloneAssetRecoveryAction } from '../main/ets/core/GeoAssets';
-import { DELAY_TEST_SOCKS_PORT, LOCAL_HTTP_PROXY_LAN_HOST, LOCAL_HTTP_PROXY_PORT, LOCAL_SOCKS_PROXY_PORT, PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT, UNIDENTIFIED_PROCESS_PACKAGE, VPN_DATA_SOCKS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT, appReservedRuntimePorts, buildDelayTestConfig, buildRuntimeXrayConfig, buildXrayConfig, buildXrayConfigWithSettings, canUseProcessRouting, collectOutboundDomainPreResolveHosts, normalizeFullConfigRoutingProcesses, normalizeOutboundInput, normalizeRoutingRuleProcesses, validateFullConfigJson, validateOutboundJson, validatePolicyGroupConfigJson, validateProxyChainConfigJson, withOutboundDomainResolvedHosts, injectXrayLogFile, isReservedAppRuntimePort } from '../main/ets/core/XrayConfig';
+import { DEFAULT_SOCKS_HOST, DELAY_TEST_SOCKS_PORT, LOCAL_HTTP_PROXY_LAN_HOST, LOCAL_HTTP_PROXY_PORT, LOCAL_SOCKS_PROXY_PORT, PROXY_ONLY_INTERNAL_HTTP_PROXY_PORT, UNIDENTIFIED_PROCESS_PACKAGE, VPN_DATA_SOCKS_PORT, VPN_INTERNAL_HTTP_PROXY_PORT, appReservedRuntimePorts, buildDelayTestConfig, buildRuntimeXrayConfig, buildXrayConfig, buildXrayConfigWithSettings, canUseProcessRouting, collectOutboundDomainPreResolveHosts, normalizeFullConfigRoutingProcesses, normalizeOutboundInput, normalizeRoutingRuleProcesses, validateFullConfigJson, validateOutboundJson, validatePolicyGroupConfigJson, validateProxyChainConfigJson, withOutboundDomainResolvedHosts, injectXrayLogFile, isReservedAppRuntimePort } from '../main/ets/core/XrayConfig';
 import { CONTROL_SHORTCUT_ACTION_PARAM, CONTROL_SHORTCUT_GUID_PARAM, CONTROL_SHORTCUT_NODE_ID_PARAM, CONTROL_SHORTCUT_URI_PARAM, TASKER_EXTRA_BUNDLE_GUID_PARAM, TASKER_EXTRA_BUNDLE_SWITCH_PARAM, controlUriFromShortcutParameters, deepLinkUriFromWant, parseDeepLink, subscriptionNameFromDeepLink } from '../main/ets/core/DeepLink';
 import { HARMONY_SEND_DATA_ACTION, HARMONY_SHARE_ABSTRACT_KEY, HARMONY_SHARE_URL_KEY, HARMONY_TEXT_MIME_TYPE, SharedTextWantLike, extractSharedTextFromWant, isSharedTextWant } from '../main/ets/core/SharedTextImport';
 import { extractOutboundsFromXrayConfig } from '../main/ets/core/XrayOutbounds';
@@ -1088,6 +1088,25 @@ export default function localUnitTest() {
       expect(result.configJson.indexOf('"metrics"')).assertEqual(-1);
       expect(result.configJson.indexOf('"http-in"')).assertEqual(-1);
       expect(result.httpProxyPort === undefined).assertTrue();
+      expect(result.runtimeHealthPort === undefined).assertTrue();
+
+      const fullWithLocalProxy = '{"inbounds":[' +
+        '{"tag":"local-socks","listen":"127.0.0.1","port":19080,"protocol":"socks","settings":{"udp":true}},' +
+        '{"tag":"local-http","listen":"0.0.0.0","port":19081,"protocol":"http","settings":{}}],' +
+        '"outbounds":[{"tag":"proxy","protocol":"freedom","settings":{}}]}';
+      const localProxy = buildRuntimeXrayConfig(fullWithLocalProxy, settings, 'full');
+      expect(localProxy.socksHost).assertEqual(DEFAULT_SOCKS_HOST);
+      expect(localProxy.socksPort).assertEqual(19080);
+      expect(localProxy.httpProxyHost).assertEqual(DEFAULT_SOCKS_HOST);
+      expect(localProxy.httpProxyPort).assertEqual(19081);
+      expect(localProxy.runtimeHealthPort).assertEqual(19080);
+
+      const remoteOnlySocks = fullWithLocalProxy.replace('127.0.0.1', '192.0.2.10');
+      expect(buildRuntimeXrayConfig(remoteOnlySocks, settings, 'full').runtimeHealthPort === undefined)
+        .assertTrue();
+      const fractionalSocks = fullWithLocalProxy.replace('"port":19080', '"port":19080.5');
+      expect(buildRuntimeXrayConfig(fractionalSocks, settings, 'full').runtimeHealthPort === undefined)
+        .assertTrue();
 
       const fullWithProcess = '{"inbounds":[],"outbounds":[{"tag":"direct","protocol":"freedom","settings":{}}],"routing":{"rules":[{"type":"field","process":["com.example.app"],"outboundTag":"direct"},{"type":"field","process":["com.missing.app"],"outboundTag":"direct"}]}}';
       const normalizedFull = normalizeFullConfigRoutingProcesses(

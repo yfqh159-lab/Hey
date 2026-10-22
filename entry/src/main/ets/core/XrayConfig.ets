@@ -471,6 +471,34 @@ function parseFullConfig(configJson: string): XrayFullConfig {
   return JSON.parse(configJson) as XrayFullConfig;
 }
 
+interface FullConfigLocalInbound {
+  host: string;
+  port: number;
+}
+
+// 完整配置由用户掌控入站和路由，Hey 不擅自改写。运行态只能把明确可从
+// 本机回环访问的 SOCKS/HTTP 入站宣称为可用端点；专用 LAN 地址或非整数端口
+// 不能被固定的 127.0.0.1 健康探针证明。
+function findFullConfigLocalInbound(configJson: string, protocol: string): FullConfigLocalInbound | null {
+  const config = parseFullConfig(configJson);
+  if (!Array.isArray(config.inbounds)) {
+    return null;
+  }
+  for (let index = 0; index < config.inbounds.length; index++) {
+    const inbound = config.inbounds[index];
+    if (typeof inbound.protocol !== 'string' || inbound.protocol.toLowerCase() !== protocol ||
+      typeof inbound.port !== 'number' || !Number.isFinite(inbound.port) ||
+      Math.floor(inbound.port) !== inbound.port || inbound.port < 1 || inbound.port > 65535) {
+      continue;
+    }
+    const listen = typeof inbound.listen === 'string' ? inbound.listen.trim().toLowerCase() : '';
+    if (listen.length === 0 || listen === DEFAULT_SOCKS_HOST || listen === 'localhost' || listen === '0.0.0.0') {
+      return { host: DEFAULT_SOCKS_HOST, port: inbound.port };
+    }
+  }
+  return null;
+}
+
 export function validateOutboundJson(outboundJson: string): ValidationResult {
   const trimmed = outboundJson.trim();
   if (trimmed.length === 0) {
@@ -1002,8 +1030,16 @@ export function buildRuntimeXrayConfig(configJson: string, settings?: AppSetting
     const fullConfig = stripFullConfigProfileMetadata(validation.normalizedJson);
     const withProcesses = normalizeFullConfigRoutingProcesses(fullConfig, resolveProcessUid, canUseProcessRouting(settings));
     const withRealityFix = applyRealityMlkemFingerprintWorkaroundToFullConfig(withProcesses);
+    const runtimeConfig = suppressIpv6InFullConfig(withRealityFix, settings);
+    const socksInbound = findFullConfigLocalInbound(runtimeConfig, 'socks');
+    const httpInbound = findFullConfigLocalInbound(runtimeConfig, 'http');
     return {
-      configJson: suppressIpv6InFullConfig(withRealityFix, settings)
+      configJson: runtimeConfig,
+      socksHost: socksInbound?.host,
+      socksPort: socksInbound?.port,
+      httpProxyHost: httpInbound?.host,
+      httpProxyPort: httpInbound?.port,
+      runtimeHealthPort: socksInbound?.port
     };
   }
   if (validation.configType === 'proxy-chain') {

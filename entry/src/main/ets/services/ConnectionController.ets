@@ -436,26 +436,27 @@ export class ConnectionController {
         : 'Native config preflight passed.',
       details: validation.message
     });
+    const healthPort = this.generatedConfig.runtimeHealthPort;
+    if (healthPort === undefined) {
+      throw new Error('本地代理配置缺少可从 127.0.0.1 探测的 SOCKS 入站。');
+    }
     const xrayResult = startNativeXray(this.generatedConfig.configJson, context.filesDir);
     if (!xrayResult.ok) {
       throw new Error(xrayResult.message);
     }
-    const healthPort = this.generatedConfig.runtimeHealthPort;
-    if (healthPort !== undefined) {
-      const ready = await waitForRuntimeSocksHealth(healthPort);
-      // 等待期间用户可能已经停止旧会话并启动新核心。旧续体既不能宣告成功，也不能
-      // 用下面的回滚 stopNativeXray() 杀掉新会话；新/旧核心的资源清理由各自代际负责。
-      if (!this.isCurrentStart(startGeneration)) {
-        return;
+    const ready = await waitForRuntimeSocksHealth(healthPort);
+    // 等待期间用户可能已经停止旧会话并启动新核心。旧续体既不能宣告成功，也不能
+    // 用下面的回滚 stopNativeXray() 杀掉新会话；新/旧核心的资源清理由各自代际负责。
+    if (!this.isCurrentStart(startGeneration)) {
+      return;
+    }
+    if (!ready.ok) {
+      const stopResult = stopNativeXray();
+      if (!stopResult.ok) {
+        this.cleanupRequired = true;
+        throw new Error(`本地代理 SOCKS 入口未就绪且核心清理失败：${ready.status}; ${stopResult.message}`);
       }
-      if (!ready.ok) {
-        const stopResult = stopNativeXray();
-        if (!stopResult.ok) {
-          this.cleanupRequired = true;
-          throw new Error(`本地代理 SOCKS 入口未就绪且核心清理失败：${ready.status}; ${stopResult.message}`);
-        }
-        throw new Error(`本地代理 SOCKS 入口未就绪：${ready.status}`);
-      }
+      throw new Error(`本地代理 SOCKS 入口未就绪：${ready.status}`);
     }
     DiagnosticLog.append(context, {
       at: Date.now(),
@@ -501,6 +502,10 @@ export class ConnectionController {
         resolvedSettings,
         this.proxyReloadConfigType
       );
+      const healthPort = nextConfig.runtimeHealthPort;
+      if (healthPort === undefined) {
+        throw new Error('本地代理配置缺少可从 127.0.0.1 探测的 SOCKS 入站。');
+      }
       const coreLogPath = `${context.filesDir}/${XRAY_CORE_LOG_FILE}`;
       const fallbackLogLevel = normalizeCoreLogLevel(resolvedSettings?.logLevel ?? '');
       nextConfig.configJson = injectXrayLogFile(nextConfig.configJson, coreLogPath, fallbackLogLevel);
@@ -519,19 +524,12 @@ export class ConnectionController {
       if (!startResult.ok) {
         throw new Error(startResult.message);
       }
-      const healthPort = nextConfig.runtimeHealthPort;
-      if (healthPort !== undefined) {
-        const ready = await waitForRuntimeSocksHealth(healthPort);
-        if (!this.isCurrentProxyReload(generation, sessionStartedAt)) {
-          return this.getSnapshot();
-        }
-        if (!ready.ok) {
-          throw new Error(`本地代理网络切换后 SOCKS 入口未恢复：${ready.status}`);
-        }
-      } else if (!getNativeStats().xrayRunning) {
-        // 历史完整配置可能没有 Hey 可识别的 SOCKS 健康端口；保持兼容，但至少要求
-        // 原生核心仍明确报告运行，不能把 start 调用返回当成唯一成功依据。
-        throw new Error('本地代理网络切换后核心未保持运行。');
+      const ready = await waitForRuntimeSocksHealth(healthPort);
+      if (!this.isCurrentProxyReload(generation, sessionStartedAt)) {
+        return this.getSnapshot();
+      }
+      if (!ready.ok) {
+        throw new Error(`本地代理网络切换后 SOCKS 入口未恢复：${ready.status}`);
       }
       this.generatedConfig = nextConfig;
       DiagnosticLog.append(context, {

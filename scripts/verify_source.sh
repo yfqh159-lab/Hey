@@ -1503,6 +1503,12 @@ const proxyMethod = controller.slice(proxyMethodStart, proxyMethodEnd);
 if (proxyMethod.includes('vpnExtension.') || proxyMethod.includes('createVpnWant(')) {
   throw new Error('local proxy startup must not create or control a system VPN');
 }
+if (!proxyMethod.includes('const healthPort = this.generatedConfig.runtimeHealthPort;') ||
+  !proxyMethod.includes('if (healthPort === undefined)') ||
+  !proxyMethod.includes('本地代理配置缺少可从 127.0.0.1 探测的 SOCKS 入站。') ||
+  proxyMethod.indexOf('if (healthPort === undefined)') > proxyMethod.indexOf('startNativeXray(')) {
+  throw new Error('proxy-only startup can report a live core without a probeable SOCKS entry');
+}
 
 const stopMethodStart = controller.indexOf('  async stop(context: common.Context): Promise<ConnectionSnapshot>');
 const stopMethodEnd = controller.indexOf('\n  // 隧道已被 VPN 扩展在后台自动断开', stopMethodStart);
@@ -1520,17 +1526,23 @@ const reloadStart = controller.indexOf('  async reloadProxyOnlyAfterNetworkChang
 const reloadEnd = controller.indexOf('\n  private isCurrentProxyReload(', reloadStart);
 const reload = controller.slice(reloadStart, reloadEnd);
 const reloadCatch = reload.indexOf('} catch (error) {');
+const reloadHealthGuard = reload.indexOf('if (healthPort === undefined)');
+const reloadHandoverStop = reload.indexOf('const stopResult = stopNativeXray();');
 const reloadRollback = reload.indexOf('const stopResult = stopNativeXray();', reloadCatch);
 const reloadCleanupLatch = reload.indexOf('this.cleanupRequired = !stopResult.ok;', reloadRollback);
 const reloadError = reload.indexOf('this.status = ConnectionStatus.ERROR;', reloadCleanupLatch);
-if (reloadStart < 0 || reloadEnd < 0 || reloadCatch < 0 || reloadRollback < reloadCatch ||
+if (reloadStart < 0 || reloadEnd < 0 || reloadCatch < 0 || reloadHealthGuard < 0 ||
+  reloadHandoverStop < reloadHealthGuard || reloadHandoverStop > reloadCatch ||
+  reloadRollback < reloadCatch ||
   reloadCleanupLatch < reloadRollback || reloadError < reloadCleanupLatch ||
   !reload.includes('本地核心清理失败：${stopResult.message}')) {
   throw new Error('proxy-only handover rollback can hide residual native core resources');
 }
 
 if (!config.includes('if (vpnMode) {\n    inbounds.push(tunInbound);') ||
-  !config.includes('settings.localSocksEnabled || proxyOnlyMode')) {
+  !config.includes('settings.localSocksEnabled || proxyOnlyMode') ||
+  !config.includes("const socksInbound = findFullConfigLocalInbound(runtimeConfig, 'socks');") ||
+  !config.includes('runtimeHealthPort: socksInbound?.port')) {
   throw new Error('Xray runtime config no longer keeps TUN and local proxy inbounds mode-scoped');
 }
 NODE
@@ -1557,6 +1569,8 @@ if (!runtime.includes('localProxySocksPort: generated?.socksPort ?? 0') ||
   !index.includes('this.localProxySocksPort = state.localProxySocksPort;') ||
   !index.includes('this.localProxyHttpPort = state.localProxyHttpPort;') ||
   !index.includes('this.shouldShowLocalProxyEndpoints()') ||
+  !index.includes('this.localProxyEndpointText()') ||
+  !index.includes('(this.localProxySocksPort > 0 || this.localProxyHttpPort > 0)') ||
   !index.includes("'home.localProxyEndpoints'") ||
   !i18n.includes("'home.localProxyEndpoints': 'SOCKS 127.0.0.1:{socks}  ·  HTTP 127.0.0.1:{http}'")) {
   throw new Error('the home page does not expose the actual local proxy runtime endpoints');

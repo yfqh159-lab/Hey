@@ -212,6 +212,9 @@ export function localizeCoreMessage(language: AppLanguage, message: string): str
   if (message === '仅代理模式缺少运行配置。') {
     return translate(language, 'proxy.missingRuntimeConfig');
   }
+  if (message === '本地代理配置缺少可从 127.0.0.1 探测的 SOCKS 入站。') {
+    return translate(language, 'proxy.missingSocksInbound');
+  }
   if (message === '不支持编辑此协议节点。') {
     return translate(language, 'manualEdit.unsupportedProtocol');
   }
