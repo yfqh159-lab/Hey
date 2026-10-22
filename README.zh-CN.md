@@ -201,7 +201,7 @@ $env:Path = "$env:JAVA_HOME\bin;$env:Path"
   --mode module -p module=entry@default -p isLocalTest=true test --no-daemon --stacktrace
 ```
 
-仓库也提供等价的 Windows 烟测入口；它会额外检查 Hypium 汇总，不能只凭 Hvigor 的
+仓库也提供 Windows 烟测入口；它会额外检查 Hypium 汇总，不能只凭 Hvigor 的
 `BUILD SUCCESSFUL` 把断言失败误报为通过：
 
 ```powershell
