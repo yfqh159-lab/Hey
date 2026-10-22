@@ -2490,12 +2490,17 @@ const pageStartEnd = indexPage.indexOf('\n  private showProxySharingStartWarning
 const pageStart = indexPage.slice(pageStartAt, pageStartEnd);
 const pageProfileSaveAt = pageStart.indexOf("this.saveConnectionProfileSingleFlight(context, outboundJson, this.language, configType)");
 const pageProfileApplyAt = pageStart.indexOf('this.applySaveProfileResult(saved);', pageProfileSaveAt);
+const pageInvalidProfileAt = pageStart.indexOf('if (saved.profile === null)', pageProfileApplyAt);
+const pageInvalidToastAt = pageStart.indexOf('showToast({ message: saved.lastError })', pageInvalidProfileAt);
+const pageInvalidReturnAt = pageStart.indexOf('return false;', pageInvalidProfileAt);
 const pageStartingAt = pageStart.indexOf('this.status = ConnectionStatus.STARTING;');
 const pagePersistAt = pageStart.indexOf('await CONTROL_CARD_MANAGER.persistRuntimeState(', pageStartingAt);
 const pageCancelAt = pageStart.indexOf('if (this.status !== ConnectionStatus.STARTING)', pagePersistAt);
 const pageControllerStartAt = pageStart.indexOf('await SHARED_RUNTIME_CONTROLLER.start(', pageCancelAt);
 if (pageStartAt < 0 || pageStartEnd < 0 || pageProfileSaveAt < 0 ||
-  pageProfileApplyAt < pageProfileSaveAt || pageStartingAt < pageProfileApplyAt || pagePersistAt < pageStartingAt ||
+  pageProfileApplyAt < pageProfileSaveAt || pageInvalidProfileAt < pageProfileApplyAt ||
+  pageInvalidToastAt < pageInvalidProfileAt || pageInvalidReturnAt < pageInvalidToastAt ||
+  pageStartingAt < pageInvalidReturnAt || pagePersistAt < pageStartingAt ||
   pageCancelAt < pagePersistAt || pageControllerStartAt < pageCancelAt) {
   throw new Error('UI startup can open the data plane before persisting STARTING or resume after cancellation');
 }

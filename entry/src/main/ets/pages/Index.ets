@@ -2363,6 +2363,11 @@ struct Index {
       this.applySaveProfileResult(saved);
       if (saved.profile === null) {
         SHARED_RUNTIME_CONTROLLER.appendLog(saved.lastError);
+        try {
+          this.getUIContext().getPromptAction().showToast({ message: saved.lastError });
+        } catch (promptError) {
+          // ignore
+        }
         return false;
       }
       this.runtimeMode = normalizeAppRuntimeMode(this.currentSettings.mode, APP_MODE_VPN);
