@@ -180,9 +180,9 @@ struct SubscriptionEditPage {
                   .iconSize(15)
                   .iconColor(AppColor.textSecondary)
                   .backgroundColor(AppColor.surfaceAlt)
-                  .width(28)
-                  .height(28)
-                  .borderRadius(14)
+                  .width(40)
+                  .height(40)
+                  .borderRadius(20)
                   .onClick((_event: ClickEvent, result: PasteButtonOnClickResult) => {
                     if (result === PasteButtonOnClickResult.SUCCESS) {
                       this.pasteFromClipboard();

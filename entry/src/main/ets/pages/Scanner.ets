@@ -217,7 +217,7 @@ struct ScannerPage {
                   .fontSize(12)
                   .fontColor(AppColor.textSecondary)
                   .backgroundColor(AppColor.border)
-                  .height(28)
+                  .height(40)
                   .padding({ left: 10, right: 10 })
                   .borderRadius(6)
                   .onClick((_event: ClickEvent, result: PasteButtonOnClickResult) => {

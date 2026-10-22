@@ -278,6 +278,7 @@ struct PerAppPage {
         PasteButton({ text: PasteDescription.PASTE, buttonType: ButtonType.Capsule })
           .fontSize(FontSz.footnote)
           .fontColor(AppColor.textPrimary)
+          .height(40)
           .padding({ left: 14, right: 14, top: 6, bottom: 6 })
           .backgroundColor(AppColor.surface)
           .borderRadius(Radius.pill)

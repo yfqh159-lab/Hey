@@ -87,7 +87,7 @@ struct JsonImportPage {
                   .fontSize(FontSz.footnote)
                   .fontColor(AppColor.brand)
                   .backgroundColor(AppColor.brandTint)
-                  .height(30)
+                  .height(40)
                   .padding({ left: Space.md, right: Space.md })
                   .borderRadius(Radius.sm)
                   .onClick((_event: ClickEvent, result: PasteButtonOnClickResult) => {

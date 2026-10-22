@@ -121,8 +121,8 @@ struct SubscriptionDetailPage {
                 .iconSize(18)
                 .iconColor(AppColor.textTertiary)
                 .backgroundColor(Color.Transparent)
-                .width(34)
-                .height(34)
+                .width(40)
+                .height(40)
                 .borderRadius(Radius.sm)
                 .onClick((_event: ClickEvent, result: PasteButtonOnClickResult) => {
                   if (result === PasteButtonOnClickResult.SUCCESS) {

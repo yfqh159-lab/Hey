@@ -102,6 +102,24 @@ while IFS= read -r clipboard_file; do
     exit 1
   fi
 done <<< "${actual_clipboard_read_files}"
+CLIPBOARD_READ_FILES="${actual_clipboard_read_files}" node <<'NODE'
+const fs = require('fs');
+const files = process.env.CLIPBOARD_READ_FILES?.split('\n').filter(Boolean) ?? [];
+for (const file of files) {
+  const source = fs.readFileSync(file, 'utf8');
+  const buttons = source.split('PasteButton({').slice(1);
+  if (buttons.length === 0) {
+    throw new Error(`${file}: missing PasteButton`);
+  }
+  for (const button of buttons) {
+    const onClickAt = button.indexOf('.onClick');
+    const attributes = onClickAt >= 0 ? button.slice(0, onClickAt) : button;
+    if (!attributes.includes('.height(40)')) {
+      throw new Error(`${file}: PasteButton touch target is smaller than the 40vp minimum`);
+    }
+  }
+}
+NODE
 printf 'temporary-authorized clipboard read verification passed\n'
 
 # Exit-IP verification is user-visible proof of the active egress. It must require a

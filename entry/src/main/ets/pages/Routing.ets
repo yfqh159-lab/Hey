@@ -321,10 +321,10 @@ struct RoutingPage {
         PasteButton({ icon: PasteIconStyle.LINES, buttonType: ButtonType.Normal })
           .iconSize(17)
           .iconColor(AppColor.textSecondary)
-          .width(34)
-          .height(34)
+          .width(40)
+          .height(40)
           .backgroundColor(AppColor.surfaceAlt)
-          .borderRadius(17)
+          .borderRadius(20)
           .onClick((_event: ClickEvent, result: PasteButtonOnClickResult) => {
             if (result === PasteButtonOnClickResult.SUCCESS) {
               this.importRulesFromClipboard();
