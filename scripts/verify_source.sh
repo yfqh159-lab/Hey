@@ -2243,9 +2243,11 @@ if (reconnectAt < 0 || reconnectEnd < 0 ||
   !reconnect.includes('this.runtimeStartGeneration !== restartGeneration')) {
   throw new Error('shared profile reconnect can resume after a concurrent explicit stop');
 }
-const runningBranch = start.indexOf('if (this.status === ConnectionStatus.RUNNING)', applySnapshot);
+// ArkTS flow analysis keeps `this.status` narrowed to STARTING across the helper call.
+// Inspect the authoritative controller snapshot instead; applySnapshot copies this value.
+const runningBranch = start.indexOf('if (snapshot.status === ConnectionStatus.RUNNING)', applySnapshot);
 const connectivity = start.indexOf('this.scheduleRuntimeConnectivityInfo(', runningBranch);
-const errorBranch = start.indexOf('else if (this.status === ConnectionStatus.ERROR)', runningBranch);
+const errorBranch = start.indexOf('else if (snapshot.status === ConnectionStatus.ERROR)', runningBranch);
 if (runningBranch < 0 || connectivity < runningBranch || start.includes('NetSceneStopFlag.clear(context)') ||
   errorBranch < connectivity || start.indexOf('log.vpnStartIncomplete', errorBranch) < errorBranch) {
   throw new Error('cancelled starts may still clear flags, schedule probes, or report a false failure');

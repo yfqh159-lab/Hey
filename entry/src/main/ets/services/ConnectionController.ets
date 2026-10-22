@@ -254,6 +254,7 @@ export class ConnectionController {
     }
     const requestedAt = Date.now();
     let vpnStartRequested = false;
+    let vpnSessionId = '';
 
     try {
       if (this.runtimeMode === APP_MODE_PROXY_ONLY) {
@@ -267,7 +268,7 @@ export class ConnectionController {
         this.cleanupRequired = false;
         return this.getSnapshot();
       }
-      const vpnSessionId = this.createVpnSessionId(requestedAt);
+      vpnSessionId = this.createVpnSessionId(requestedAt);
       this.vpnSessionId = vpnSessionId;
       hilog.info(LOG_DOMAIN, LOG_TAG, 'Calling startVpnExtensionAbility, configBytes=%{public}d',
         this.generatedConfig.configJson.length);

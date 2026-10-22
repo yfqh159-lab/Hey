@@ -703,7 +703,7 @@ export class SubscriptionStore {
       return null;
     }
     try {
-      const parsed = JSON.parse(raw) as SubscriptionProfile;
+      const parsed = JSON.parse(raw) as Object;
       if (parsed === null || typeof parsed !== 'object') {
         return null;
       }
@@ -713,7 +713,7 @@ export class SubscriptionStore {
       if (!Array.isArray(record['groups']) && !Array.isArray(record['nodes'])) {
         return null;
       }
-      const normalized = SubscriptionStore.normalize(parsed);
+      const normalized = SubscriptionStore.normalize(parsed as SubscriptionProfile);
       if (Array.isArray(record['groups']) && (record['groups'] as Array<Object>).length > 0 &&
         normalized.groups.length === 0) {
         return null;

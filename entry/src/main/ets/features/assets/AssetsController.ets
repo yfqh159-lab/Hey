@@ -323,7 +323,7 @@ export class AssetsController {
       } catch (_metadataError) {
         // keep the original download/check/install error
       }
-      throw error;
+      throw new Error(error instanceof Error ? error.message : JSON.stringify(error));
     } finally {
       this.assetMutationRunning = false;
     }
@@ -412,7 +412,7 @@ export class AssetsController {
       } catch (error) {
         metadataSaved = false;
         try {
-          this.writeFileData(`${context.filesDir}/${GEO_METADATA_INVALID_FILE}`, new Uint8Array([1]).buffer);
+          this.writeFileData(`${context.filesDir}/${GEO_METADATA_INVALID_FILE}`, this.markerData());
         } catch (markerError) {
           // 文件摘要复核仍能识别通常的内容变化；标志是相同内容跨版本时的额外防线。
         }
@@ -434,7 +434,7 @@ export class AssetsController {
       for (let index = 0; index < staged.length; index++) {
         this.removeFileIfExists(staged[index].tempPath);
       }
-      throw error;
+      throw new Error(error instanceof Error ? error.message : JSON.stringify(error));
     }
   }
 
@@ -882,11 +882,11 @@ export class AssetsController {
         if (hadOriginal && this.fileExists(backupPath)) {
           fs.renameSync(backupPath, targetPath);
         }
-        throw error;
+        throw new Error(error instanceof Error ? error.message : JSON.stringify(error));
       }
     } catch (error) {
       this.removeFileIfExists(tempPath);
-      throw error;
+      throw new Error(error instanceof Error ? error.message : JSON.stringify(error));
     }
   }
 
@@ -978,7 +978,7 @@ export class AssetsController {
       fs.renameSync(asset.tempPath, asset.targetPath);
       asset.installed = true;
     }
-    this.writeFileData(commitPath, new Uint8Array([1]).buffer);
+    this.writeFileData(commitPath, this.markerData());
   }
 
   private finishGeoTransaction(context: common.Context, staged: Array<StagedGeoAsset>): void {
@@ -1282,7 +1282,7 @@ export class AssetsController {
           rollbackErrorMessage = rollbackError instanceof Error ? rollbackError.message : JSON.stringify(rollbackError);
         }
         if (rollbackSucceeded) {
-          throw fileError;
+          throw new Error(fileError instanceof Error ? fileError.message : JSON.stringify(fileError));
         }
         const fileMessage = fileError instanceof Error ? fileError.message : JSON.stringify(fileError);
         throw new Error(`Geo file deletion failed and source rollback was not confirmed: ${fileMessage}; ${rollbackErrorMessage}`);
@@ -1296,6 +1296,12 @@ export class AssetsController {
     } finally {
       this.assetMutationRunning = false;
     }
+  }
+
+  private markerData(): ArrayBuffer {
+    const data = new ArrayBuffer(1);
+    new Uint8Array(data)[0] = 1;
+    return data;
   }
 
   private removeStandaloneAssetFiles(targetPath: string): void {

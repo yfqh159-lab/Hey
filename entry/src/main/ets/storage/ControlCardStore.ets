@@ -208,7 +208,7 @@ export class ControlCardStore {
       return null;
     }
     try {
-      const parsed = JSON.parse(raw) as ControlCardFormData;
+      const parsed = JSON.parse(raw) as Object;
       if (parsed === null || typeof parsed !== 'object') {
         return null;
       }
@@ -217,7 +217,7 @@ export class ControlCardStore {
         record['runtimeMode'] === undefined) {
         return null;
       }
-      return normalizeControlCardFormData(parsed);
+      return normalizeControlCardFormData(parsed as ControlCardFormData);
     } catch (_error) {
       return null;
     }

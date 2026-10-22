@@ -212,7 +212,7 @@ export class SettingsStore {
       return null;
     }
     try {
-      const parsed = JSON.parse(raw) as AppSettings;
+      const parsed = JSON.parse(raw) as Object;
       if (parsed === null || typeof parsed !== 'object') {
         return null;
       }
@@ -222,7 +222,7 @@ export class SettingsStore {
         record['remoteDns'] === undefined && record['vpnDns'] === undefined) {
         return null;
       }
-      return SettingsStore.normalize(parsed);
+      return SettingsStore.normalize(parsed as AppSettings);
     } catch (_error) {
       return null;
     }
@@ -346,8 +346,8 @@ export class SettingsStore {
   }
 
   private static trafficModeValue(value: Object | undefined | null, fallback: string): string {
-    if (value === 'global' || value === 'rules' || value === 'direct') {
-      return value;
+    if (typeof value === 'string' && (value === 'global' || value === 'rules' || value === 'direct')) {
+      return value as string;
     }
     return fallback;
   }

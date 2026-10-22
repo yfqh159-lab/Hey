@@ -158,11 +158,11 @@ export class RuntimeController {
       return this.snapshot();
     }
     this.applySnapshot(snapshot, language);
-    if (this.status === ConnectionStatus.RUNNING) {
+    if (snapshot.status === ConnectionStatus.RUNNING) {
       this.appendLog(this.runtimeMode === APP_MODE_PROXY_ONLY ?
         translate(language, 'log.proxyStarted') : translate(language, 'log.vpnStarted'));
       this.scheduleRuntimeConnectivityInfo(context, profile, settings, language, this.startedAt);
-    } else if (this.status === ConnectionStatus.ERROR) {
+    } else if (snapshot.status === ConnectionStatus.ERROR) {
       // ERROR 是真正的启动失败；STARTING/STOPPING/IDLE 可能是用户取消，不应记录成故障。
       this.appendLog(this.runtimeMode === APP_MODE_PROXY_ONLY ?
         translate(language, 'log.proxyStartIncomplete') : translate(language, 'log.vpnStartIncomplete'));
@@ -209,11 +209,11 @@ export class RuntimeController {
     const snapshot = await this.controller.stop(context);
     this.applySnapshot(snapshot, language);
     if (stoppingMode === APP_MODE_PROXY_ONLY) {
-      this.appendLog(this.status === ConnectionStatus.IDLE ? translate(language, 'log.proxyStopped') : translate(language, 'log.proxyStopIncomplete'));
+      this.appendLog(snapshot.status === ConnectionStatus.IDLE ? translate(language, 'log.proxyStopped') : translate(language, 'log.proxyStopIncomplete'));
     } else {
-      this.appendLog(this.status === ConnectionStatus.IDLE ? translate(language, 'log.vpnStopped') : translate(language, 'log.vpnStopIncomplete'));
+      this.appendLog(snapshot.status === ConnectionStatus.IDLE ? translate(language, 'log.vpnStopped') : translate(language, 'log.vpnStopIncomplete'));
     }
-    if (this.status === ConnectionStatus.IDLE) {
+    if (snapshot.status === ConnectionStatus.IDLE) {
       this.runtimeMode = APP_MODE_VPN;
       this.activeProfile = null;
       this.activeSettings = null;

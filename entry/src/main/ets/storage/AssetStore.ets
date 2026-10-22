@@ -252,9 +252,10 @@ export class AssetStore {
     if (!Array.isArray(assets)) {
       return [];
     }
+    const items = assets as Array<Object>;
     const normalized = new Array<CustomAssetUrl>();
-    for (let index = 0; index < assets.length && normalized.length < MAX_CUSTOM_ASSET_COUNT; index++) {
-      const raw = assets[index];
+    for (let index = 0; index < items.length && normalized.length < MAX_CUSTOM_ASSET_COUNT; index++) {
+      const raw: Object = items[index];
       if (raw === undefined || raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
         continue;
       }

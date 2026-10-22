@@ -60,7 +60,7 @@ function writeFlag(context: common.Context, record: NetSceneStopRecord): void {
     } catch (_restoreError) {
       // Preserve the original write failure for the caller.
     }
-    throw error;
+    throw new Error(error instanceof Error ? error.message : JSON.stringify(error));
   } finally {
     if (file !== null) {
       try {
