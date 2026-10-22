@@ -57,6 +57,7 @@ import { DEFAULT_LANGUAGE } from '../core/I18n';
 import { isVpnCleanupComplete } from '../core/RuntimeHealth';
 import { areGeoAssetsStableForCore, assertGeoAssetsStableForCore } from '../services/GeoCoreReadiness';
 import { VpnStartCancellationStore } from '../services/VpnStartCancellationStore';
+import { VpnStartRequestStore } from '../services/VpnStartRequestStore';
 
 const LOG_DOMAIN: number = 0x0001;
 const LOG_TAG: string = 'HeyVpnAbility';
@@ -161,13 +162,20 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
   }
 
   private beginSession(want: Want): void {
+    const directSessionId = this.getStringParameter(want, VPN_SESSION_ID_KEY, '');
+    // API 26 真机在首次系统授权返回后会以空 Want 创建 VPN Extension。优先使用
+    // 直达参数；确实缺失时才消费主进程在同一显式连接操作前落盘的短期、会话绑定请求。
+    const persistedWant = !this.isStopCommand(want) && !isValidVpnSessionId(directSessionId)
+      ? VpnStartRequestStore.claimWant(this.context)
+      : null;
+    const effectiveWant = persistedWant ?? want;
     const sessionGeneration = ++this.sessionGeneration;
     this.startedAt = Date.now();
-    const requestedSessionId = this.getStringParameter(want, VPN_SESSION_ID_KEY, '');
+    const requestedSessionId = this.getStringParameter(effectiveWant, VPN_SESSION_ID_KEY, '');
     const requestedSessionValid = isValidVpnSessionId(requestedSessionId);
-    this.sessionId = this.resolveSessionId(want);
-    this.activeCoreType = isSingboxCore(this.getStringParameter(want, 'coreType', 'xray')) ? 'singbox' : 'xray';
-    this.activeProfileUpdatedAt = this.getNonNegativeIntegerParameter(want, VPN_PROFILE_UPDATED_AT_KEY);
+    this.sessionId = this.resolveSessionId(effectiveWant);
+    this.activeCoreType = isSingboxCore(this.getStringParameter(effectiveWant, 'coreType', 'xray')) ? 'singbox' : 'xray';
+    this.activeProfileUpdatedAt = this.getNonNegativeIntegerParameter(effectiveWant, VPN_PROFILE_UPDATED_AT_KEY);
     this.stopRequested = false;
     this.cleanupAgainRequested = false;
     this.lastCleanupComplete = false;
@@ -187,7 +195,7 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
     // 当前版本的所有显式启动都必须携带一次性会话 ID。缺失/损坏 ID 的升级遗留或异常
     // 重投递请求无法和停止意图绑定，必须在创建任何系统/原生资源前拒绝。停止命令仍可
     // 使用内部回退 ID 执行幂等清理。
-    if (!this.isStopCommand(want) && !requestedSessionValid) {
+    if (!this.isStopCommand(effectiveWant) && !requestedSessionValid) {
       this.emitError('VPN start failed.',
         `session=${this.sessionId}; error=VPN start session ID is missing or invalid.`);
       this.requestCleanup('VPN startup rejected because session identity is unavailable.',
@@ -218,12 +226,12 @@ export default class HeyVpnAbility extends VpnExtensionAbility {
       return;
     }
     this.emitInfo('VPN ability created.', `session=${this.sessionId}`);
-    if (this.isStopCommand(want)) {
+    if (this.isStopCommand(effectiveWant)) {
       this.restartFenceReliable = this.persistRestartFence();
       this.requestCleanup('VPN stop command received on create.', 'startId=0');
       return;
     }
-    this.startVpn(want, sessionGeneration).catch((error: Object) => {
+    this.startVpn(effectiveWant, sessionGeneration).catch((error: Object) => {
       if (sessionGeneration !== this.sessionGeneration) {
         return;
       }

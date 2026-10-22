@@ -73,6 +73,7 @@ import { isRuntimeHealthPort } from '../main/ets/services/RuntimeHealthProbe';
 import { parseNetSceneStopRecord, parseNetSceneStopTimestamp, selectNetSceneStopRecord, selectNetSceneStopTimestamp, wasNetSceneStoppedAfter, wasNetSceneStoppedForSession } from '../main/ets/services/NetSceneStopFlag';
 import { PersistedVpnRuntimeState, VPN_RUNTIME_HEARTBEAT_STALE_MS, VPN_RUNTIME_STATE_SCHEMA_VERSION, hasInvalidPersistedVpnRuntimeArtifacts, inspectPersistedVpnRuntimeArtifacts, isPersistedVpnCleanupIncomplete, isPersistedVpnRuntimeHealthy, isPersistedVpnRuntimeSessionReady, isPersistedVpnRuntimeSessionStopped, normalizeActiveVpnStartedAt, parsePersistedVpnRuntimeState, selectPersistedVpnRuntimeState, shouldCleanupAfterVpnRuntimeStateWriteFailures } from '../main/ets/services/VpnRuntimeStateStore';
 import { MAX_VPN_START_CANCELLATION_HISTORY, appendVpnStartCancellation, parseVpnStartCancellationHistory } from '../main/ets/services/VpnStartCancellationStore';
+import { PersistedVpnStartRequest, parsePersistedVpnStartRequest } from '../main/ets/services/VpnStartRequestStore';
 import { buildAssetDownloadProxyPorts, resolveAssetDownloadProxyPlan } from '../main/ets/features/assets/AssetsController';
 import {
   applyDelayTestPostActionsToGroups,
@@ -3405,6 +3406,31 @@ export default function localUnitTest() {
       const snapshot = JSON.parse(want.parameters?.[VPN_SETTINGS_SNAPSHOT_KEY]?.toString() ?? '{}') as AppSettings;
       expect(snapshot.mode).assertEqual(APP_MODE_VPN);
       expect(snapshot.vpnMtu).assertEqual(1400);
+    });
+
+    it('accepts only fresh session-bound VPN start request fallbacks', 0, () => {
+      const request: PersistedVpnStartRequest = {
+        version: 1,
+        createdAt: 100000,
+        sessionId: '100000-42',
+        configJson: '{"inbounds":[],"outbounds":[]}',
+        coreType: 'xray',
+        healthPort: 18082,
+        profileUpdatedAt: 99,
+        handoverConfigJson: '',
+        settingsSnapshotJson: '{"mode":"vpn"}'
+      };
+      const parsed = parsePersistedVpnStartRequest(JSON.stringify(request), 100001);
+      expect(parsed?.sessionId ?? '').assertEqual('100000-42');
+      expect(parsed?.healthPort ?? 0).assertEqual(18082);
+
+      request.sessionId = 'bad session';
+      expect(parsePersistedVpnStartRequest(JSON.stringify(request), 100001)).assertEqual(null);
+      request.sessionId = '100000-42';
+      expect(parsePersistedVpnStartRequest(JSON.stringify(request), 221001)).assertEqual(null);
+      request.createdAt = 200000;
+      request.healthPort = 0;
+      expect(parsePersistedVpnStartRequest(JSON.stringify(request), 200001)).assertEqual(null);
     });
 
     it('only applies current VPN session diagnostic errors to runtime state', 0, () => {

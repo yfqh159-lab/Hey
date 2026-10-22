@@ -19,6 +19,7 @@ import { OUTBOUND_DOMAIN_RESOLVER } from './OutboundDomainResolver';
 import { waitForRuntimeSocksHealth } from './RuntimeHealthProbe';
 import { assertGeoAssetsStableForCore } from './GeoCoreReadiness';
 import { VpnStartCancellationStore } from './VpnStartCancellationStore';
+import { VpnStartRequestStore } from './VpnStartRequestStore';
 import {
   VpnRuntimeStateStore,
   isPersistedVpnRuntimeSessionReady,
@@ -270,10 +271,7 @@ export class ConnectionController {
       }
       vpnSessionId = this.createVpnSessionId(requestedAt);
       this.vpnSessionId = vpnSessionId;
-      hilog.info(LOG_DOMAIN, LOG_TAG, 'Calling startVpnExtensionAbility, configBytes=%{public}d',
-        this.generatedConfig.configJson.length);
-      vpnStartRequested = true;
-      await this.withTimeout(vpnExtension.startVpnExtensionAbility(createVpnWant(
+      const startWant = createVpnWant(
         this.generatedConfig.configJson,
         CORE_TYPE_XRAY,
         this.generatedConfig.runtimeHealthPort ?? VPN_DATA_SOCKS_PORT,
@@ -281,7 +279,15 @@ export class ConnectionController {
         vpnSessionId,
         handoverConfigJson,
         runtimeSettings
-      )), START_VPN_TIMEOUT_MS, '启动 VPN 超时：系统 VPN 授权服务没有响应。若 hilog 中出现 com.huawei.hmos.vpndialog bundle not exist，说明当前系统镜像缺少 VPN 授权组件，请改用真机测试。');
+      );
+      if (!VpnStartRequestStore.write(context, startWant, requestedAt)) {
+        throw new Error('无法安全保存 VPN 启动请求。');
+      }
+      hilog.info(LOG_DOMAIN, LOG_TAG, 'Calling startVpnExtensionAbility, configBytes=%{public}d',
+        this.generatedConfig.configJson.length);
+      vpnStartRequested = true;
+      await this.withTimeout(vpnExtension.startVpnExtensionAbility(startWant),
+        START_VPN_TIMEOUT_MS, '启动 VPN 超时：系统 VPN 授权服务没有响应。若 hilog 中出现 com.huawei.hmos.vpndialog bundle not exist，说明当前系统镜像缺少 VPN 授权组件，请改用真机测试。');
       if (!this.isCurrentStart(startGeneration)) {
         return this.getSnapshot();
       }
@@ -366,10 +372,7 @@ export class ConnectionController {
     this.vpnSessionId = vpnSessionId;
     let vpnStartRequested = false;
     try {
-      hilog.info(LOG_DOMAIN, LOG_TAG, 'Calling startVpnExtensionAbility (sing-box), configBytes=%{public}d',
-        generated.configJson.length);
-      vpnStartRequested = true;
-      await this.withTimeout(vpnExtension.startVpnExtensionAbility(createVpnWant(
+      const startWant = createVpnWant(
         generated.configJson,
         CORE_TYPE_SINGBOX,
         VPN_DATA_SOCKS_PORT,
@@ -377,7 +380,15 @@ export class ConnectionController {
         vpnSessionId,
         undefined,
         settings
-      )), START_VPN_TIMEOUT_MS, '启动 VPN 超时：系统 VPN 授权服务没有响应。若为模拟器缺少 VPN 授权组件，请改用真机测试。');
+      );
+      if (!VpnStartRequestStore.write(context, startWant, requestedAt)) {
+        throw new Error('无法安全保存 VPN 启动请求。');
+      }
+      hilog.info(LOG_DOMAIN, LOG_TAG, 'Calling startVpnExtensionAbility (sing-box), configBytes=%{public}d',
+        generated.configJson.length);
+      vpnStartRequested = true;
+      await this.withTimeout(vpnExtension.startVpnExtensionAbility(startWant),
+        START_VPN_TIMEOUT_MS, '启动 VPN 超时：系统 VPN 授权服务没有响应。若为模拟器缺少 VPN 授权组件，请改用真机测试。');
       if (!this.isCurrentStart(startGeneration)) {
         return this.getSnapshot();
       }
@@ -654,6 +665,7 @@ export class ConnectionController {
       const targetSessionId = this.vpnSessionId;
       const cancellationPersisted = targetSessionId.length > 0 &&
         VpnStartCancellationStore.markCancelled(context, targetSessionId);
+      VpnStartRequestStore.clear(context, targetSessionId);
       if (!cancellationPersisted) {
         // 即使磁盘已满/损坏也必须继续实际停止。只是没有跨进程闩锁时无法排除原 start
         // Want 稍后复活，因此完成清理后仍保留错误态，不得向用户宣称安全停止。
@@ -798,6 +810,7 @@ export class ConnectionController {
     if (!VpnStartCancellationStore.markCancelled(context, sessionId)) {
       hilog.error(LOG_DOMAIN, LOG_TAG, 'failed VPN start cancellation marker could not be persisted.');
     }
+    VpnStartRequestStore.clear(context, sessionId);
     try {
       await this.withTimeout(vpnExtension.stopVpnExtensionAbility(createStopVpnWant()),
         START_VPN_TIMEOUT_MS,

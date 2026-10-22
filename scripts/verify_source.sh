@@ -2813,11 +2813,14 @@ const begin = vpn.slice(beginAt, requestAt);
 if (!begin.includes('this.stopRequested = false;') ||
   !begin.includes('this.lastCleanupComplete = false;') ||
   !begin.includes('const sessionGeneration = ++this.sessionGeneration;') ||
-  !begin.includes("const requestedSessionId = this.getStringParameter(want, VPN_SESSION_ID_KEY, '');") ||
+  !begin.includes('const persistedWant = !this.isStopCommand(want) && !isValidVpnSessionId(directSessionId)') ||
+  !begin.includes('VpnStartRequestStore.claimWant(this.context)') ||
+  !begin.includes('const effectiveWant = persistedWant ?? want;') ||
+  !begin.includes("const requestedSessionId = this.getStringParameter(effectiveWant, VPN_SESSION_ID_KEY, '');") ||
   !begin.includes('const requestedSessionValid = isValidVpnSessionId(requestedSessionId);') ||
-  !begin.includes('if (!this.isStopCommand(want) && !requestedSessionValid)') ||
+  !begin.includes('if (!this.isStopCommand(effectiveWant) && !requestedSessionValid)') ||
   !begin.includes('VPN startup rejected because session identity is unavailable.') ||
-  !begin.includes('this.startVpn(want, sessionGeneration).catch(')) {
+  !begin.includes('this.startVpn(effectiveWant, sessionGeneration).catch(')) {
   throw new Error('reused VPN Extension sessions do not reset cancellation/cleanup state before start');
 }
 if (!vpn.includes('private ensureStartAllowed(stage: string, sessionGeneration: number)') ||
