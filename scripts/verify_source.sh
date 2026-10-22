@@ -3471,15 +3471,23 @@ NODE
 node <<'NODE'
 const fs = require('fs');
 const windowsSmoke = fs.readFileSync('scripts/device_vpn_smoke_test.ps1', 'utf8');
+const shellSmoke = fs.readFileSync('scripts/device_vpn_smoke_test.sh', 'utf8');
 const acceptance = fs.readFileSync('docs/device-acceptance.md', 'utf8');
 for (const required of [
   'MISSING: no connected hdc target.',
   'com.huawei.hmos.vpndialog',
   'param get const.product.model',
-  '$targetExitCode -ne 0'
+  '$targetExitCode -ne 0',
+  "'verify-app'",
+  'hap-sign-tool.jar'
 ]) {
   if (!windowsSmoke.includes(required)) {
     throw new Error(`Windows device doctor lost required target check: ${required}`);
+  }
+}
+for (const required of ['verify-app', 'HAP_SIGN_TOOL', 'hap-sign-tool.jar']) {
+  if (!shellSmoke.includes(required)) {
+    throw new Error(`Unix HAP installation lost signature verification: ${required}`);
   }
 }
 if (!acceptance.includes('device_vpn_smoke_test.ps1 doctor') ||

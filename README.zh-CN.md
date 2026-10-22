@@ -263,8 +263,9 @@ OpenHarmony cgo/TLSDESC 交叉编译或真机 TUN 测试。Go 不在 `PATH` 时�
 `GO_BIN=/绝对路径/go`。
 
 Unix Shell 入口的 `build` 和 `test` 会先运行 `verify_source.sh` 的完整源码门禁（包括工程骨架、合规、原生产物、
-网络调用点、运行模式隔离、VPN 自包排除和翻译资源）；`build` 随后还会确认签名 HAP 内确实包含
-`libheyvpn.so`、Xray、sing-box 和两套 TUN 适配器。若本机签名配置生成了不同路径的
+网络调用点、运行模式隔离、VPN 自包排除和翻译资源）；`build` 随后还会用 SDK 的
+`hap-sign-tool.jar verify-app` 验证 HAP 签名，并确认包内确实包含 `libheyvpn.so`、Xray、sing-box
+和两套 TUN 适配器。Windows 的 `build`/`install` 入口执行相同签名与原生库检查。若本机签名配置生成了不同路径的
 产物，脚本会显示预期路径；此时可用 `HAP=/绝对路径/文件.hap` 指定实际文件。
 
 构建前先确认稀疏检出中包含全部随包原生核心，并检查 AArch64 桥接符号及 TLSDESC ABI

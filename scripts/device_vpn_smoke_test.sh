@@ -28,6 +28,16 @@ if [[ -z "${HDC:-}" ]]; then
 fi
 HAP="${HAP:-${ROOT_DIR}/entry/build/default/outputs/default/entry-default-signed.hap}"
 BUILD_PROFILE="${BUILD_PROFILE:-${ROOT_DIR}/build-profile.json5}"
+HAP_SIGN_TOOL="${HAP_SIGN_TOOL:-${DEVECO_SDK_HOME:+${DEVECO_SDK_HOME}/default/openharmony/toolchains/lib/hap-sign-tool.jar}}"
+if [[ -z "${JAVA:-}" ]]; then
+  if command -v java >/dev/null 2>&1; then
+    JAVA="java"
+  elif [[ -x "${DEFAULT_MAC_DEVECO_HOME}/jbr/Contents/Home/bin/java" ]]; then
+    JAVA="${DEFAULT_MAC_DEVECO_HOME}/jbr/Contents/Home/bin/java"
+  else
+    JAVA="java"
+  fi
+fi
 
 usage() {
   printf 'Usage: %s {build|test|go-test|install|logs|targets|doctor}\n' "$0"
@@ -37,6 +47,18 @@ require_hvigor() {
   if ! tool_available "${HVIGOR}"; then
     printf 'hvigorw not found or not executable: %s\n' "${HVIGOR}" >&2
     printf 'Set HVIGOR to the executable path when DevEco Studio is not on PATH.\n' >&2
+    exit 1
+  fi
+}
+
+require_hap_signature_verifier() {
+  if ! tool_available "${JAVA}"; then
+    printf 'Java is required to verify the HAP signature: %s\n' "${JAVA}" >&2
+    exit 1
+  fi
+  if [[ -z "${HAP_SIGN_TOOL}" || ! -f "${HAP_SIGN_TOOL}" ]]; then
+    printf 'HAP signature verifier not found: %s\n' "${HAP_SIGN_TOOL:-unset}" >&2
+    printf 'Set DEVECO_SDK_HOME or HAP_SIGN_TOOL to the API 21 SDK tool.\n' >&2
     exit 1
   fi
 }
@@ -143,7 +165,28 @@ verify_hap_native_libs() {
       exit 1
     fi
   done
-  printf 'Packaged native libraries verified in: %s\n' "${HAP}"
+  if ! tool_available "${JAVA}"; then
+    printf 'Java is required to verify the HAP signature: %s\n' "${JAVA}" >&2
+    exit 1
+  fi
+  if [[ -z "${HAP_SIGN_TOOL}" || ! -f "${HAP_SIGN_TOOL}" ]]; then
+    printf 'HAP signature verifier not found: %s\n' "${HAP_SIGN_TOOL:-unset}" >&2
+    printf 'Set DEVECO_SDK_HOME or HAP_SIGN_TOOL to the API 21 SDK tool.\n' >&2
+    exit 1
+  fi
+  local verify_dir
+  verify_dir="$(mktemp -d)"
+  local verify_status=0
+  "${JAVA}" -jar "${HAP_SIGN_TOOL}" verify-app \
+    -inFile "${HAP}" \
+    -outCertChain "${verify_dir}/certificate-chain.cer" \
+    -outProfile "${verify_dir}/profile.p7b" || verify_status=$?
+  rm -rf -- "${verify_dir}"
+  if [[ "${verify_status}" -ne 0 ]]; then
+    printf 'HAP signature verification failed: %s\n' "${HAP}" >&2
+    exit "${verify_status}"
+  fi
+  printf 'HAP signature and packaged native libraries verified: %s\n' "${HAP}"
 }
 
 require_hdc() {
@@ -157,6 +200,7 @@ require_hdc() {
 case "${1:-}" in
   build)
     require_hvigor
+    require_hap_signature_verifier
     require_signing_profile
     "${ROOT_DIR}/scripts/verify_source.sh"
     run_hvigor clean --no-daemon --stacktrace
@@ -188,6 +232,7 @@ case "${1:-}" in
     ;;
   install)
     require_hdc
+    require_hap_signature_verifier
     verify_hap_native_libs
     "${HDC}" install -r "${HAP}"
     ;;
@@ -213,6 +258,19 @@ case "${1:-}" in
       printf 'OK: hvigorw: %s\n' "${HVIGOR}"
     else
       printf 'MISSING: hvigorw (%s). Set HVIGOR or add it to PATH.\n' "${HVIGOR}"
+      doctor_failed=1
+    fi
+    if tool_available "${JAVA}"; then
+      printf 'OK: java: %s\n' "${JAVA}"
+    else
+      printf 'MISSING: java (%s) is required for HAP signature verification.\n' "${JAVA}"
+      doctor_failed=1
+    fi
+    if [[ -n "${HAP_SIGN_TOOL}" && -f "${HAP_SIGN_TOOL}" ]]; then
+      printf 'OK: HAP signature verifier: %s\n' "${HAP_SIGN_TOOL}"
+    else
+      printf 'MISSING: hap-sign-tool.jar (%s). Set DEVECO_SDK_HOME or HAP_SIGN_TOOL.\n' \
+        "${HAP_SIGN_TOOL:-unset}"
       doctor_failed=1
     fi
     if [[ -n "${DEVECO_SDK_HOME}" && -d "${DEVECO_SDK_HOME}" ]]; then

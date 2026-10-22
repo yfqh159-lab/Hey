@@ -117,7 +117,11 @@ function Test-SigningConfiguration {
 }
 
 function Assert-SignedHap {
-  param([string]$HapPath)
+  param(
+    [string]$HapPath,
+    [string]$JavaPath,
+    [string]$SignToolPath
+  )
 
   if (-not (Test-Path $HapPath)) {
     throw "Signed HAP not found: $HapPath"
@@ -144,7 +148,25 @@ function Assert-SignedHap {
   } finally {
     $archive.Dispose()
   }
-  Write-Host "Signed HAP and native libraries verified: $HapPath"
+  if (-not (Test-Path $JavaPath)) {
+    throw "Java required for HAP signature verification was not found: $JavaPath"
+  }
+  if (-not (Test-Path $SignToolPath)) {
+    throw "HAP signature verifier was not found: $SignToolPath"
+  }
+  $verifyDirectory = Join-Path ([System.IO.Path]::GetTempPath()) `
+    "hey-hap-signature-$([Guid]::NewGuid().ToString('N'))"
+  New-Item -ItemType Directory -Path $verifyDirectory | Out-Null
+  try {
+    Invoke-ExternalTool $JavaPath @(
+      '-jar', $SignToolPath, 'verify-app', '-inFile', $HapPath,
+      '-outCertChain', (Join-Path $verifyDirectory 'certificate-chain.cer'),
+      '-outProfile', (Join-Path $verifyDirectory 'profile.p7b')
+    )
+  } finally {
+    Remove-Item -LiteralPath $verifyDirectory -Recurse -Force -ErrorAction SilentlyContinue
+  }
+  Write-Host "HAP signature and native libraries verified: $HapPath"
 }
 
 $DevEcoHome = Resolve-DevEcoInstallation $DevEcoHome
@@ -173,6 +195,11 @@ $Java = if ($JbrHome.Length -gt 0) {
 } else {
   ''
 }
+$HapSignTool = if ($DevEcoHome.Length -gt 0) {
+  Join-Path $DevEcoHome 'sdk\default\openharmony\toolchains\lib\hap-sign-tool.jar'
+} else {
+  ''
+}
 
 if ($DevEcoHome.Length -gt 0) {
   $env:DEVECO_SDK_HOME = Join-Path $DevEcoHome 'sdk'
@@ -185,6 +212,10 @@ if ($DevEcoHome.Length -gt 0) {
 function Assert-DevEcoTools {
   if ($Hvigor.Length -eq 0 -or -not (Test-Path $Hvigor)) {
     throw 'DevEco Studio/Hvigor was not found. Set DEVECO_HOME or pass -DevEcoHome.'
+  }
+  if ($Java.Length -eq 0 -or -not (Test-Path $Java) -or
+    $HapSignTool.Length -eq 0 -or -not (Test-Path $HapSignTool)) {
+    throw 'DevEco JBR or hap-sign-tool.jar was not found; signed HAP verification is unavailable.'
   }
 }
 
@@ -209,7 +240,8 @@ try {
         @{ Name = 'hvigorw'; Path = $Hvigor },
         @{ Name = 'ohpm'; Path = $Ohpm },
         @{ Name = 'java'; Path = $Java },
-        @{ Name = 'hdc'; Path = $Hdc }
+        @{ Name = 'hdc'; Path = $Hdc },
+        @{ Name = 'hap-sign-tool'; Path = $HapSignTool }
       )) {
         if ($tool.Path.Length -gt 0 -and (Test-Path $tool.Path)) {
           Write-Host "OK: $($tool.Name): $($tool.Path)"
@@ -303,11 +335,11 @@ try {
         '--mode', 'module', '-p', 'product=default', '-p', 'module=entry@default',
         '-p', 'buildMode=debug', 'assembleHap', '--no-daemon', '--stacktrace'
       )
-      Assert-SignedHap $Hap
+      Assert-SignedHap $Hap $Java $HapSignTool
     }
     'install' {
       Assert-Hdc
-      Assert-SignedHap $Hap
+      Assert-SignedHap $Hap $Java $HapSignTool
       Invoke-ExternalTool $Hdc @('install', '-r', $Hap)
     }
     'targets' {
