@@ -80,6 +80,8 @@ function Invoke-ExternalToolWithTimeout {
       & taskkill.exe /PID $process.Id /T /F *> $null
       throw "Command timed out after $TimeoutSeconds seconds: $Executable"
     }
+    $process.WaitForExit()
+    $process.Refresh()
     if (Test-Path $stdoutPath) {
       $stdout = Get-Content -Raw -LiteralPath $stdoutPath
       if ($stdout.Length -gt 0) {
@@ -92,8 +94,9 @@ function Invoke-ExternalToolWithTimeout {
         [Console]::Error.Write($stderr)
       }
     }
-    if ($process.ExitCode -ne 0) {
-      throw "Command failed with exit code $($process.ExitCode): $Executable"
+    $exitCode = $process.ExitCode
+    if ($exitCode -ne 0) {
+      throw "Command failed with exit code ${exitCode}: $Executable"
     }
   } finally {
     if ($null -ne $process -and -not $process.HasExited) {
