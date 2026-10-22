@@ -536,6 +536,16 @@ struct Index {
 
   private confirmSharedTextImport(payload: string): void {
     const summary = this.safeSharedImportSummary(payload);
+    if (summary === this.t('scanner.previewInvalid')) {
+      this.lastError = summary;
+      SHARED_RUNTIME_CONTROLLER.appendLog(summary);
+      try {
+        this.getUIContext().getPromptAction().showToast({ message: summary });
+      } catch (error) {
+        // The visible page error remains authoritative when a toast is unavailable.
+      }
+      return;
+    }
     try {
       this.getUIContext().showAlertDialog({
         title: this.t('sharedText.confirm.title'),
@@ -573,9 +583,11 @@ struct Index {
     let subscriptionCount = 0;
     for (let index = 0; index < lines.length; index++) {
       if (this.isSubscriptionImportLine(lines[index])) {
-        subscriptionCount++;
-        if (firstSubscription.length === 0) {
-          firstSubscription = lines[index];
+        if (SubscriptionManager.validateSubscriptionUrl(lines[index], false).length === 0) {
+          subscriptionCount++;
+          if (firstSubscription.length === 0) {
+            firstSubscription = lines[index];
+          }
         }
       } else {
         configLines.push(lines[index]);
@@ -588,7 +600,10 @@ struct Index {
     }
     const configPayload = configLines.length === lines.length ? payload : configLines.join('\n');
     if (configPayload.trim().length > 0) {
-      sections.push(this.safeConfigImportSummary(configPayload));
+      const configSummary = this.safeConfigImportSummary(configPayload);
+      if (configSummary.length > 0) {
+        sections.push(configSummary);
+      }
     }
     return sections.length > 0 ? sections.join('\n\n') : this.t('scanner.previewInvalid');
   }
@@ -618,13 +633,38 @@ struct Index {
 
     const parsedNodes = SubscriptionManager.parseSubscriptionContent(payload, '');
     if (parsedNodes.length > 0) {
-      return `${this.f1('scanner.previewNodes', 'count', parsedNodes.length.toString())}\n${this.t('scanner.previewNodesDetail')}`;
+      let validNodeCount = 0;
+      for (let index = 0; index < parsedNodes.length; index++) {
+        const parsedNode = parsedNodes[index];
+        if (NODES_CONTROLLER.validateConfig(
+          parsedNode.outboundJson,
+          this.language,
+          parsedNode.configType
+        ).valid) {
+          validNodeCount++;
+        }
+      }
+      if (validNodeCount > 0) {
+        return `${this.f1('scanner.previewNodes', 'count', validNodeCount.toString())}\n${this.t('scanner.previewNodesDetail')}`;
+      }
     }
     const nativeResult = convertNativeShareTextToOutbounds(payload);
     if (nativeResult.ok && nativeResult.outbounds.length > 0) {
-      return `${this.f1('scanner.previewNodes', 'count', nativeResult.outbounds.length.toString())}\n${this.t('scanner.previewNodesDetail')}`;
+      let validNativeCount = 0;
+      for (let index = 0; index < nativeResult.outbounds.length; index++) {
+        if (NODES_CONTROLLER.validateConfig(
+          nativeResult.outbounds[index].outboundJson,
+          this.language,
+          'outbound'
+        ).valid) {
+          validNativeCount++;
+        }
+      }
+      if (validNativeCount > 0) {
+        return `${this.f1('scanner.previewNodes', 'count', validNativeCount.toString())}\n${this.t('scanner.previewNodesDetail')}`;
+      }
     }
-    return this.t('scanner.previewInvalid');
+    return '';
   }
 
   private async importSharedTextPayload(payload: string): Promise<void> {
@@ -641,7 +681,10 @@ struct Index {
       for (let index = 0; index < lines.length; index++) {
         const line = lines[index];
         if (this.isSubscriptionImportLine(line)) {
-          if (await this.importSharedSubscriptionLine(context, line)) {
+          // 确认摘要只展示通过校验的订阅；执行时保持同一边界，不要再把
+          // 摘要已忽略的无效 URL 作为局部失败写回页面。
+          if (SubscriptionManager.validateSubscriptionUrl(line, false).length === 0 &&
+            await this.importSharedSubscriptionLine(context, line)) {
             subscriptionCount++;
           }
         } else {

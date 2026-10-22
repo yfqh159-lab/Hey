@@ -1384,6 +1384,30 @@ printf 'scanner importable-node preview verification passed\n'
 
 node <<'NODE'
 const fs = require('fs');
+const indexPage = fs.readFileSync('entry/src/main/ets/pages/Index.ets', 'utf8');
+const confirmAt = indexPage.indexOf('  private confirmSharedTextImport(');
+const importAt = indexPage.indexOf('\n  private async importSharedTextPayload(', confirmAt);
+const sharedPreview = indexPage.slice(confirmAt, importAt);
+if (confirmAt < 0 || importAt < 0 ||
+  !sharedPreview.includes("if (summary === this.t('scanner.previewInvalid'))") ||
+  sharedPreview.indexOf("if (summary === this.t('scanner.previewInvalid'))") >
+    sharedPreview.indexOf('this.getUIContext().showAlertDialog({') ||
+  !sharedPreview.includes('SubscriptionManager.validateSubscriptionUrl(lines[index], false)') ||
+  !indexPage.includes('SubscriptionManager.validateSubscriptionUrl(line, false).length === 0 &&\n            await this.importSharedSubscriptionLine(context, line)') ||
+  !sharedPreview.includes('let validNodeCount = 0;') ||
+  !sharedPreview.includes('parsedNode.configType\n        ).valid') ||
+  !sharedPreview.includes("this.f1('scanner.previewNodes', 'count', validNodeCount.toString())") ||
+  !sharedPreview.includes('let validNativeCount = 0;') ||
+  !sharedPreview.includes("nativeResult.outbounds[index].outboundJson,\n          this.language,\n          'outbound'") ||
+  !sharedPreview.includes("this.f1('scanner.previewNodes', 'count', validNativeCount.toString())") ||
+  !sharedPreview.includes("return '';")) {
+  throw new Error('shared-text confirmation can approve invalid subscription or node entries');
+}
+NODE
+printf 'shared-text importable preview verification passed\n'
+
+node <<'NODE'
+const fs = require('fs');
 const source = fs.readFileSync('entry/src/main/ets/pages/Scanner.ets', 'utf8');
 const importStart = source.indexOf('  private async importResult(): Promise<void> {');
 const previewStart = source.indexOf('\n  private updateImportPreview(', importStart);
